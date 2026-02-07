@@ -18,6 +18,9 @@
 #define WMBUS_FIFO_CHUNK        64
 #define WMBUS_RSSI_STRONG_DBM   (-70)
 #define WMBUS_SYNC_ROTATE_TICKS (furi_kernel_get_tick_frequency() * 2U)
+#define WMBUS_HIST_MAX          20
+#define WMBUS_FRAME_PREVIEW_MAX 32
+#define WMBUS_RSSI_HISTORY      64
 
 typedef struct {
     uint8_t sync1;
@@ -32,6 +35,31 @@ static const WmBusSyncConfig wmbus_sync_list[] = {
 };
 
 static uint8_t wmbus_cc1101_preset_regs[];
+
+typedef enum {
+    WmBusStatusNone = 0,
+    WmBusStatusDecodeFail,
+    WmBusStatusNotPlausible,
+    WmBusStatusFramingError,
+    WmBusStatusCrcBad,
+    WmBusStatusWeakRssi,
+    WmBusStatusOk,
+} WmBusStatus;
+
+typedef struct {
+    uint8_t l_field;
+    uint8_t c_field;
+    char mfg[4];
+    char id_str[9];
+    uint8_t version;
+    uint8_t dev_type;
+    uint8_t ci_field;
+    int8_t rssi;
+    bool crc_ok;
+    bool used_3of6;
+    uint8_t frame_preview_len;
+    uint8_t frame_preview[WMBUS_FRAME_PREVIEW_MAX];
+} WmBusHistoryEntry;
 
 static void wmbus_preset_set_sync(uint8_t sync1, uint8_t sync0) {
     for(size_t i = 0;; i += 2) {
@@ -225,6 +253,22 @@ typedef struct {
     int rssi;
 
     bool freq_valid;
+    bool debug_mode;
+    WmBusStatus last_status;
+    uint8_t last_confidence;
+    uint32_t rate_last_tick;
+    uint32_t rate_last_seen;
+    uint16_t packets_per_sec;
+
+    WmBusHistoryEntry hist[WMBUS_HIST_MAX];
+    uint8_t hist_count;
+    uint8_t hist_head;
+    uint8_t hist_cursor;
+    bool freeze_display;
+
+    int8_t rssi_hist[WMBUS_RSSI_HISTORY];
+    uint8_t rssi_hist_count;
+    uint8_t rssi_hist_head;
 
     uint16_t last_raw_len;
     uint32_t packets_seen;
@@ -494,67 +538,168 @@ static bool wmbus_l_field_valid(uint8_t l_field) {
     return l_field >= 10;
 }
 
-static void wmbus_update_model(
-    WmBusApp* app,
+static const char* wmbus_status_str(WmBusStatus status) {
+    switch(status) {
+    case WmBusStatusDecodeFail:
+        return "Decode fail";
+    case WmBusStatusNotPlausible:
+        return "Not plausible";
+    case WmBusStatusFramingError:
+        return "Framing error";
+    case WmBusStatusCrcBad:
+        return "CRC BAD";
+    case WmBusStatusWeakRssi:
+        return "Weak RSSI";
+    case WmBusStatusOk:
+        return "OK";
+    default:
+        return "--";
+    }
+}
+
+static uint8_t wmbus_calc_confidence(
+    bool decoded_ok,
+    bool plausible,
+    bool length_ok,
+    bool crc_ok,
+    bool strong_rssi) {
+    uint8_t score = 0;
+    if(decoded_ok) score += 15;
+    if(plausible) score += 25;
+    if(length_ok) score += 20;
+    if(crc_ok) score += 30;
+    if(strong_rssi) score += 10;
+    if(score > 100) score = 100;
+    return score;
+}
+
+static void wmbus_rssi_hist_push(WmBusViewModel* model, int rssi) {
+    uint8_t next = 0;
+    if(model->rssi_hist_count == 0) {
+        next = 0;
+    } else {
+        next = (uint8_t)((model->rssi_hist_head + 1U) % WMBUS_RSSI_HISTORY);
+    }
+    model->rssi_hist_head = next;
+    if(model->rssi_hist_count < WMBUS_RSSI_HISTORY) {
+        model->rssi_hist_count++;
+    }
+    model->rssi_hist[model->rssi_hist_head] = (int8_t)rssi;
+}
+
+static void wmbus_history_push(
+    WmBusViewModel* model,
+    const uint8_t* frame,
+    size_t frame_len,
+    bool used_3of6,
+    int rssi,
+    bool crc_ok) {
+    uint8_t next = 0;
+    if(model->hist_count == 0) {
+        next = 0;
+    } else {
+        next = (uint8_t)((model->hist_head + 1U) % WMBUS_HIST_MAX);
+    }
+    model->hist_head = next;
+    if(model->hist_count < WMBUS_HIST_MAX) {
+        model->hist_count++;
+    }
+
+    WmBusHistoryEntry* entry = &model->hist[model->hist_head];
+    memset(entry, 0, sizeof(*entry));
+    entry->l_field = frame[0];
+    entry->c_field = frame[1];
+    uint16_t man = (uint16_t)frame[2] | ((uint16_t)frame[3] << 8);
+    wmbus_decode_mfg(man, entry->mfg);
+    memcpy(entry->id_str, "????????", 9);
+    if(!wmbus_format_id_bcd(&frame[4], entry->id_str)) {
+        snprintf(
+            entry->id_str,
+            sizeof(entry->id_str),
+            "%02X%02X%02X%02X",
+            frame[7],
+            frame[6],
+            frame[5],
+            frame[4]);
+    }
+    entry->version = frame[8];
+    entry->dev_type = frame[9];
+    entry->ci_field = frame[10];
+    entry->rssi = (int8_t)rssi;
+    entry->crc_ok = crc_ok;
+    entry->used_3of6 = used_3of6;
+    entry->frame_preview_len =
+        (uint8_t)((frame_len < WMBUS_FRAME_PREVIEW_MAX) ? frame_len : WMBUS_FRAME_PREVIEW_MAX);
+    memcpy(entry->frame_preview, frame, entry->frame_preview_len);
+
+    if(model->freeze_display) {
+        if(model->hist_count > 0) {
+            uint8_t max_cursor = (uint8_t)(model->hist_count - 1U);
+            if(model->hist_cursor < max_cursor) {
+                model->hist_cursor++;
+            }
+        }
+    } else {
+        model->hist_cursor = 0;
+    }
+}
+
+static const WmBusHistoryEntry* wmbus_history_get(const WmBusViewModel* model, uint8_t cursor) {
+    if(model->hist_count == 0) return NULL;
+    if(cursor >= model->hist_count) cursor = (uint8_t)(model->hist_count - 1U);
+    uint8_t index = (uint8_t)((model->hist_head + WMBUS_HIST_MAX - cursor) % WMBUS_HIST_MAX);
+    return &model->hist[index];
+}
+
+static void wmbus_update_model_locked(
+    WmBusViewModel* model,
     const uint8_t* frame,
     size_t frame_len,
     bool used_3of6,
     uint8_t raw_len,
     int rssi,
-    bool crc_ok) {
+    bool crc_ok,
+    bool length_ok) {
     if(frame_len < 11) return;
 
-    with_view_model(
-        app->view,
-        WmBusViewModel * model,
-        {
-            model->has_packet = true;
-            model->used_3of6 = used_3of6;
-            model->raw_len = raw_len;
-            model->decoded_len = (uint16_t)frame_len;
-            model->rssi = rssi;
-            model->packets_decoded++;
-            model->last_crc_valid = true;
-            model->last_crc_ok = crc_ok;
-            if(crc_ok) {
-                model->packets_crc_ok++;
-            } else {
-                model->packets_crc_bad++;
-            }
+    model->has_packet = true;
+    model->used_3of6 = used_3of6;
+    model->raw_len = raw_len;
+    model->decoded_len = (uint16_t)frame_len;
+    model->rssi = rssi;
 
-            model->l_field = frame[0];
-            model->c_field = frame[1];
-            model->m_field = (uint16_t)frame[2] | ((uint16_t)frame[3] << 8);
-            wmbus_decode_mfg(model->m_field, model->mfg);
+    model->l_field = frame[0];
+    model->c_field = frame[1];
+    model->m_field = (uint16_t)frame[2] | ((uint16_t)frame[3] << 8);
+    wmbus_decode_mfg(model->m_field, model->mfg);
 
-            memcpy(model->id, &frame[4], 4);
-            model->id_is_bcd = wmbus_format_id_bcd(model->id, model->id_str);
-            if(!model->id_is_bcd) {
-                snprintf(
-                    model->id_str,
-                    sizeof(model->id_str),
-                    "%02X%02X%02X%02X",
-                    model->id[3],
-                    model->id[2],
-                    model->id[1],
-                    model->id[0]);
-            }
+    memcpy(model->id, &frame[4], 4);
+    model->id_is_bcd = wmbus_format_id_bcd(model->id, model->id_str);
+    if(!model->id_is_bcd) {
+        snprintf(
+            model->id_str,
+            sizeof(model->id_str),
+            "%02X%02X%02X%02X",
+            model->id[3],
+            model->id[2],
+            model->id[1],
+            model->id[0]);
+    }
 
-            model->version = frame[8];
-            model->dev_type = frame[9];
-            model->ci_field = frame[10];
+    model->version = frame[8];
+    model->dev_type = frame[9];
+    model->ci_field = frame[10];
 
-            model->has_short_tpl = false;
-            if(wmbus_ci_has_short_tpl(model->ci_field) && frame_len >= 15) {
-                model->has_short_tpl = true;
-                model->acc = frame[11];
-                model->status = frame[12];
-                model->cfg = (uint16_t)frame[13] | ((uint16_t)frame[14] << 8);
-            }
+    model->has_short_tpl = false;
+    if(wmbus_ci_has_short_tpl(model->ci_field) && frame_len >= 15) {
+        model->has_short_tpl = true;
+        model->acc = frame[11];
+        model->status = frame[12];
+        model->cfg = (uint16_t)frame[13] | ((uint16_t)frame[14] << 8);
+    }
 
-            model->length_ok = (frame_len >= (size_t)model->l_field + 1U);
-        },
-        true);
+    model->length_ok = length_ok;
+    wmbus_history_push(model, frame, frame_len, used_3of6, rssi, crc_ok);
 }
 
 static void wmbus_view_draw(Canvas* canvas, void* model) {
@@ -564,10 +709,19 @@ static void wmbus_view_draw(Canvas* canvas, void* model) {
     if(m->sync_index < (uint8_t)(sizeof(wmbus_sync_list) / sizeof(wmbus_sync_list[0]))) {
         sync_label = wmbus_sync_list[m->sync_index].label;
     }
+    uint8_t display_cursor = m->hist_cursor;
+    if(m->hist_count > 0 && display_cursor >= m->hist_count) {
+        display_cursor = (uint8_t)(m->hist_count - 1U);
+    }
+    const WmBusHistoryEntry* entry = wmbus_history_get(m, display_cursor);
+    const char* mode_label = entry ? (entry->used_3of6 ? "T" : "C") : sync_label;
+    uint8_t hist_pos = entry ? (uint8_t)(display_cursor + 1U) : 0;
+    uint8_t hist_total = WMBUS_HIST_MAX;
+    const char* freeze_label = m->freeze_display ? "F" : "L";
 
     canvas_set_color(canvas, ColorBlack);
     canvas_set_font(canvas, FontPrimary);
-    canvas_draw_str(canvas, 0, 8, "WM-Bus Header");
+    canvas_draw_str(canvas, 0, 8, "WM-Bus RX");
 
     canvas_set_font(canvas, FontSecondary);
 
@@ -577,47 +731,105 @@ static void wmbus_view_draw(Canvas* canvas, void* model) {
         return;
     }
 
-    if(!m->has_packet) {
-        canvas_draw_str(canvas, 0, 22, "Waiting for RX...");
-        snprintf(line, sizeof(line), "868.95 MHz 100kbps %s", sync_label);
-        canvas_draw_str(canvas, 0, 32, line);
-        snprintf(line, sizeof(line), "Pkts:%lu", m->packets_seen);
-        canvas_draw_str(canvas, 0, 42, line);
-        canvas_draw_str(canvas, 0, 52, "CRC: --");
-        canvas_draw_str(canvas, 0, 62, "Left=T Right=C");
-        return;
+    snprintf(
+        line,
+        sizeof(line),
+        "Dec:%lu OK:%lu BAD:%lu",
+        m->packets_decoded,
+        m->packets_crc_ok,
+        m->packets_crc_bad);
+    canvas_draw_str(canvas, 0, 18, line);
+
+    char rate[8];
+    if(m->packets_per_sec > 0) {
+        snprintf(rate, sizeof(rate), "%u/s", (unsigned int)m->packets_per_sec);
+    } else {
+        snprintf(rate, sizeof(rate), "--/s");
     }
 
-    const char* mode_label = (m->sync_index == 1) ? "C/NRZ" : "T/3of6";
     snprintf(
         line,
         sizeof(line),
-        "Pkts:%lu CRC:%s",
-        m->packets_seen,
-        (m->last_crc_valid ? (m->last_crc_ok ? "OK" : "BAD") : "--"));
-    canvas_draw_str(canvas, 0, 20, line);
-
-    snprintf(line, sizeof(line), "Mode:%s L:%02X C:%02X", mode_label, m->l_field, m->c_field);
-    canvas_draw_str(canvas, 0, 30, line);
-
-    snprintf(line, sizeof(line), "MFG:%s ID:%s", m->mfg, m->id_str);
-    canvas_draw_str(canvas, 0, 40, line);
+        "Str:%lu R:%s H:%u/%u %s",
+        m->packets_strong,
+        rate,
+        hist_pos,
+        hist_total,
+        freeze_label);
+    canvas_draw_str(canvas, 0, 28, line);
 
     snprintf(
         line,
         sizeof(line),
-        "V:%02X T:%02X CI:%02X",
-        m->version,
-        m->dev_type,
-        m->ci_field);
-    canvas_draw_str(canvas, 0, 50, line);
+        "Status:%s M:%s C:%u",
+        wmbus_status_str(m->last_status),
+        mode_label,
+        m->last_confidence);
+    canvas_draw_str(canvas, 0, 38, line);
 
-    if(m->has_short_tpl) {
-        snprintf(line, sizeof(line), "ACC:%02X ST:%02X CF:%04X", m->acc, m->status, m->cfg);
-        canvas_draw_str(canvas, 0, 60, line);
+    if(!entry) {
+        canvas_draw_str(canvas, 0, 48, "Waiting for RX...");
+        snprintf(line, sizeof(line), "868.95 MHz 100kbps %s", sync_label);
+        canvas_draw_str(canvas, 0, 58, line);
+    } else if(m->debug_mode) {
+        snprintf(
+            line,
+            sizeof(line),
+            "L:%02X C:%02X CI:%02X V:%02X",
+            entry->l_field,
+            entry->c_field,
+            entry->ci_field,
+            entry->version);
+        canvas_draw_str(canvas, 0, 48, line);
+
+        char hex[WMBUS_FRAME_PREVIEW_MAX * 2 + 1];
+        size_t show_len = entry->frame_preview_len;
+        if(show_len > 8) show_len = 8;
+        for(size_t i = 0; i < show_len; i++) {
+            snprintf(&hex[i * 2], 3, "%02X", entry->frame_preview[i]);
+        }
+        hex[show_len * 2] = '\0';
+        const int hex_chars = (int)(show_len * 2U);
+        snprintf(
+            line,
+            sizeof(line),
+            "Hex:%.*s%s",
+            hex_chars,
+            hex,
+            (entry->frame_preview_len > show_len) ? "..." : "");
+        canvas_draw_str(canvas, 0, 58, line);
     } else {
-        snprintf(line, sizeof(line), "RSSI:%ddBm", m->rssi);
-        canvas_draw_str(canvas, 0, 60, line);
+        snprintf(line, sizeof(line), "MFG:%s ID:%s", entry->mfg, entry->id_str);
+        canvas_draw_str(canvas, 0, 48, line);
+        snprintf(
+            line,
+            sizeof(line),
+            "L:%02X C:%02X CI:%02X R:%d",
+            entry->l_field,
+            entry->c_field,
+            entry->ci_field,
+            entry->rssi);
+        canvas_draw_str(canvas, 0, 58, line);
+    }
+
+    if(m->rssi_hist_count > 0) {
+        const int rssi_min = -110;
+        const int rssi_max = -40;
+        const uint8_t graph_base = 63;
+        const uint8_t graph_height = 6;
+        uint8_t count = m->rssi_hist_count;
+        if(count > WMBUS_RSSI_HISTORY) count = WMBUS_RSSI_HISTORY;
+        for(uint8_t i = 0; i < count; i++) {
+            uint8_t idx = (uint8_t)(
+                (m->rssi_hist_head + WMBUS_RSSI_HISTORY - (count - 1U - i)) %
+                WMBUS_RSSI_HISTORY);
+            int rssi = m->rssi_hist[idx];
+            if(rssi < rssi_min) rssi = rssi_min;
+            if(rssi > rssi_max) rssi = rssi_max;
+            uint8_t height = (uint8_t)(((rssi - rssi_min) * graph_height) / (rssi_max - rssi_min));
+            uint8_t x = (uint8_t)(i * 2U);
+            canvas_draw_line(canvas, x, graph_base, x, (uint8_t)(graph_base - height));
+        }
     }
 }
 
@@ -639,6 +851,55 @@ static bool wmbus_view_input(InputEvent* event, void* context) {
     if(event->type == InputTypeShort && event->key == InputKeyRight) {
         app->mode_request = 1;
         app->mode_change = true;
+        return true;
+    }
+
+    if(event->type == InputTypeShort && event->key == InputKeyUp) {
+        with_view_model(
+            app->view,
+            WmBusViewModel * model,
+            {
+                if(model->hist_cursor + 1U < model->hist_count) {
+                    model->hist_cursor++;
+                }
+            },
+            true);
+        return true;
+    }
+
+    if(event->type == InputTypeShort && event->key == InputKeyDown) {
+        with_view_model(
+            app->view,
+            WmBusViewModel * model,
+            {
+                if(model->hist_cursor > 0) {
+                    model->hist_cursor--;
+                }
+            },
+            true);
+        return true;
+    }
+
+    if(event->type == InputTypeShort && event->key == InputKeyOk) {
+        with_view_model(
+            app->view,
+            WmBusViewModel * model,
+            {
+                model->freeze_display = !model->freeze_display;
+                if(!model->freeze_display) {
+                    model->hist_cursor = 0;
+                }
+            },
+            true);
+        return true;
+    }
+
+    if(event->type == InputTypeLong && event->key == InputKeyUp) {
+        with_view_model(
+            app->view,
+            WmBusViewModel * model,
+            { model->debug_mode = !model->debug_mode; },
+            true);
         return true;
     }
 
@@ -739,6 +1000,68 @@ static int32_t wmbus_rx_thread(void* context) {
 
                 int rssi = (int)furi_hal_subghz_get_rssi();
 
+                size_t decoded_len = 0;
+                bool decoded_ok = false;
+                bool plausible = false;
+                const uint8_t* frame = NULL;
+                size_t frame_len = 0;
+                bool used_3of6 = false;
+                bool length_ok = false;
+                bool crc_ok = false;
+                bool crc_known = false;
+
+                if(sync_index == 0) {
+                    decoded_ok =
+                        wmbus_decode_3of6(raw, frame_raw_len, decoded, sizeof(decoded), &decoded_len);
+                    if(decoded_ok && wmbus_is_plausible(decoded, decoded_len)) {
+                        frame = decoded;
+                        frame_len = decoded_len;
+                        used_3of6 = true;
+                        plausible = true;
+                    }
+                } else {
+                    decoded_ok = true;
+                    if(wmbus_is_plausible(raw, frame_raw_len)) {
+                        frame = raw;
+                        frame_len = frame_raw_len;
+                        plausible = true;
+                    }
+                }
+
+                if(plausible) {
+                    uint8_t l_field = frame[0];
+                    size_t expected_len =
+                        used_3of6 ? wmbus_frame_len_format_a(l_field) :
+                                    wmbus_frame_len_format_b(l_field);
+                    length_ok = (frame_len >= expected_len);
+                    if(length_ok) {
+                        crc_ok = wmbus_crc_ok(frame, frame_len, used_3of6);
+                        crc_known = true;
+                    }
+                }
+
+                bool strong_rssi = (rssi >= WMBUS_RSSI_STRONG_DBM);
+                WmBusStatus status = WmBusStatusNone;
+                if(sync_index == 0 && !decoded_ok) {
+                    status = WmBusStatusDecodeFail;
+                } else if(!plausible) {
+                    status = WmBusStatusNotPlausible;
+                } else if(!length_ok) {
+                    status = WmBusStatusFramingError;
+                } else if(crc_known && !crc_ok) {
+                    status = WmBusStatusCrcBad;
+                } else if(!strong_rssi) {
+                    status = WmBusStatusWeakRssi;
+                } else {
+                    status = WmBusStatusOk;
+                }
+
+                uint8_t confidence =
+                    wmbus_calc_confidence(decoded_ok, plausible, length_ok, crc_ok, strong_rssi);
+
+                uint32_t now_tick = furi_get_tick();
+                uint32_t tick_freq = furi_kernel_get_tick_frequency();
+
                 with_view_model(
                     app->view,
                     WmBusViewModel * model,
@@ -746,50 +1069,54 @@ static int32_t wmbus_rx_thread(void* context) {
                         model->packets_seen++;
                         model->last_raw_len = (uint16_t)frame_raw_len;
                         model->rssi = rssi;
-                        if(rssi >= WMBUS_RSSI_STRONG_DBM) {
+                        model->last_status = status;
+                        model->last_confidence = confidence;
+
+                        if(strong_rssi) {
                             model->packets_strong++;
                         }
+
+                        if(plausible) {
+                            model->packets_decoded++;
+                            if(crc_known) {
+                                if(crc_ok) {
+                                    model->packets_crc_ok++;
+                                } else {
+                                    model->packets_crc_bad++;
+                                }
+                            }
+                            model->last_crc_valid = crc_known;
+                            model->last_crc_ok = crc_ok;
+                            wmbus_update_model_locked(
+                                model,
+                                frame,
+                                frame_len,
+                                used_3of6,
+                                (uint8_t)frame_raw_len,
+                                rssi,
+                                crc_ok,
+                                length_ok);
+                        } else {
+                            model->last_crc_valid = false;
+                            model->last_crc_ok = false;
+                        }
+
+                        if(model->rate_last_tick == 0) {
+                            model->rate_last_tick = now_tick;
+                            model->rate_last_seen = model->packets_seen;
+                            model->packets_per_sec = 0;
+                        } else if((now_tick - model->rate_last_tick) >= tick_freq) {
+                            uint32_t elapsed = now_tick - model->rate_last_tick;
+                            uint32_t diff = model->packets_seen - model->rate_last_seen;
+                            model->packets_per_sec =
+                                (uint16_t)((diff * tick_freq) / (elapsed ? elapsed : 1U));
+                            model->rate_last_tick = now_tick;
+                            model->rate_last_seen = model->packets_seen;
+                        }
+
+                        wmbus_rssi_hist_push(model, rssi);
                     },
                     true);
-
-                size_t decoded_len = 0;
-                bool decoded_ok = false;
-                if(sync_index == 0) {
-                    decoded_ok =
-                        wmbus_decode_3of6(raw, frame_raw_len, decoded, sizeof(decoded), &decoded_len);
-                }
-
-                const uint8_t* frame = raw;
-                size_t frame_len = frame_raw_len;
-                bool used_3of6 = false;
-                bool crc_ok = false;
-                bool crc_known = false;
-
-                if(decoded_ok && wmbus_is_plausible(decoded, decoded_len)) {
-                    frame = decoded;
-                    frame_len = decoded_len;
-                    used_3of6 = true;
-                } else if(!wmbus_is_plausible(raw, frame_raw_len)) {
-                    frame = NULL;
-                }
-
-                if(frame) {
-                    crc_ok = wmbus_crc_ok(frame, frame_len, used_3of6);
-                    crc_known = true;
-                }
-
-                if(frame && crc_known) {
-                    wmbus_update_model(
-                        app, frame, frame_len, used_3of6, (uint8_t)frame_raw_len, rssi, crc_ok);
-                } else {
-                    with_view_model(
-                        app->view,
-                        WmBusViewModel * model,
-                        {
-                            model->last_crc_valid = false;
-                        },
-                        true);
-                }
 
                 raw_len = 0;
                 in_packet = false;
