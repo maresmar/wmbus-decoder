@@ -85,7 +85,7 @@ static void wmbus_radio_recover_rx(void) {
     furi_hal_subghz_rx();
 }
 
-static uint8_t wmbus_radio_read_fifo_raw(uint8_t* data, uint8_t data_max) {
+static uint8_t wmbus_radio_read_fifo_raw(uint8_t* data, uint8_t data_max, bool* overflowed) {
     if(!data || data_max == 0) return 0;
 
     uint8_t size = 0;
@@ -114,6 +114,7 @@ static uint8_t wmbus_radio_read_fifo_raw(uint8_t* data, uint8_t data_max) {
         wmbus_radio_recover_rx();
         size = 0;
     }
+    if(overflowed) *overflowed = overflow;
 
     return size;
 }
@@ -384,17 +385,110 @@ static bool wmbus_crc_check_frame_b(const uint8_t* data, size_t len) {
     return true;
 }
 
-static bool wmbus_crc_ok(const uint8_t* data, size_t len, bool used_3of6) {
-    if(len < 12) return false;
-    uint8_t l_field = data[0];
-    if(used_3of6) {
-        size_t len_a = wmbus_capture_frame_len_format_a(l_field);
-        if(len_a <= len) return wmbus_crc_check_frame_a(data, len_a);
+typedef enum {
+    WmBusFrameFormatA = 0,
+    WmBusFrameFormatB = 1,
+} WmBusFrameFormat;
+
+static size_t wmbus_frame_expected_len(uint8_t l_field, WmBusFrameFormat format) {
+    if(format == WmBusFrameFormatA) {
+        return wmbus_capture_frame_len_format_a(l_field);
     } else {
-        size_t len_b = wmbus_capture_frame_len_format_b(l_field);
-        if(len_b <= len) return wmbus_crc_check_frame_b(data, len_b);
+        return wmbus_capture_frame_len_format_b(l_field);
     }
-    return false;
+}
+
+static bool wmbus_trim_crc_frame_a(
+    const uint8_t* data,
+    size_t len,
+    uint8_t* out,
+    size_t out_max,
+    size_t* out_len) {
+    if(!data || !out || !out_len || len < 12) return false;
+    if(out_max < 10) return false;
+
+    size_t write = 0;
+    memcpy(out, data, 10);
+    write = 10;
+
+    size_t pos = 12;
+    while(pos + 18 <= len) {
+        if(write + 16 > out_max) return false;
+        memcpy(&out[write], &data[pos], 16);
+        write += 16;
+        pos += 18;
+    }
+
+    if(pos < len - 2) {
+        size_t tto = len - 2;
+        size_t blen = tto - pos;
+        if(write + blen > out_max) return false;
+        memcpy(&out[write], &data[pos], blen);
+        write += blen;
+    }
+
+    if(write < 1 || write > 0x100U) return false;
+    out[0] = (uint8_t)(write - 1U);
+    *out_len = write;
+    return true;
+}
+
+static bool wmbus_trim_crc_frame_b(
+    const uint8_t* data,
+    size_t len,
+    uint8_t* out,
+    size_t out_max,
+    size_t* out_len) {
+    if(!data || !out || !out_len || len < 12) return false;
+
+    size_t crc1_pos = 0;
+    size_t crc2_pos = 0;
+    if(len <= 128) {
+        crc1_pos = len - 2;
+    } else {
+        crc1_pos = 126;
+        crc2_pos = len - 2;
+    }
+
+    size_t write = 0;
+    if(crc1_pos > out_max) return false;
+    memcpy(out, data, crc1_pos);
+    write = crc1_pos;
+
+    if(crc2_pos > 0) {
+        size_t from2 = crc1_pos + 2;
+        size_t len2 = crc2_pos - from2;
+        if(write + len2 > out_max) return false;
+        memcpy(&out[write], &data[from2], len2);
+        write += len2;
+    }
+
+    if(write < 1 || write > 0x100U) return false;
+    out[0] = (uint8_t)(write - 1U);
+    *out_len = write;
+    return true;
+}
+
+static bool wmbus_trim_crc_frame(
+    WmBusFrameFormat format,
+    const uint8_t* data,
+    size_t len,
+    uint8_t* out,
+    size_t out_max,
+    size_t* out_len) {
+    if(format == WmBusFrameFormatA) {
+        return wmbus_trim_crc_frame_a(data, len, out, out_max, out_len);
+    } else {
+        return wmbus_trim_crc_frame_b(data, len, out, out_max, out_len);
+    }
+}
+
+static bool wmbus_crc_check_frame(WmBusFrameFormat format, const uint8_t* data, size_t len) {
+    if(format == WmBusFrameFormatA) {
+        return wmbus_crc_check_frame_a(data, len);
+    } else {
+        return wmbus_crc_check_frame_b(data, len);
+    }
 }
 
 static uint8_t wmbus_calc_confidence(
@@ -573,7 +667,12 @@ static bool wmbus_capture_t_step(
     uint8_t temp[WMBUS_FIFO_CHUNK];
 
     while(true) {
-        uint8_t chunk_len = wmbus_radio_read_fifo_raw(temp, sizeof(temp));
+        bool overflow = false;
+        uint8_t chunk_len = wmbus_radio_read_fifo_raw(temp, sizeof(temp), &overflow);
+        if(overflow) {
+            wmbus_capture_state_t_reset(state);
+            return false;
+        }
         if(chunk_len == 0) break;
 
         size_t copy = sizeof(state->raw) - state->raw_len;
@@ -647,7 +746,8 @@ static bool wmbus_capture_c_step(
 
     // Variable-length mode packet format in FIFO: [LEN][PAYLOAD...]
     uint8_t payload_len_byte = 0;
-    if(wmbus_radio_read_fifo_raw(&payload_len_byte, 1) != 1) {
+    bool read_overflow = false;
+    if(wmbus_radio_read_fifo_raw(&payload_len_byte, 1, &read_overflow) != 1 || read_overflow) {
         state->dropped_invalid++;
         wmbus_radio_recover_rx();
         return false;
@@ -670,8 +770,13 @@ static bool wmbus_capture_c_step(
 
     while(payload_read < payload_len) {
         size_t left = payload_len - payload_read;
-        uint8_t chunk =
-            wmbus_radio_read_fifo_raw(&payload[payload_read], (left > 255U) ? 255U : (uint8_t)left);
+        uint8_t chunk = wmbus_radio_read_fifo_raw(
+            &payload[payload_read], (left > 255U) ? 255U : (uint8_t)left, &read_overflow);
+        if(read_overflow) {
+            state->dropped_invalid++;
+            wmbus_radio_recover_rx();
+            return false;
+        }
         if(chunk > 0) {
             payload_read += chunk;
             last_data_tick = furi_get_tick();
@@ -717,6 +822,8 @@ static bool wmbus_capture_c_step(
 
 static void wmbus_process_captured_frame(WmBusApp* app, const WmBusCaptureFrame* capture) {
     uint8_t decoded[WMBUS_DECODE_MAX] = {0};
+    uint8_t normalized[WMBUS_DECODE_MAX] = {0};
+    uint8_t candidate_trimmed[WMBUS_DECODE_MAX] = {0};
     size_t decoded_len = 0;
     bool decoded_ok = false;
     bool plausible = false;
@@ -745,14 +852,57 @@ static void wmbus_process_captured_frame(WmBusApp* app, const WmBusCaptureFrame*
     }
 
     if(plausible) {
+        WmBusFrameFormat ordered_formats[2];
+        if(used_3of6) {
+            ordered_formats[0] = WmBusFrameFormatA;
+            ordered_formats[1] = WmBusFrameFormatB;
+        } else {
+            ordered_formats[0] = WmBusFrameFormatB;
+            ordered_formats[1] = WmBusFrameFormatA;
+        }
+
+        bool fallback_ready = false;
+        size_t fallback_len = 0;
+
         uint8_t l_field = frame[0];
-        size_t expected_len = used_3of6 ? wmbus_capture_frame_len_format_a(l_field) :
-                                          wmbus_capture_frame_len_format_b(l_field);
-        if(frame_len >= expected_len) {
-            frame_len = expected_len;
+        for(size_t i = 0; i < 2; i++) {
+            WmBusFrameFormat format = ordered_formats[i];
+            size_t expected_len = wmbus_frame_expected_len(l_field, format);
+            if(frame_len < expected_len) continue;
+
             length_ok = true;
-            crc_ok = wmbus_crc_ok(frame, frame_len, used_3of6);
             crc_known = true;
+
+            size_t trimmed_len = 0;
+            if(!wmbus_trim_crc_frame(
+                   format,
+                   frame,
+                   expected_len,
+                   candidate_trimmed,
+                   sizeof(candidate_trimmed),
+                   &trimmed_len)) {
+                continue;
+            }
+
+            if(!fallback_ready) {
+                memcpy(normalized, candidate_trimmed, trimmed_len);
+                fallback_len = trimmed_len;
+                fallback_ready = true;
+            }
+
+            if(wmbus_crc_check_frame(format, frame, expected_len)) {
+                crc_ok = true;
+                memcpy(normalized, candidate_trimmed, trimmed_len);
+                frame = normalized;
+                frame_len = trimmed_len;
+                fallback_ready = false;
+                break;
+            }
+        }
+
+        if(!crc_ok && fallback_ready) {
+            frame = normalized;
+            frame_len = fallback_len;
         }
     }
 

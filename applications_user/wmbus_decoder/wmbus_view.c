@@ -59,22 +59,22 @@ static void wmbus_view_draw(Canvas* canvas, void* model) {
     const WmBusHistoryEntry* entry = wmbus_history_get(m, display_cursor);
     const char* shown_mode_label = entry ? (entry->used_3of6 ? "T" : "C") : sync_label;
     int shown_rssi = entry ? entry->rssi : m->rssi;
-    uint8_t hist_pos = entry ? (uint8_t)(display_cursor + 1U) : 0;
-    uint8_t hist_total = WMBUS_HIST_MAX;
     if(m->freeze_display) {
-        snprintf(mode_header, sizeof(mode_header), "H:%u/%u", hist_pos, hist_total);
+        if (entry) {
+            uint8_t hist_pos = (uint8_t)(display_cursor + 1U);
+            snprintf(mode_header, sizeof(mode_header), "H:%u/%u", hist_pos, m->hist_count);
+        } else {
+            snprintf(mode_header, sizeof(mode_header), "H:-/%u", m->hist_count);
+        }
     } else {
         snprintf(mode_header, sizeof(mode_header), "Latest");
     }
 
+    // Title
     canvas_set_color(canvas, ColorBlack);
     canvas_set_font(canvas, FontPrimary);
     canvas_draw_str(canvas, 0, 8, "WM-Bus RX");
-    int32_t live_width = (int32_t)canvas_string_width(canvas, mode_header);
-    int32_t right = (int32_t)canvas_width(canvas);
-    int32_t live_x = right - live_width;
-    if(live_x < 0) live_x = 0;
-    canvas_draw_str(canvas, live_x, 8, mode_header);
+    canvas_draw_str_aligned(canvas, canvas_width(canvas), 8, AlignRight, AlignBottom, mode_header);
 
     canvas_set_font(canvas, FontSecondary);
 
@@ -87,20 +87,27 @@ static void wmbus_view_draw(Canvas* canvas, void* model) {
     snprintf(
         line,
         sizeof(line),
-        "DEC:%lu Rhi:%lu OK:%lu BAD:%lu",
+        "DEC:%lu OK:%lu BAD:%lu",
         m->packets_decoded,
-        m->packets_strong,
         m->packets_crc_ok,
         m->packets_crc_bad);
     canvas_draw_str(canvas, 0, 18, line);
+    snprintf(
+        line,
+        sizeof(line),
+        "Rhi:%lu",
+        m->packets_strong);
+    canvas_draw_str_aligned(canvas, canvas_width(canvas), 18, AlignRight, AlignBottom, line);
 
-    snprintf(line, sizeof(line), "R:%u/s RSSI:%d", (unsigned int)m->packets_per_sec, m->rssi);
+    snprintf(line, sizeof(line), "Lst M:%s R:%u/s RSSI:%d", sync_label, (unsigned int)m->packets_per_sec, m->rssi);
     canvas_draw_str(canvas, 0, 28, line);
+
+    //canvas_draw_line(canvas, 0, 29, canvas_width(canvas), 29);
 
     snprintf(
         line,
         sizeof(line),
-        "PKT M:%s R:%d S:%s",
+        "Pkt M:%s R:%d S:%s",
         shown_mode_label,
         shown_rssi,
         wmbus_status_str(m->last_status));
@@ -108,8 +115,7 @@ static void wmbus_view_draw(Canvas* canvas, void* model) {
 
     if(!entry) {
         canvas_draw_str(canvas, 0, 48, "Waiting for RX...");
-        snprintf(line, sizeof(line), "868.95 MHz 100kbps %s R:%d", sync_label, m->rssi);
-        canvas_draw_str(canvas, 0, 58, line);
+        canvas_draw_str(canvas, 0, 58, "868.95 MHz 100kbps");
     } else if(m->debug_mode) {
         snprintf(
             line,
@@ -138,7 +144,7 @@ static void wmbus_view_draw(Canvas* canvas, void* model) {
             (entry->frame_preview_len > show_len) ? "..." : "");
         canvas_draw_str(canvas, 0, 58, line);
     } else {
-        snprintf(line, sizeof(line), "MFG:%s ID:%s", entry->mfg, entry->id_str);
+        snprintf(line, sizeof(line), "MF:%s DT:%02X ID:%s", entry->mfg, entry->dev_type, entry->id_str);
         canvas_draw_str(canvas, 0, 48, line);
         if(entry->has_total_m3) {
             uint32_t whole = entry->total_m3_x1000 / 1000U;

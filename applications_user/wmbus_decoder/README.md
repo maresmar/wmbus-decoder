@@ -143,9 +143,9 @@ Why both are needed:
 
 ### Frame format handling
 
-- `T` path uses frame format A length logic.
-- `C` path uses frame format B length logic.
-- Parsed `frame_len` is trimmed to expected length before CRC/model updates.
+- Frame format (`A`/`B`) is selected by `L-field` length fit plus DLL CRC validation.
+- Preferred order follows RX mode (`T`: try `A` then `B`, `C`: try `B` then `A`), with fallback when CRC is bad.
+- Once selected, DLL CRC bytes are stripped before CI/TPL/vendor parsing and model updates.
 
 ## Apator `AT-WMBUS-16-2` Parsing
 
