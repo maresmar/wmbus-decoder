@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include <furi.h>
 #include <gui/view.h>
 #include <gui/view_dispatcher.h>
 
@@ -20,6 +21,12 @@ typedef enum {
     WmBusStatusOk,
 } WmBusStatus;
 
+typedef enum {
+    WmBusControlCmdSetModeT = 0,
+    WmBusControlCmdSetModeC,
+    WmBusControlCmdStop,
+} WmBusControlCmd;
+
 typedef struct {
     uint8_t l_field;
     uint8_t c_field;
@@ -31,6 +38,8 @@ typedef struct {
     int8_t rssi;
     bool crc_ok;
     bool used_3of6;
+    bool has_total_m3;
+    uint32_t total_m3_x1000;
     uint8_t frame_preview_len;
     uint8_t frame_preview[WMBUS_FRAME_PREVIEW_MAX];
 } WmBusHistoryEntry;
@@ -52,6 +61,8 @@ typedef struct {
     uint8_t version;
     uint8_t dev_type;
     uint8_t ci_field;
+    bool has_total_m3;
+    uint32_t total_m3_x1000;
 
     bool has_short_tpl;
     uint8_t acc;
@@ -94,8 +105,7 @@ typedef struct {
 typedef struct {
     ViewDispatcher* view_dispatcher;
     View* view;
-    volatile bool* mode_change;
-    volatile uint8_t* mode_request;
+    FuriMessageQueue* control_queue;
 } WmBusViewContext;
 
 void wmbus_view_setup(View* view, WmBusViewContext* ctx);

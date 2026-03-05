@@ -5,6 +5,11 @@
 #include <input/input.h>
 #include <stdio.h>
 
+static bool wmbus_send_control(WmBusViewContext* ctx, WmBusControlCmd cmd) {
+    if(!ctx->control_queue) return false;
+    return furi_message_queue_put(ctx->control_queue, &cmd, 0) == FuriStatusOk;
+}
+
 static const char* wmbus_status_str(WmBusStatus status) {
     switch(status) {
     case WmBusStatusDecodeFail:
@@ -103,7 +108,7 @@ static void wmbus_view_draw(Canvas* canvas, void* model) {
 
     if(!entry) {
         canvas_draw_str(canvas, 0, 48, "Waiting for RX...");
-        snprintf(line, sizeof(line), "868.95 MHz 100kbps %s", sync_label);
+        snprintf(line, sizeof(line), "868.95 MHz 100kbps %s R:%d", sync_label, m->rssi);
         canvas_draw_str(canvas, 0, 58, line);
     } else if(m->debug_mode) {
         snprintf(
@@ -135,14 +140,20 @@ static void wmbus_view_draw(Canvas* canvas, void* model) {
     } else {
         snprintf(line, sizeof(line), "MFG:%s ID:%s", entry->mfg, entry->id_str);
         canvas_draw_str(canvas, 0, 48, line);
-        snprintf(
-            line,
-            sizeof(line),
-            "L:%02X C:%02X CI:%02X R:%d",
-            entry->l_field,
-            entry->c_field,
-            entry->ci_field,
-            entry->rssi);
+        if(entry->has_total_m3) {
+            uint32_t whole = entry->total_m3_x1000 / 1000U;
+            uint32_t frac = entry->total_m3_x1000 % 1000U;
+            snprintf(line, sizeof(line), "Tot:%lu.%03lum3 R:%d", whole, frac, entry->rssi);
+        } else {
+            snprintf(
+                line,
+                sizeof(line),
+                "L:%02X C:%02X CI:%02X R:%d",
+                entry->l_field,
+                entry->c_field,
+                entry->ci_field,
+                entry->rssi);
+        }
         canvas_draw_str(canvas, 0, 58, line);
     }
 
@@ -177,14 +188,12 @@ static bool wmbus_view_input(InputEvent* event, void* context) {
     }
 
     if(event->type == InputTypeShort && event->key == InputKeyLeft) {
-        *ctx->mode_request = 0;
-        *ctx->mode_change = true;
+        wmbus_send_control(ctx, WmBusControlCmdSetModeT);
         return true;
     }
 
     if(event->type == InputTypeShort && event->key == InputKeyRight) {
-        *ctx->mode_request = 1;
-        *ctx->mode_change = true;
+        wmbus_send_control(ctx, WmBusControlCmdSetModeC);
         return true;
     }
 

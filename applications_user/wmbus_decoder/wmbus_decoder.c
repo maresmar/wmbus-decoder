@@ -1,5 +1,6 @@
 #include <furi.h>
 #include <furi_hal.h>
+#include <furi_hal_spi.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -11,6 +12,7 @@
 #include <lib/drivers/cc1101_regs.h>
 
 #include "wmbus_view.h"
+#include "wmbus_parser.h"
 
 #define TAG "WmBusDecoder"
 
@@ -20,6 +22,7 @@
 #define WMBUS_FIFO_CHUNK        64
 #define WMBUS_RSSI_STRONG_DBM   (-70)
 #define WMBUS_SYNC_ROTATE_TICKS (furi_kernel_get_tick_frequency() * 2U)
+#define WMBUS_RSSI_UPDATE_HZ    5U
 
 typedef struct {
     uint8_t sync1;
@@ -70,8 +73,42 @@ static void wmbus_radio_apply(uint8_t sync_index) {
     furi_hal_subghz_rx();
 }
 
+static uint8_t wmbus_radio_read_fifo_raw(uint8_t* data, uint8_t data_max) {
+    if(!data || data_max == 0) return 0;
+
+    uint8_t size = 0;
+    bool overflow = false;
+    uint8_t rxbytes_cmd[2] = {CC1101_STATUS_RXBYTES | CC1101_READ | CC1101_BURST, 0};
+
+    furi_hal_spi_acquire(&furi_hal_spi_bus_handle_subghz);
+    furi_hal_spi_bus_trx(
+        &furi_hal_spi_bus_handle_subghz,
+        rxbytes_cmd,
+        rxbytes_cmd,
+        sizeof(rxbytes_cmd),
+        CC1101_TIMEOUT);
+    overflow = ((rxbytes_cmd[1] & 0x80U) != 0U);
+    size = (rxbytes_cmd[1] & 0x7FU);
+    if(size > data_max) size = data_max;
+
+    if(!overflow && size > 0) {
+        uint8_t addr = CC1101_FIFO | CC1101_READ | CC1101_BURST;
+        furi_hal_spi_bus_tx(&furi_hal_spi_bus_handle_subghz, &addr, 1, CC1101_TIMEOUT);
+        furi_hal_spi_bus_rx(&furi_hal_spi_bus_handle_subghz, data, size, CC1101_TIMEOUT);
+    }
+
+    furi_hal_spi_release(&furi_hal_spi_bus_handle_subghz);
+    if(overflow) {
+        furi_hal_subghz_flush_rx();
+        furi_hal_subghz_rx();
+        size = 0;
+    }
+
+    return size;
+}
+
 // CC1101 register preset for Wireless M-Bus (Radio Link B, 868.95 MHz, 100 kbps)
-// Based on TI AN067 / SWRA234 (Appendix D), with IOCFG0 set to 0x06 so GDO0
+// Based on TI AN067 / SWRA234 (Appendix D), with IOCFG2 set to 0x06 so GDO2
 // asserts on sync and deasserts at end-of-packet for our RX loop.
 static uint8_t wmbus_cc1101_preset_regs[] = {
     // GPIO configuration
@@ -204,95 +241,8 @@ typedef struct {
     View* view;
     WmBusViewContext view_ctx;
     FuriThread* rx_thread;
-    volatile bool running;
-    volatile bool mode_change;
-    volatile uint8_t mode_request;
+    FuriMessageQueue* control_queue;
 } WmBusApp;
-
-static uint8_t wmbus_3of6_decode_symbol(uint8_t sym) {
-    switch(sym) {
-    case 0x16:
-        return 0x0;
-    case 0x0D:
-        return 0x1;
-    case 0x0E:
-        return 0x2;
-    case 0x0B:
-        return 0x3;
-    case 0x1C:
-        return 0x4;
-    case 0x19:
-        return 0x5;
-    case 0x1A:
-        return 0x6;
-    case 0x13:
-        return 0x7;
-    case 0x2C:
-        return 0x8;
-    case 0x25:
-        return 0x9;
-    case 0x26:
-        return 0xA;
-    case 0x23:
-        return 0xB;
-    case 0x34:
-        return 0xC;
-    case 0x31:
-        return 0xD;
-    case 0x32:
-        return 0xE;
-    case 0x29:
-        return 0xF;
-    default:
-        return 0xFF;
-    }
-}
-
-static uint8_t wmbus_get_bits_msb(const uint8_t* data, size_t bit_pos, size_t bit_count) {
-    uint8_t out = 0;
-    for(size_t i = 0; i < bit_count; i++) {
-        size_t pos = bit_pos + i;
-        uint8_t byte = data[pos / 8U];
-        uint8_t bit = 7U - (pos % 8U);
-        out = (out << 1) | ((byte >> bit) & 0x01U);
-    }
-    return out;
-}
-
-static bool wmbus_decode_3of6(
-    const uint8_t* raw,
-    size_t raw_len,
-    uint8_t* out,
-    size_t out_max,
-    size_t* out_len) {
-    size_t bit_len = raw_len * 8U;
-    size_t bit_pos = 0;
-    size_t out_idx = 0;
-    bool have_high = false;
-    uint8_t high_nibble = 0;
-
-    while((bit_pos + 6U) <= bit_len) {
-        uint8_t sym = wmbus_get_bits_msb(raw, bit_pos, 6);
-        bit_pos += 6U;
-
-        uint8_t nibble = wmbus_3of6_decode_symbol(sym);
-        if(nibble == 0xFF) {
-            return false;
-        }
-
-        if(!have_high) {
-            high_nibble = nibble;
-            have_high = true;
-        } else {
-            if(out_idx >= out_max) break;
-            out[out_idx++] = (high_nibble << 4) | nibble;
-            have_high = false;
-        }
-    }
-
-    *out_len = out_idx;
-    return out_idx > 0;
-}
 
 static void wmbus_decode_mfg(uint16_t man, char out[4]) {
     out[0] = (char)(((man >> 10) & 0x1F) + ('A' - 1));
@@ -437,22 +387,6 @@ static bool wmbus_crc_ok(const uint8_t* data, size_t len, bool used_3of6) {
     return false;
 }
 
-static bool wmbus_mfg_valid(uint16_t man) {
-    uint8_t a = (man >> 10) & 0x1F;
-    uint8_t b = (man >> 5) & 0x1F;
-    uint8_t c = man & 0x1F;
-    return (a >= 1 && a <= 26) && (b >= 1 && b <= 26) && (c >= 1 && c <= 26);
-}
-
-static bool wmbus_is_plausible(const uint8_t* data, size_t len) {
-    if(len < 11) return false;
-    uint8_t l_field = data[0];
-    if(l_field < 10) return false;
-    uint16_t man = (uint16_t)data[2] | ((uint16_t)data[3] << 8);
-    if(!wmbus_mfg_valid(man)) return false;
-    return true;
-}
-
 static bool wmbus_l_field_valid(uint8_t l_field) {
     return l_field >= 10;
 }
@@ -493,7 +427,9 @@ static void wmbus_history_push(
     size_t frame_len,
     bool used_3of6,
     int rssi,
-    bool crc_ok) {
+    bool crc_ok,
+    bool has_total_m3,
+    uint32_t total_m3_x1000) {
     uint8_t next = 0;
     if(model->hist_count == 0) {
         next = 0;
@@ -528,6 +464,8 @@ static void wmbus_history_push(
     entry->rssi = (int8_t)rssi;
     entry->crc_ok = crc_ok;
     entry->used_3of6 = used_3of6;
+    entry->has_total_m3 = has_total_m3;
+    entry->total_m3_x1000 = total_m3_x1000;
     entry->frame_preview_len =
         (uint8_t)((frame_len < WMBUS_FRAME_PREVIEW_MAX) ? frame_len : WMBUS_FRAME_PREVIEW_MAX);
     memcpy(entry->frame_preview, frame, entry->frame_preview_len);
@@ -591,8 +529,22 @@ static void wmbus_update_model_locked(
         model->cfg = (uint16_t)frame[13] | ((uint16_t)frame[14] << 8);
     }
 
+    model->has_total_m3 = false;
+    model->total_m3_x1000 = 0;
+    if(wmbus_parser_parse_apator162_total(frame, frame_len, &model->total_m3_x1000)) {
+        model->has_total_m3 = true;
+    }
+
     model->length_ok = length_ok;
-    wmbus_history_push(model, frame, frame_len, used_3of6, rssi, crc_ok);
+    wmbus_history_push(
+        model,
+        frame,
+        frame_len,
+        used_3of6,
+        rssi,
+        crc_ok,
+        model->has_total_m3,
+        model->total_m3_x1000);
 }
 
 static bool wmbus_navigation_callback(void* context) {
@@ -621,18 +573,48 @@ static int32_t wmbus_rx_thread(void* context) {
     size_t raw_len = 0;
     bool in_packet = false;
     size_t expected_raw_len = 0;
-    size_t expected_decoded_len = 0;
     uint32_t last_byte_tick = 0;
     uint32_t gap_ticks = furi_kernel_get_tick_frequency() / 200;
+    uint32_t rssi_ticks = furi_kernel_get_tick_frequency() / WMBUS_RSSI_UPDATE_HZ;
+    uint32_t last_rssi_tick = 0;
     if(gap_ticks < 1) gap_ticks = 1;
+    if(rssi_ticks < 1) rssi_ticks = 1;
 
-    while(app->running) {
+    bool running = true;
+    while(running) {
+        WmBusControlCmd command;
+        while(furi_message_queue_get(app->control_queue, &command, 0) == FuriStatusOk) {
+            if(command == WmBusControlCmdStop) {
+                running = false;
+                break;
+            }
+
+            uint8_t requested_sync = sync_index;
+            if(command == WmBusControlCmdSetModeT) {
+                requested_sync = 0;
+            } else if(command == WmBusControlCmdSetModeC) {
+                requested_sync = 1;
+            }
+
+            if(requested_sync < (uint8_t)(sizeof(wmbus_sync_list) / sizeof(wmbus_sync_list[0])) &&
+               requested_sync != sync_index) {
+                sync_index = requested_sync;
+                wmbus_radio_apply(sync_index);
+                raw_len = 0;
+                in_packet = false;
+                expected_raw_len = 0;
+                with_view_model(
+                    app->view, WmBusViewModel * model, { model->sync_index = sync_index; }, true);
+            }
+        }
+
+        if(!running) break;
+
         bool had_data = false;
         bool force_complete = false;
 
-        while(furi_hal_subghz_rx_pipe_not_empty()) {
-            uint8_t chunk_len = 0;
-            furi_hal_subghz_read_packet(temp, &chunk_len);
+        while(true) {
+            uint8_t chunk_len = wmbus_radio_read_fifo_raw(temp, sizeof(temp));
             if(chunk_len == 0) break;
 
             size_t copy = WMBUS_RAW_MAX - raw_len;
@@ -658,11 +640,11 @@ static int32_t wmbus_rx_thread(void* context) {
                 } else {
                     size_t tmp_len = 0;
                     if(raw_len >= 2 &&
-                       wmbus_decode_3of6(raw, raw_len, decoded, sizeof(decoded), &tmp_len) &&
+                       wmbus_parser_decode_3of6(raw, raw_len, decoded, sizeof(decoded), &tmp_len) &&
                        tmp_len >= 1) {
                         uint8_t l_field = decoded[0];
                         if(wmbus_l_field_valid(l_field)) {
-                            expected_decoded_len = wmbus_frame_len_format_a(l_field);
+                            size_t expected_decoded_len = wmbus_frame_len_format_a(l_field);
                             expected_raw_len = (expected_decoded_len * 12U + 7U) / 8U;
                         }
                     }
@@ -700,9 +682,9 @@ static int32_t wmbus_rx_thread(void* context) {
                 bool crc_known = false;
 
                 if(sync_index == 0) {
-                    decoded_ok =
-                        wmbus_decode_3of6(raw, frame_raw_len, decoded, sizeof(decoded), &decoded_len);
-                    if(decoded_ok && wmbus_is_plausible(decoded, decoded_len)) {
+                    decoded_ok = wmbus_parser_decode_3of6(
+                        raw, frame_raw_len, decoded, sizeof(decoded), &decoded_len);
+                    if(decoded_ok && wmbus_parser_is_plausible(decoded, decoded_len)) {
                         frame = decoded;
                         frame_len = decoded_len;
                         used_3of6 = true;
@@ -710,7 +692,7 @@ static int32_t wmbus_rx_thread(void* context) {
                     }
                 } else {
                     decoded_ok = true;
-                    if(wmbus_is_plausible(raw, frame_raw_len)) {
+                    if(wmbus_parser_is_plausible(raw, frame_raw_len)) {
                         frame = raw;
                         frame_len = frame_raw_len;
                         plausible = true;
@@ -722,8 +704,9 @@ static int32_t wmbus_rx_thread(void* context) {
                     size_t expected_len =
                         used_3of6 ? wmbus_frame_len_format_a(l_field) :
                                     wmbus_frame_len_format_b(l_field);
-                    length_ok = (frame_len >= expected_len);
-                    if(length_ok) {
+                    if(frame_len >= expected_len) {
+                        frame_len = expected_len;
+                        length_ok = true;
                         crc_ok = wmbus_crc_ok(frame, frame_len, used_3of6);
                         crc_known = true;
                     }
@@ -810,27 +793,19 @@ static int32_t wmbus_rx_thread(void* context) {
                 raw_len = 0;
                 in_packet = false;
                 expected_raw_len = 0;
-                expected_decoded_len = 0;
                 furi_hal_subghz_flush_rx();
                 // SFRX leaves CC1101 in IDLE; resume RX to keep listening.
                 furi_hal_subghz_rx();
             }
         }
 
-        if(app->mode_change) {
-            app->mode_change = false;
-            if(app->mode_request < (uint8_t)(sizeof(wmbus_sync_list) / sizeof(wmbus_sync_list[0]))) {
-                sync_index = app->mode_request;
-                wmbus_radio_apply(sync_index);
-                raw_len = 0;
-                in_packet = false;
-                expected_raw_len = 0;
-                expected_decoded_len = 0;
+        if(!had_data) {
+            uint32_t now_tick = furi_get_tick();
+            if(last_rssi_tick == 0 || (now_tick - last_rssi_tick) >= rssi_ticks) {
+                int rssi = (int)furi_hal_subghz_get_rssi();
                 with_view_model(
-                    app->view,
-                    WmBusViewModel * model,
-                    { model->sync_index = sync_index; },
-                    true);
+                    app->view, WmBusViewModel * model, { model->rssi = rssi; }, true);
+                last_rssi_tick = now_tick;
             }
         }
 
@@ -846,6 +821,10 @@ static int32_t wmbus_rx_thread(void* context) {
 
 static WmBusApp* wmbus_app_alloc(void) {
     WmBusApp* app = malloc(sizeof(WmBusApp));
+    memset(app, 0, sizeof(WmBusApp));
+
+    app->control_queue = furi_message_queue_alloc(8, sizeof(WmBusControlCmd));
+    furi_check(app->control_queue);
 
     app->view = view_alloc();
     view_allocate_model(app->view, ViewModelTypeLocking, sizeof(WmBusViewModel));
@@ -863,8 +842,7 @@ static WmBusApp* wmbus_app_alloc(void) {
     app->view_dispatcher = view_dispatcher_alloc();
     app->view_ctx.view = app->view;
     app->view_ctx.view_dispatcher = app->view_dispatcher;
-    app->view_ctx.mode_change = &app->mode_change;
-    app->view_ctx.mode_request = &app->mode_request;
+    app->view_ctx.control_queue = app->control_queue;
     wmbus_view_setup(app->view, &app->view_ctx);
     view_dispatcher_add_view(app->view_dispatcher, 0, app->view);
 
@@ -873,9 +851,6 @@ static WmBusApp* wmbus_app_alloc(void) {
     view_dispatcher_set_event_callback_context(app->view_dispatcher, app);
     view_dispatcher_set_navigation_event_callback(app->view_dispatcher, wmbus_navigation_callback);
 
-    app->running = true;
-    app->mode_change = false;
-    app->mode_request = 0;
     app->rx_thread = furi_thread_alloc_ex("WmBusRx", 4096, wmbus_rx_thread, app);
     furi_thread_start(app->rx_thread);
 
@@ -883,8 +858,9 @@ static WmBusApp* wmbus_app_alloc(void) {
 }
 
 static void wmbus_app_free(WmBusApp* app) {
-    app->running = false;
     if(app->rx_thread) {
+        WmBusControlCmd stop = WmBusControlCmdStop;
+        furi_message_queue_put(app->control_queue, &stop, FuriWaitForever);
         furi_thread_join(app->rx_thread);
         furi_thread_free(app->rx_thread);
     }
@@ -892,6 +868,7 @@ static void wmbus_app_free(WmBusApp* app) {
     view_dispatcher_remove_view(app->view_dispatcher, 0);
     view_dispatcher_free(app->view_dispatcher);
     view_free(app->view);
+    furi_message_queue_free(app->control_queue);
     furi_record_close(RECORD_GUI);
     free(app);
 }
