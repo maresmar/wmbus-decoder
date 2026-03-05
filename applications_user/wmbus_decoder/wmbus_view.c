@@ -50,25 +50,31 @@ static const WmBusHistoryEntry* wmbus_history_get(const WmBusViewModel* model, u
 static void wmbus_view_draw(Canvas* canvas, void* model) {
     WmBusViewModel* m = model;
     char line[64];
+    char mode_header[16];
     const char* sync_label = wmbus_sync_label(m->sync_index);
     uint8_t display_cursor = m->hist_cursor;
     if(m->hist_count > 0 && display_cursor >= m->hist_count) {
         display_cursor = (uint8_t)(m->hist_count - 1U);
     }
     const WmBusHistoryEntry* entry = wmbus_history_get(m, display_cursor);
-    const char* mode_label = entry ? (entry->used_3of6 ? "T" : "C") : sync_label;
+    const char* shown_mode_label = entry ? (entry->used_3of6 ? "T" : "C") : sync_label;
+    int shown_rssi = entry ? entry->rssi : m->rssi;
     uint8_t hist_pos = entry ? (uint8_t)(display_cursor + 1U) : 0;
     uint8_t hist_total = WMBUS_HIST_MAX;
-    const char* live_label = m->freeze_display ? "PAUSE" : "LIVE";
+    if(m->freeze_display) {
+        snprintf(mode_header, sizeof(mode_header), "H:%u/%u", hist_pos, hist_total);
+    } else {
+        snprintf(mode_header, sizeof(mode_header), "Latest");
+    }
 
     canvas_set_color(canvas, ColorBlack);
     canvas_set_font(canvas, FontPrimary);
     canvas_draw_str(canvas, 0, 8, "WM-Bus RX");
-    int32_t live_width = (int32_t)canvas_string_width(canvas, live_label);
+    int32_t live_width = (int32_t)canvas_string_width(canvas, mode_header);
     int32_t right = (int32_t)canvas_width(canvas);
     int32_t live_x = right - live_width;
     if(live_x < 0) live_x = 0;
-    canvas_draw_str(canvas, live_x, 8, live_label);
+    canvas_draw_str(canvas, live_x, 8, mode_header);
 
     canvas_set_font(canvas, FontSecondary);
 
@@ -81,29 +87,23 @@ static void wmbus_view_draw(Canvas* canvas, void* model) {
     snprintf(
         line,
         sizeof(line),
-        "Dec:%lu OK:%lu BAD:%lu",
+        "DEC:%lu Rhi:%lu OK:%lu BAD:%lu",
         m->packets_decoded,
+        m->packets_strong,
         m->packets_crc_ok,
         m->packets_crc_bad);
     canvas_draw_str(canvas, 0, 18, line);
 
-    char rate[8];
-    if(m->packets_per_sec > 0) {
-        snprintf(rate, sizeof(rate), "%u/s", (unsigned int)m->packets_per_sec);
-    } else {
-        snprintf(rate, sizeof(rate), "--/s");
-    }
-
-    snprintf(line, sizeof(line), "Str:%lu R:%s H:%u/%u", m->packets_strong, rate, hist_pos, hist_total);
+    snprintf(line, sizeof(line), "R:%u/s RSSI:%d", (unsigned int)m->packets_per_sec, m->rssi);
     canvas_draw_str(canvas, 0, 28, line);
 
     snprintf(
         line,
         sizeof(line),
-        "Status:%s M:%s C:%u",
-        wmbus_status_str(m->last_status),
-        mode_label,
-        m->last_confidence);
+        "PKT M:%s R:%d S:%s",
+        shown_mode_label,
+        shown_rssi,
+        wmbus_status_str(m->last_status));
     canvas_draw_str(canvas, 0, 38, line);
 
     if(!entry) {
@@ -202,7 +202,7 @@ static bool wmbus_view_input(InputEvent* event, void* context) {
             ctx->view,
             WmBusViewModel * model,
             {
-                if(model->hist_cursor + 1U < model->hist_count) {
+                if(model->freeze_display && model->hist_cursor + 1U < model->hist_count) {
                     model->hist_cursor++;
                 }
             },
@@ -215,7 +215,7 @@ static bool wmbus_view_input(InputEvent* event, void* context) {
             ctx->view,
             WmBusViewModel * model,
             {
-                if(model->hist_cursor > 0) {
+                if(model->freeze_display && model->hist_cursor > 0) {
                     model->hist_cursor--;
                 }
             },

@@ -12,63 +12,75 @@
 #include <lib/drivers/cc1101_regs.h>
 
 #include "wmbus_view.h"
-#include "wmbus_parser.h"
+#include "wmbus_capture.h"
 
 #define TAG "WmBusDecoder"
 
 #define WMBUS_FREQ_HZ           868950000UL
-#define WMBUS_RAW_MAX           256
 #define WMBUS_DECODE_MAX        256
 #define WMBUS_FIFO_CHUNK        64
 #define WMBUS_RSSI_STRONG_DBM   (-70)
-#define WMBUS_SYNC_ROTATE_TICKS (furi_kernel_get_tick_frequency() * 2U)
 #define WMBUS_RSSI_UPDATE_HZ    5U
+#define WMBUS_LED_PULSE_MS      40U
+#define WMBUS_C_READ_TIMEOUT_MS 25U
 
-typedef struct {
-    uint8_t sync1;
-    uint8_t sync0;
-    bool whitening;
-    const char* label;
-} WmBusSyncConfig;
-
-static const WmBusSyncConfig wmbus_sync_list[] = {
-    {0x54, 0x3D, false, "T"},
-    {0x54, 0x3D, true, "C"},
-};
+#define WMBUS_MODE_COUNT 2U
 
 static uint8_t wmbus_cc1101_preset_regs[];
 
-static void wmbus_preset_set_sync(uint8_t sync1, uint8_t sync0) {
+static void wmbus_preset_set_reg(uint8_t reg, uint8_t value) {
     for(size_t i = 0;; i += 2) {
         if(wmbus_cc1101_preset_regs[i] == 0 && wmbus_cc1101_preset_regs[i + 1] == 0) break;
-        if(wmbus_cc1101_preset_regs[i] == CC1101_SYNC1) {
-            wmbus_cc1101_preset_regs[i + 1] = sync1;
-        } else if(wmbus_cc1101_preset_regs[i] == CC1101_SYNC0) {
-            wmbus_cc1101_preset_regs[i + 1] = sync0;
+        if(wmbus_cc1101_preset_regs[i] == reg) {
+            wmbus_cc1101_preset_regs[i + 1] = value;
+            return;
         }
     }
 }
 
-static void wmbus_preset_set_whitening(bool enable) {
-    uint8_t pktctrl0 = 0x02; // infinite length, no CRC
-    if(enable) pktctrl0 |= 0x40; // data whitening
-
-    for(size_t i = 0;; i += 2) {
-        if(wmbus_cc1101_preset_regs[i] == 0 && wmbus_cc1101_preset_regs[i + 1] == 0) break;
-        if(wmbus_cc1101_preset_regs[i] == CC1101_PKTCTRL0) {
-            wmbus_cc1101_preset_regs[i + 1] = pktctrl0;
-        }
-    }
+static void wmbus_radio_apply_t_mode(void) {
+    wmbus_preset_set_reg(CC1101_SYNC1, 0x54);
+    wmbus_preset_set_reg(CC1101_SYNC0, 0x3D);
+    wmbus_preset_set_reg(CC1101_IOCFG0, 0x00);
+    // Return to IDLE after packet in T mode (software framing path controls RX explicitly).
+    wmbus_preset_set_reg(CC1101_MCSM1, 0x00);
+    wmbus_preset_set_reg(CC1101_PKTCTRL1, 0x00);
+    // Infinite-length mode without whitening for T (3-of-6 path).
+    wmbus_preset_set_reg(CC1101_PKTCTRL0, 0x02);
 }
 
-static void wmbus_radio_apply(uint8_t sync_index) {
-    wmbus_preset_set_sync(wmbus_sync_list[sync_index].sync1, wmbus_sync_list[sync_index].sync0);
-    wmbus_preset_set_whitening(wmbus_sync_list[sync_index].whitening);
+static void wmbus_radio_apply_c_mode(void) {
+    wmbus_preset_set_reg(CC1101_SYNC1, 0x54);
+    wmbus_preset_set_reg(CC1101_SYNC0, 0x3D);
+    // GDO0: sync detect high during packet, low at packet end.
+    wmbus_preset_set_reg(CC1101_IOCFG0, 0x06);
+    // Stay in RX automatically after each packet in C mode.
+    wmbus_preset_set_reg(CC1101_MCSM1, 0x0C);
+    // Disable status append for parser-friendly payload bytes.
+    wmbus_preset_set_reg(CC1101_PKTCTRL1, 0x00);
+    // Variable-length packet mode + data whitening for C path.
+    wmbus_preset_set_reg(CC1101_PKTCTRL0, 0x41);
+}
+
+static void wmbus_radio_apply_mode(WmBusRxMode mode) {
+    if(mode == WmBusRxModeC) {
+        wmbus_radio_apply_c_mode();
+    } else {
+        wmbus_radio_apply_t_mode();
+    }
 
     // Reset avoids CC1101 state asserts seen with frequent reconfigure.
     furi_hal_subghz_reset();
     furi_hal_subghz_load_custom_preset(wmbus_cc1101_preset_regs);
     furi_hal_subghz_set_frequency_and_path(WMBUS_FREQ_HZ);
+    furi_hal_subghz_flush_rx();
+    furi_hal_subghz_rx();
+}
+
+static void wmbus_radio_recover_rx(void) {
+    // Deterministic recovery: SIDLE -> SFRX -> SRX.
+    // SFRX from RX state can be ignored on CC1101 and leave stale bytes in FIFO.
+    furi_hal_subghz_idle();
     furi_hal_subghz_flush_rx();
     furi_hal_subghz_rx();
 }
@@ -99,17 +111,30 @@ static uint8_t wmbus_radio_read_fifo_raw(uint8_t* data, uint8_t data_max) {
 
     furi_hal_spi_release(&furi_hal_spi_bus_handle_subghz);
     if(overflow) {
-        furi_hal_subghz_flush_rx();
-        furi_hal_subghz_rx();
+        wmbus_radio_recover_rx();
         size = 0;
     }
 
     return size;
 }
 
-// CC1101 register preset for Wireless M-Bus (Radio Link B, 868.95 MHz, 100 kbps)
-// Based on TI AN067 / SWRA234 (Appendix D), with IOCFG2 set to 0x06 so GDO2
-// asserts on sync and deasserts at end-of-packet for our RX loop.
+static uint8_t wmbus_radio_get_rxbytes(bool* overflow) {
+    uint8_t rxbytes_cmd[2] = {CC1101_STATUS_RXBYTES | CC1101_READ | CC1101_BURST, 0};
+    furi_hal_spi_acquire(&furi_hal_spi_bus_handle_subghz);
+    furi_hal_spi_bus_trx(
+        &furi_hal_spi_bus_handle_subghz,
+        rxbytes_cmd,
+        rxbytes_cmd,
+        sizeof(rxbytes_cmd),
+        CC1101_TIMEOUT);
+    furi_hal_spi_release(&furi_hal_spi_bus_handle_subghz);
+
+    if(overflow) *overflow = ((rxbytes_cmd[1] & 0x80U) != 0U);
+    return rxbytes_cmd[1] & 0x7FU;
+}
+
+// CC1101 register preset baseline for Wireless M-Bus (868.95 MHz, 100 kbps).
+// Mode-specific fields (IOCFG0, PKTCTRL0, PKTCTRL1) are patched at runtime.
 static uint8_t wmbus_cc1101_preset_regs[] = {
     // GPIO configuration
     CC1101_IOCFG2,
@@ -305,21 +330,6 @@ static uint16_t wmbus_crc16_en13757(const uint8_t* data, size_t len) {
     return (uint16_t)(~crc);
 }
 
-static size_t wmbus_frame_len_format_a(uint8_t l_field) {
-    size_t n = l_field;
-    size_t len = 1U + n + 2U; // L + data + first CRC
-    if(n > 9U) {
-        size_t rem = n - 9U;
-        size_t blocks = (rem + 15U) / 16U;
-        len += 2U * blocks;
-    }
-    return len;
-}
-
-static size_t wmbus_frame_len_format_b(uint8_t l_field) {
-    return 1U + (size_t)l_field;
-}
-
 static bool wmbus_crc_check_frame_a(const uint8_t* data, size_t len) {
     if(len < 12) return false;
 
@@ -378,17 +388,13 @@ static bool wmbus_crc_ok(const uint8_t* data, size_t len, bool used_3of6) {
     if(len < 12) return false;
     uint8_t l_field = data[0];
     if(used_3of6) {
-        size_t len_a = wmbus_frame_len_format_a(l_field);
+        size_t len_a = wmbus_capture_frame_len_format_a(l_field);
         if(len_a <= len) return wmbus_crc_check_frame_a(data, len_a);
     } else {
-        size_t len_b = wmbus_frame_len_format_b(l_field);
+        size_t len_b = wmbus_capture_frame_len_format_b(l_field);
         if(len_b <= len) return wmbus_crc_check_frame_b(data, len_b);
     }
     return false;
-}
-
-static bool wmbus_l_field_valid(uint8_t l_field) {
-    return l_field >= 10;
 }
 
 static uint8_t wmbus_calc_confidence(
@@ -554,6 +560,281 @@ static bool wmbus_navigation_callback(void* context) {
     return true;
 }
 
+static bool wmbus_capture_t_step(
+    WmBusCaptureStateT* state,
+    WmBusCaptureFrame* frame,
+    bool* had_data,
+    uint32_t gap_ticks) {
+    furi_check(state);
+    furi_check(frame);
+    furi_check(had_data);
+
+    bool force_complete = false;
+    uint8_t temp[WMBUS_FIFO_CHUNK];
+
+    while(true) {
+        uint8_t chunk_len = wmbus_radio_read_fifo_raw(temp, sizeof(temp));
+        if(chunk_len == 0) break;
+
+        size_t copy = sizeof(state->raw) - state->raw_len;
+        if(copy > 0) {
+            if(chunk_len < copy) copy = chunk_len;
+            memcpy(&state->raw[state->raw_len], temp, copy);
+            state->raw_len += copy;
+        }
+
+        *had_data = true;
+        state->in_packet = true;
+        state->last_byte_tick = furi_get_tick();
+        if(state->raw_len >= sizeof(state->raw)) break;
+
+        if(state->expected_raw_len == 0) {
+            size_t expected_raw_len = 0;
+            if(wmbus_capture_estimate_t_expected_raw_len(
+                   state->raw, state->raw_len, sizeof(state->raw), &expected_raw_len)) {
+                state->expected_raw_len = expected_raw_len;
+            }
+        }
+
+        if(state->expected_raw_len > 0 && state->raw_len >= state->expected_raw_len) {
+            force_complete = true;
+            break;
+        }
+    }
+
+    if(state->in_packet) {
+        uint32_t now = furi_get_tick();
+        bool gap = force_complete || (!*had_data && (now - state->last_byte_tick) >= gap_ticks);
+        bool full = (state->raw_len >= sizeof(state->raw));
+
+        if((gap || full) && state->raw_len > 0) {
+            size_t frame_raw_len = state->raw_len;
+            if(state->expected_raw_len > 0 && frame_raw_len > state->expected_raw_len) {
+                frame_raw_len = state->expected_raw_len;
+            }
+
+            memcpy(frame->data, state->raw, frame_raw_len);
+            frame->len = frame_raw_len;
+            frame->raw_len = frame_raw_len;
+            frame->rssi = (int)furi_hal_subghz_get_rssi();
+            frame->mode = WmBusRxModeT;
+
+            wmbus_capture_state_t_reset(state);
+            wmbus_radio_recover_rx();
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool wmbus_capture_c_step(
+    WmBusCaptureStateC* state,
+    WmBusCaptureFrame* frame,
+    bool* had_data) {
+    furi_check(state);
+    furi_check(frame);
+    furi_check(had_data);
+
+    bool overflow = false;
+    uint8_t rxbytes = wmbus_radio_get_rxbytes(&overflow);
+    if(overflow) {
+        state->dropped_invalid++;
+        wmbus_radio_recover_rx();
+        return false;
+    }
+    if(rxbytes == 0) return false;
+
+    // Variable-length mode packet format in FIFO: [LEN][PAYLOAD...]
+    uint8_t payload_len_byte = 0;
+    if(wmbus_radio_read_fifo_raw(&payload_len_byte, 1) != 1) {
+        state->dropped_invalid++;
+        wmbus_radio_recover_rx();
+        return false;
+    }
+    *had_data = true;
+
+    size_t payload_len = payload_len_byte;
+    if(payload_len == 0 || payload_len > (WMBUS_DECODE_MAX - 1U)) {
+        state->dropped_oversize++;
+        wmbus_radio_recover_rx();
+        return false;
+    }
+
+    uint8_t payload[WMBUS_DECODE_MAX] = {0};
+    size_t payload_read = 0;
+    uint32_t timeout_ticks =
+        (furi_kernel_get_tick_frequency() * WMBUS_C_READ_TIMEOUT_MS + 999U) / 1000U;
+    if(timeout_ticks < 1U) timeout_ticks = 1U;
+    uint32_t last_data_tick = furi_get_tick();
+
+    while(payload_read < payload_len) {
+        size_t left = payload_len - payload_read;
+        uint8_t chunk =
+            wmbus_radio_read_fifo_raw(&payload[payload_read], (left > 255U) ? 255U : (uint8_t)left);
+        if(chunk > 0) {
+            payload_read += chunk;
+            last_data_tick = furi_get_tick();
+            continue;
+        }
+
+        uint32_t now_tick = furi_get_tick();
+        if((now_tick - last_data_tick) >= timeout_ticks) break;
+        furi_delay_ms(1);
+    }
+
+    if(payload_read != payload_len) {
+        state->dropped_invalid++;
+        wmbus_radio_recover_rx();
+        return false;
+    }
+
+    size_t frame_len = 0;
+    if(!wmbus_capture_reconstruct_c_frame(
+           payload, payload_len, frame->data, sizeof(frame->data), &frame_len)) {
+        state->dropped_invalid++;
+        wmbus_radio_recover_rx();
+        return false;
+    }
+
+    rxbytes = wmbus_radio_get_rxbytes(&overflow);
+    if(overflow) {
+        (void)rxbytes;
+        state->dropped_invalid++;
+        wmbus_radio_recover_rx();
+        return false;
+    }
+
+    frame->len = frame_len;
+    frame->raw_len = payload_len + 1U;
+    frame->rssi = (int)furi_hal_subghz_get_rssi();
+    frame->mode = WmBusRxModeC;
+
+    // In C mode we configure RXOFF_MODE=RX, so packet engine should already continue receiving.
+    // Avoid unconditional SRX here to prevent asserts when chip temporarily enters overflow state.
+    return true;
+}
+
+static void wmbus_process_captured_frame(WmBusApp* app, const WmBusCaptureFrame* capture) {
+    uint8_t decoded[WMBUS_DECODE_MAX] = {0};
+    size_t decoded_len = 0;
+    bool decoded_ok = false;
+    bool plausible = false;
+    const uint8_t* frame = NULL;
+    size_t frame_len = 0;
+    bool used_3of6 = (capture->mode == WmBusRxModeT);
+    bool length_ok = false;
+    bool crc_ok = false;
+    bool crc_known = false;
+
+    if(used_3of6) {
+        decoded_ok = wmbus_parser_decode_3of6(
+            capture->data, capture->len, decoded, sizeof(decoded), &decoded_len);
+        if(decoded_ok && wmbus_parser_is_plausible(decoded, decoded_len)) {
+            frame = decoded;
+            frame_len = decoded_len;
+            plausible = true;
+        }
+    } else {
+        decoded_ok = true;
+        if(wmbus_parser_is_plausible(capture->data, capture->len)) {
+            frame = capture->data;
+            frame_len = capture->len;
+            plausible = true;
+        }
+    }
+
+    if(plausible) {
+        uint8_t l_field = frame[0];
+        size_t expected_len = used_3of6 ? wmbus_capture_frame_len_format_a(l_field) :
+                                          wmbus_capture_frame_len_format_b(l_field);
+        if(frame_len >= expected_len) {
+            frame_len = expected_len;
+            length_ok = true;
+            crc_ok = wmbus_crc_ok(frame, frame_len, used_3of6);
+            crc_known = true;
+        }
+    }
+
+    bool strong_rssi = (capture->rssi >= WMBUS_RSSI_STRONG_DBM);
+    WmBusStatus status = WmBusStatusNone;
+    if(used_3of6 && !decoded_ok) {
+        status = WmBusStatusDecodeFail;
+    } else if(!plausible) {
+        status = WmBusStatusNotPlausible;
+    } else if(!length_ok) {
+        status = WmBusStatusFramingError;
+    } else if(crc_known && !crc_ok) {
+        status = WmBusStatusCrcBad;
+    } else if(!strong_rssi) {
+        status = WmBusStatusWeakRssi;
+    } else {
+        status = WmBusStatusOk;
+    }
+
+    uint8_t confidence =
+        wmbus_calc_confidence(decoded_ok, plausible, length_ok, crc_ok, strong_rssi);
+
+    uint32_t now_tick = furi_get_tick();
+    uint32_t tick_freq = furi_kernel_get_tick_frequency();
+    int rssi = capture->rssi;
+
+    with_view_model(
+        app->view,
+        WmBusViewModel * model,
+        {
+            model->packets_seen++;
+            model->last_raw_len = (uint16_t)capture->raw_len;
+            model->rssi = rssi;
+            model->last_status = status;
+            model->last_confidence = confidence;
+
+            if(strong_rssi) {
+                model->packets_strong++;
+            }
+
+            if(plausible) {
+                model->packets_decoded++;
+                if(crc_known) {
+                    if(crc_ok) {
+                        model->packets_crc_ok++;
+                    } else {
+                        model->packets_crc_bad++;
+                    }
+                }
+                model->last_crc_valid = crc_known;
+                model->last_crc_ok = crc_ok;
+                wmbus_update_model_locked(
+                    model,
+                    frame,
+                    frame_len,
+                    used_3of6,
+                    (uint8_t)capture->raw_len,
+                    rssi,
+                    crc_ok,
+                    length_ok);
+            } else {
+                model->last_crc_valid = false;
+                model->last_crc_ok = false;
+            }
+
+            if(model->rate_last_tick == 0) {
+                model->rate_last_tick = now_tick;
+                model->rate_last_seen = model->packets_seen;
+                model->packets_per_sec = 0;
+            } else if((now_tick - model->rate_last_tick) >= tick_freq) {
+                uint32_t elapsed = now_tick - model->rate_last_tick;
+                uint32_t diff = model->packets_seen - model->rate_last_seen;
+                model->packets_per_sec = (uint16_t)((diff * tick_freq) / (elapsed ? elapsed : 1U));
+                model->rate_last_tick = now_tick;
+                model->rate_last_seen = model->packets_seen;
+            }
+
+            wmbus_rssi_hist_push(model, rssi);
+        },
+        true);
+}
+
 static int32_t wmbus_rx_thread(void* context) {
     WmBusApp* app = context;
 
@@ -564,21 +845,25 @@ static int32_t wmbus_rx_thread(void* context) {
 
     furi_hal_power_suppress_charge_enter();
 
+    WmBusRxMode mode = WmBusRxModeT;
     uint8_t sync_index = 0;
-    wmbus_radio_apply(sync_index);
+    wmbus_radio_apply_mode(mode);
 
-    uint8_t raw[WMBUS_RAW_MAX];
-    uint8_t decoded[WMBUS_DECODE_MAX];
-    uint8_t temp[WMBUS_FIFO_CHUNK];
-    size_t raw_len = 0;
-    bool in_packet = false;
-    size_t expected_raw_len = 0;
-    uint32_t last_byte_tick = 0;
+    WmBusCaptureStateT capture_t = {0};
+    WmBusCaptureStateC capture_c = {0};
+    wmbus_capture_state_t_reset(&capture_t);
+    wmbus_capture_state_c_reset(&capture_c);
+
     uint32_t gap_ticks = furi_kernel_get_tick_frequency() / 200;
     uint32_t rssi_ticks = furi_kernel_get_tick_frequency() / WMBUS_RSSI_UPDATE_HZ;
+    uint32_t led_pulse_ticks =
+        (furi_kernel_get_tick_frequency() * WMBUS_LED_PULSE_MS + 999U) / 1000U;
     uint32_t last_rssi_tick = 0;
+    uint32_t led_pulse_off_tick = 0;
+    bool led_pulse_on = false;
     if(gap_ticks < 1) gap_ticks = 1;
     if(rssi_ticks < 1) rssi_ticks = 1;
+    if(led_pulse_ticks < 1) led_pulse_ticks = 1;
 
     bool running = true;
     while(running) {
@@ -596,13 +881,12 @@ static int32_t wmbus_rx_thread(void* context) {
                 requested_sync = 1;
             }
 
-            if(requested_sync < (uint8_t)(sizeof(wmbus_sync_list) / sizeof(wmbus_sync_list[0])) &&
-               requested_sync != sync_index) {
+            if(requested_sync < WMBUS_MODE_COUNT && requested_sync != sync_index) {
                 sync_index = requested_sync;
-                wmbus_radio_apply(sync_index);
-                raw_len = 0;
-                in_packet = false;
-                expected_raw_len = 0;
+                mode = (sync_index == 0) ? WmBusRxModeT : WmBusRxModeC;
+                wmbus_radio_apply_mode(mode);
+                wmbus_capture_state_t_reset(&capture_t);
+                wmbus_capture_state_c_reset(&capture_c);
                 with_view_model(
                     app->view, WmBusViewModel * model, { model->sync_index = sync_index; }, true);
             }
@@ -611,202 +895,32 @@ static int32_t wmbus_rx_thread(void* context) {
         if(!running) break;
 
         bool had_data = false;
-        bool force_complete = false;
+        WmBusCaptureFrame capture = {0};
+        bool frame_ready = false;
 
-        while(true) {
-            uint8_t chunk_len = wmbus_radio_read_fifo_raw(temp, sizeof(temp));
-            if(chunk_len == 0) break;
-
-            size_t copy = WMBUS_RAW_MAX - raw_len;
-            if(copy > 0) {
-                if(chunk_len < copy) copy = chunk_len;
-                memcpy(&raw[raw_len], temp, copy);
-                raw_len += copy;
-            }
-
-            had_data = true;
-            in_packet = true;
-            last_byte_tick = furi_get_tick();
-            if(raw_len >= WMBUS_RAW_MAX) break;
-
-            if(expected_raw_len == 0) {
-                if(sync_index == 1) {
-                    if(raw_len >= 1) {
-                        uint8_t l_field = raw[0];
-                        if(wmbus_l_field_valid(l_field)) {
-                            expected_raw_len = wmbus_frame_len_format_b(l_field);
-                        }
-                    }
-                } else {
-                    size_t tmp_len = 0;
-                    if(raw_len >= 2 &&
-                       wmbus_parser_decode_3of6(raw, raw_len, decoded, sizeof(decoded), &tmp_len) &&
-                       tmp_len >= 1) {
-                        uint8_t l_field = decoded[0];
-                        if(wmbus_l_field_valid(l_field)) {
-                            size_t expected_decoded_len = wmbus_frame_len_format_a(l_field);
-                            expected_raw_len = (expected_decoded_len * 12U + 7U) / 8U;
-                        }
-                    }
-                }
-                if(expected_raw_len > WMBUS_RAW_MAX) expected_raw_len = WMBUS_RAW_MAX;
-            }
-
-            if(expected_raw_len > 0 && raw_len >= expected_raw_len) {
-                force_complete = true;
-                break;
-            }
+        if(mode == WmBusRxModeT) {
+            frame_ready = wmbus_capture_t_step(&capture_t, &capture, &had_data, gap_ticks);
+        } else {
+            frame_ready = wmbus_capture_c_step(&capture_c, &capture, &had_data);
         }
 
-        if(in_packet) {
-            uint32_t now = furi_get_tick();
-            bool gap = force_complete || (!had_data && (now - last_byte_tick) >= gap_ticks);
-            bool full = (raw_len >= WMBUS_RAW_MAX);
-
-            if((gap || full) && raw_len > 0) {
-                size_t frame_raw_len = raw_len;
-                if(expected_raw_len > 0 && raw_len > expected_raw_len) {
-                    frame_raw_len = expected_raw_len;
-                }
-
-                int rssi = (int)furi_hal_subghz_get_rssi();
-
-                size_t decoded_len = 0;
-                bool decoded_ok = false;
-                bool plausible = false;
-                const uint8_t* frame = NULL;
-                size_t frame_len = 0;
-                bool used_3of6 = false;
-                bool length_ok = false;
-                bool crc_ok = false;
-                bool crc_known = false;
-
-                if(sync_index == 0) {
-                    decoded_ok = wmbus_parser_decode_3of6(
-                        raw, frame_raw_len, decoded, sizeof(decoded), &decoded_len);
-                    if(decoded_ok && wmbus_parser_is_plausible(decoded, decoded_len)) {
-                        frame = decoded;
-                        frame_len = decoded_len;
-                        used_3of6 = true;
-                        plausible = true;
-                    }
-                } else {
-                    decoded_ok = true;
-                    if(wmbus_parser_is_plausible(raw, frame_raw_len)) {
-                        frame = raw;
-                        frame_len = frame_raw_len;
-                        plausible = true;
-                    }
-                }
-
-                if(plausible) {
-                    uint8_t l_field = frame[0];
-                    size_t expected_len =
-                        used_3of6 ? wmbus_frame_len_format_a(l_field) :
-                                    wmbus_frame_len_format_b(l_field);
-                    if(frame_len >= expected_len) {
-                        frame_len = expected_len;
-                        length_ok = true;
-                        crc_ok = wmbus_crc_ok(frame, frame_len, used_3of6);
-                        crc_known = true;
-                    }
-                }
-
-                bool strong_rssi = (rssi >= WMBUS_RSSI_STRONG_DBM);
-                WmBusStatus status = WmBusStatusNone;
-                if(sync_index == 0 && !decoded_ok) {
-                    status = WmBusStatusDecodeFail;
-                } else if(!plausible) {
-                    status = WmBusStatusNotPlausible;
-                } else if(!length_ok) {
-                    status = WmBusStatusFramingError;
-                } else if(crc_known && !crc_ok) {
-                    status = WmBusStatusCrcBad;
-                } else if(!strong_rssi) {
-                    status = WmBusStatusWeakRssi;
-                } else {
-                    status = WmBusStatusOk;
-                }
-
-                uint8_t confidence =
-                    wmbus_calc_confidence(decoded_ok, plausible, length_ok, crc_ok, strong_rssi);
-
-                uint32_t now_tick = furi_get_tick();
-                uint32_t tick_freq = furi_kernel_get_tick_frequency();
-
-                with_view_model(
-                    app->view,
-                    WmBusViewModel * model,
-                    {
-                        model->packets_seen++;
-                        model->last_raw_len = (uint16_t)frame_raw_len;
-                        model->rssi = rssi;
-                        model->last_status = status;
-                        model->last_confidence = confidence;
-
-                        if(strong_rssi) {
-                            model->packets_strong++;
-                        }
-
-                        if(plausible) {
-                            model->packets_decoded++;
-                            if(crc_known) {
-                                if(crc_ok) {
-                                    model->packets_crc_ok++;
-                                } else {
-                                    model->packets_crc_bad++;
-                                }
-                            }
-                            model->last_crc_valid = crc_known;
-                            model->last_crc_ok = crc_ok;
-                            wmbus_update_model_locked(
-                                model,
-                                frame,
-                                frame_len,
-                                used_3of6,
-                                (uint8_t)frame_raw_len,
-                                rssi,
-                                crc_ok,
-                                length_ok);
-                        } else {
-                            model->last_crc_valid = false;
-                            model->last_crc_ok = false;
-                        }
-
-                        if(model->rate_last_tick == 0) {
-                            model->rate_last_tick = now_tick;
-                            model->rate_last_seen = model->packets_seen;
-                            model->packets_per_sec = 0;
-                        } else if((now_tick - model->rate_last_tick) >= tick_freq) {
-                            uint32_t elapsed = now_tick - model->rate_last_tick;
-                            uint32_t diff = model->packets_seen - model->rate_last_seen;
-                            model->packets_per_sec =
-                                (uint16_t)((diff * tick_freq) / (elapsed ? elapsed : 1U));
-                            model->rate_last_tick = now_tick;
-                            model->rate_last_seen = model->packets_seen;
-                        }
-
-                        wmbus_rssi_hist_push(model, rssi);
-                    },
-                    true);
-
-                raw_len = 0;
-                in_packet = false;
-                expected_raw_len = 0;
-                furi_hal_subghz_flush_rx();
-                // SFRX leaves CC1101 in IDLE; resume RX to keep listening.
-                furi_hal_subghz_rx();
-            }
+        if(frame_ready) {
+            uint32_t pulse_now = furi_get_tick();
+            furi_hal_light_set(LightGreen, 0xFF);
+            led_pulse_on = true;
+            led_pulse_off_tick = pulse_now + led_pulse_ticks;
+            wmbus_process_captured_frame(app, &capture);
         }
 
-        if(!had_data) {
-            uint32_t now_tick = furi_get_tick();
-            if(last_rssi_tick == 0 || (now_tick - last_rssi_tick) >= rssi_ticks) {
-                int rssi = (int)furi_hal_subghz_get_rssi();
-                with_view_model(
-                    app->view, WmBusViewModel * model, { model->rssi = rssi; }, true);
-                last_rssi_tick = now_tick;
-            }
+        uint32_t now_tick = furi_get_tick();
+        if(led_pulse_on && ((int32_t)(now_tick - led_pulse_off_tick) >= 0)) {
+            furi_hal_light_set(LightGreen, 0x00);
+            led_pulse_on = false;
+        }
+        if(last_rssi_tick == 0 || (now_tick - last_rssi_tick) >= rssi_ticks) {
+            int rssi = (int)furi_hal_subghz_get_rssi();
+            with_view_model(app->view, WmBusViewModel * model, { model->rssi = rssi; }, true);
+            last_rssi_tick = now_tick;
         }
 
         if(!had_data) {
@@ -814,6 +928,7 @@ static int32_t wmbus_rx_thread(void* context) {
         }
     }
 
+    furi_hal_light_set(LightGreen, 0x00);
     furi_hal_subghz_sleep();
     furi_hal_power_suppress_charge_exit();
     return 0;

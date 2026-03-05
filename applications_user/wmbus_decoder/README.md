@@ -86,35 +86,60 @@ Covered scenarios:
 
 - `Left`: force `T` mode (3-of-6 path)
 - `Right`: force `C` mode (whitened direct-byte path)
-- `OK`: freeze/unfreeze history cursor
-- `Up`/`Down`: browse history
+- `OK`: toggle display mode (`Latest` <-> `History`)
+- `Up`/`Down`: browse history only in `History` mode (`Latest` mode ignores browse keys)
 - `Long Up`: toggle debug overlay
 - `Back`: exit app
 
 Mode commands are delivered to RX thread through a `FuriMessageQueue`, avoiding racy shared state.
+
+## Runtime View Lines
+
+- header right: `Latest` in live mode, or `H:<pos>/20` in history mode
+- line 1: `DEC:<decoded> Rhi:<strong RSSI> OK:<crc_ok> BAD:<crc_bad>`
+  - `Rhi` counts packets with RSSI at/above strong threshold (`-70 dBm`)
+- line 2: `R:<packets_per_sec>/s RSSI:<last_live_rssi>`
+- line 3: `PKT M:<T/C> R:<captured_rssi> S:<status>`
+  - mode/rssi follow the currently shown packet in history; if no packet is shown, fallback is current sync mode + live RSSI
+
+## Mode Selection For Apator162
+
+Apator `AT-WMBUS-16-2` can be configured to transmit either `T1` or `C1`.
+There is no universal default that always works in the field.
+
+- try `T` first (`Left`)
+- if counters stay at `0 decoded`, switch to `C` (`Right`)
+- keep the mode where decoded/CRC counters start moving
+
+Why both are needed:
+
+- `T` mode uses 3-of-6 coding and needs software decode/framing
+- `C` mode is direct-byte with whitening and can use CC1101 variable-length packet engine
 
 ## RX/Decode Architecture
 
 ### Radio
 
 - CC1101 custom preset for WM-Bus receive at `868.95 MHz`
-- mode-dependent sync/whitening switch (`T` vs `C`)
+- mode-specific packet handling:
+  - `T`: infinite-length RX, software framing
+  - `C`: variable-length packet mode + whitening
 
 ### Packet processing
 
-1. Read bytes from Sub-GHz RX FIFO.
-2. Estimate expected frame length from `L-field` when possible.
-3. Complete frame on timeout, full buffer, or expected-length reached.
-4. Decode path:
+1. Capture path by mode:
+- `T`: stream raw FIFO bytes, estimate expected raw length from decoded `L-field`, complete on timeout/full/expected-length.
+- `C`: use packet engine payload reads, reconstruct frame as `[L][payload]`.
+2. Decode path:
 - `T`: 3-of-6 decode into byte stream.
-- `C`: direct byte stream.
-5. Plausibility gates:
+- `C`: direct byte stream after reconstruction.
+3. Plausibility gates:
 - minimum header length
 - valid `L-field`
 - valid WM-Bus `C-field` (`0x44` or `0x46`)
 - valid manufacturer code shape
-6. Length + EN13757 CRC checks.
-7. Update view model/history and confidence counters.
+4. Length + EN13757 CRC checks.
+5. Update view model/history and confidence counters.
 
 ### Frame format handling
 
@@ -157,6 +182,10 @@ Known limit (intentional):
 - many `Not plausible` statuses:
   - verify mode (`Left`/`Right`) against your meter transmit mode
   - confirm antenna/placement and RSSI stability
+- both modes show `0 decoded`:
+  - verify meter is transmitting in your test window (some intervals are minutes apart)
+  - confirm region/frequency access to `868.95 MHz`
+  - reduce distance and improve antenna orientation
 - frequent `CRC BAD`:
   - weak signal / collisions / wrong mode
   - check if frame count rises but `CRC OK` stays low
