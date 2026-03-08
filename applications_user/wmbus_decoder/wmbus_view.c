@@ -53,14 +53,12 @@ static void wmbus_view_draw(Canvas* canvas, void* model) {
     char mode_header[16];
     const char* sync_label = wmbus_sync_label(m->sync_index);
     uint8_t display_cursor = m->hist_cursor;
-    if(m->hist_count > 0 && display_cursor >= m->hist_count) {
+    if(display_cursor >= m->hist_count || !m->freeze_display) {
         display_cursor = (uint8_t)(m->hist_count - 1U);
     }
     const WmBusHistoryEntry* entry = wmbus_history_get(m, display_cursor);
-    const char* shown_mode_label = entry ? (entry->used_3of6 ? "T" : "C") : sync_label;
-    int shown_rssi = entry ? entry->rssi : m->rssi;
     if(m->freeze_display) {
-        if (entry) {
+        if(entry) {
             uint8_t hist_pos = (uint8_t)(display_cursor + 1U);
             snprintf(mode_header, sizeof(mode_header), "H:%u/%u", hist_pos, m->hist_count);
         } else {
@@ -92,25 +90,21 @@ static void wmbus_view_draw(Canvas* canvas, void* model) {
         m->packets_crc_ok,
         m->packets_crc_bad);
     canvas_draw_str(canvas, 0, 18, line);
+    snprintf(line, sizeof(line), "Rhi:%lu", m->packets_strong);
+    canvas_draw_str_aligned(canvas, canvas_width(canvas), 18, AlignRight, AlignBottom, line);
+
     snprintf(
         line,
         sizeof(line),
-        "Rhi:%lu",
-        m->packets_strong);
-    canvas_draw_str_aligned(canvas, canvas_width(canvas), 18, AlignRight, AlignBottom, line);
-
-    snprintf(line, sizeof(line), "Lst M:%s R:%u/s RSSI:%d", sync_label, (unsigned int)m->packets_per_sec, m->rssi);
+        "Lst M:%s R:%u/s RSSI:%d",
+        sync_label,
+        (unsigned int)m->packets_per_sec,
+        m->rssi);
     canvas_draw_str(canvas, 0, 28, line);
 
     //canvas_draw_line(canvas, 0, 29, canvas_width(canvas), 29);
 
-    snprintf(
-        line,
-        sizeof(line),
-        "Pkt M:%s R:%d S:%s",
-        shown_mode_label,
-        shown_rssi,
-        wmbus_status_str(m->last_status));
+    snprintf(line, sizeof(line), "Pkt S:%s", wmbus_status_str(m->last_status));
     canvas_draw_str(canvas, 0, 38, line);
 
     if(!entry) {
@@ -144,7 +138,8 @@ static void wmbus_view_draw(Canvas* canvas, void* model) {
             (entry->frame_preview_len > show_len) ? "..." : "");
         canvas_draw_str(canvas, 0, 58, line);
     } else {
-        snprintf(line, sizeof(line), "MF:%s DT:%02X ID:%s", entry->mfg, entry->dev_type, entry->id_str);
+        snprintf(
+            line, sizeof(line), "MF:%s DT:%02X ID:%s", entry->mfg, entry->dev_type, entry->id_str);
         canvas_draw_str(canvas, 0, 48, line);
         if(entry->has_total_m3) {
             uint32_t whole = entry->total_m3_x1000 / 1000U;
@@ -154,10 +149,11 @@ static void wmbus_view_draw(Canvas* canvas, void* model) {
             snprintf(
                 line,
                 sizeof(line),
-                "L:%02X C:%02X CI:%02X R:%d",
+                "L:%02X C:%02X CI:%02X M:%s R:%d",
                 entry->l_field,
                 entry->c_field,
                 entry->ci_field,
+                (entry->used_3of6 ? "T" : "C"),
                 entry->rssi);
         }
         canvas_draw_str(canvas, 0, 58, line);
@@ -171,9 +167,8 @@ static void wmbus_view_draw(Canvas* canvas, void* model) {
         uint8_t count = m->rssi_hist_count;
         if(count > WMBUS_RSSI_HISTORY) count = WMBUS_RSSI_HISTORY;
         for(uint8_t i = 0; i < count; i++) {
-            uint8_t idx = (uint8_t)(
-                (m->rssi_hist_head + WMBUS_RSSI_HISTORY - (count - 1U - i)) %
-                WMBUS_RSSI_HISTORY);
+            uint8_t idx = (uint8_t)((m->rssi_hist_head + WMBUS_RSSI_HISTORY - (count - 1U - i)) %
+                                    WMBUS_RSSI_HISTORY);
             int rssi = m->rssi_hist[idx];
             if(rssi < rssi_min) rssi = rssi_min;
             if(rssi > rssi_max) rssi = rssi_max;
@@ -245,10 +240,7 @@ static bool wmbus_view_input(InputEvent* event, void* context) {
 
     if(event->type == InputTypeLong && event->key == InputKeyUp) {
         with_view_model(
-            ctx->view,
-            WmBusViewModel * model,
-            { model->debug_mode = !model->debug_mode; },
-            true);
+            ctx->view, WmBusViewModel * model, { model->debug_mode = !model->debug_mode; }, true);
         return true;
     }
 
