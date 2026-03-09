@@ -27,7 +27,6 @@
 #define WMBUS_LED_PULSE_MS      40U
 #define WMBUS_T_GAP_TIMEOUT_MS  5U
 #define WMBUS_C_READ_TIMEOUT_MS 25U
-#define WMBUS_C_SIGNAL_BYTE     0x54U
 
 #define WMBUS_MODE_COUNT 2U
 #define WMBUS_C_RXBYTES_STABLE_RETRIES 6U
@@ -36,20 +35,6 @@ static uint8_t wmbus_cc1101_preset_regs[];
 static void wmbus_radio_recover_rx(void);
 static bool wmbus_radio_validate_c_mode_regs(void);
 static void wmbus_radio_reload_rx_preset(void);
-
-static size_t wmbus_c_frame_offset(const uint8_t* raw, size_t raw_len) {
-    if(!raw || raw_len == 0U) return SIZE_MAX;
-
-    if(raw_len >= 2U && raw[0] == WMBUS_C_SIGNAL_BYTE && wmbus_capture_l_field_valid(raw[1])) {
-        return 1U;
-    }
-
-    if(wmbus_capture_l_field_valid(raw[0])) {
-        return 0U;
-    }
-
-    return SIZE_MAX;
-}
 
 static void wmbus_preset_set_reg(uint8_t reg, uint8_t value) {
     for(size_t i = 0;; i += 2) {
@@ -666,7 +651,7 @@ static bool wmbus_capture_c_step(
         frame_len = state->expected_len;
     }
 
-    size_t frame_offset = wmbus_c_frame_offset(state->raw, frame_len);
+    size_t frame_offset = wmbus_capture_c_frame_offset(state->raw, frame_len);
     if(frame_offset == SIZE_MAX || frame_len <= frame_offset) {
         state->dropped_invalid++;
         FURI_LOG_D(

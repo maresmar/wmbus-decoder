@@ -1191,6 +1191,90 @@ static bool wmbus_selftest_check_capture_t_expected_raw_len_estimate(
     return true;
 }
 
+static bool wmbus_selftest_check_capture_t_expected_raw_len_clamp(
+    char* detail,
+    size_t detail_len) {
+    const uint8_t raw[] = {0x5A, 0x60};
+    size_t expected_raw_len = 0;
+
+    if(!wmbus_capture_estimate_t_expected_raw_len(raw, sizeof(raw), 20U, &expected_raw_len)) {
+        wmbus_selftest_set_detail(detail, detail_len, "estimate failed");
+        return false;
+    }
+    if(expected_raw_len != 20U) {
+        wmbus_selftest_set_detail(
+            detail, detail_len, "unexpected expected_raw_len=%u", (unsigned int)expected_raw_len);
+        return false;
+    }
+
+    wmbus_selftest_set_detail(detail, detail_len, "expected_raw_len=20");
+    return true;
+}
+
+static bool wmbus_selftest_check_capture_t_expected_raw_len_reject_invalid(
+    char* detail,
+    size_t detail_len) {
+    const uint8_t raw[] = {0x00, 0x00};
+    size_t expected_raw_len = 0;
+
+    if(wmbus_capture_estimate_t_expected_raw_len(raw, sizeof(raw), 256U, &expected_raw_len)) {
+        wmbus_selftest_set_detail(
+            detail, detail_len, "invalid raw accepted len=%u", (unsigned int)expected_raw_len);
+        return false;
+    }
+
+    wmbus_selftest_set_detail(detail, detail_len, "reject=YES");
+    return true;
+}
+
+static bool wmbus_selftest_check_capture_c_frame_offset_waits_for_disambiguation(
+    char* detail,
+    size_t detail_len) {
+    const uint8_t raw[] = {0x54, 0x3E};
+    size_t frame_offset = wmbus_capture_c_frame_offset(raw, sizeof(raw));
+
+    if(frame_offset != SIZE_MAX) {
+        wmbus_selftest_set_detail(
+            detail, detail_len, "unexpected frame_offset=%u", (unsigned int)frame_offset);
+        return false;
+    }
+
+    wmbus_selftest_set_detail(detail, detail_len, "offset=WAIT");
+    return true;
+}
+
+static bool wmbus_selftest_check_capture_c_frame_offset_with_signal_byte(
+    char* detail,
+    size_t detail_len) {
+    const uint8_t raw[] = {0x54, 0x3E, 0x44, 0x01, 0x06};
+    size_t frame_offset = wmbus_capture_c_frame_offset(raw, sizeof(raw));
+
+    if(frame_offset != 1U) {
+        wmbus_selftest_set_detail(
+            detail, detail_len, "unexpected frame_offset=%u", (unsigned int)frame_offset);
+        return false;
+    }
+
+    wmbus_selftest_set_detail(detail, detail_len, "frame_offset=1");
+    return true;
+}
+
+static bool wmbus_selftest_check_capture_c_frame_offset_l_field_54(
+    char* detail,
+    size_t detail_len) {
+    const uint8_t raw[] = {0x54, 0x44, 0x01, 0x06, 0x20};
+    size_t frame_offset = wmbus_capture_c_frame_offset(raw, sizeof(raw));
+
+    if(frame_offset != 0U) {
+        wmbus_selftest_set_detail(
+            detail, detail_len, "unexpected frame_offset=%u", (unsigned int)frame_offset);
+        return false;
+    }
+
+    wmbus_selftest_set_detail(detail, detail_len, "frame_offset=0");
+    return true;
+}
+
 static bool wmbus_selftest_check_capture_c_expected_len_estimate(
     char* detail,
     size_t detail_len) {
@@ -1231,6 +1315,26 @@ static bool wmbus_selftest_check_capture_c_expected_len_estimate_with_signal_byt
     return true;
 }
 
+static bool wmbus_selftest_check_capture_c_expected_len_real_l_field_54(
+    char* detail,
+    size_t detail_len) {
+    const uint8_t raw[] = {0x54, 0x44, 0x01, 0x06, 0x20};
+    size_t expected_len = 0;
+
+    if(!wmbus_capture_estimate_c_expected_len(raw, sizeof(raw), 256U, &expected_len)) {
+        wmbus_selftest_set_detail(detail, detail_len, "estimate failed for L=54");
+        return false;
+    }
+    if(expected_len != 97U) {
+        wmbus_selftest_set_detail(
+            detail, detail_len, "unexpected expected_len=%u", (unsigned int)expected_len);
+        return false;
+    }
+
+    wmbus_selftest_set_detail(detail, detail_len, "expected_len=97");
+    return true;
+}
+
 static bool wmbus_selftest_check_frame_normalize_format_a_wire_frame(
     char* detail,
     size_t detail_len) {
@@ -1264,6 +1368,42 @@ static bool wmbus_selftest_check_frame_normalize_format_a_wire_frame(
     }
 
     wmbus_selftest_set_detail(detail, detail_len, "format=A normalized_len=%u", 111U);
+    return true;
+}
+
+static bool wmbus_selftest_check_frame_normalize_c_mode_format_a_wire_frame(
+    char* detail,
+    size_t detail_len) {
+    uint8_t frame[WMBUS_SELFTEST_BUF_MAX] = {0};
+    size_t frame_len = 0;
+    uint8_t normalized[WMBUS_SELFTEST_BUF_MAX] = {0};
+    WmBusFrameNormalizeResult result = {0};
+
+    if(!wmbus_frame_build_format_a(
+           wmbus_apator_b, sizeof(wmbus_apator_b), frame, sizeof(frame), &frame_len)) {
+        wmbus_selftest_set_detail(detail, detail_len, "build format-A failed");
+        return false;
+    }
+    if(!wmbus_frame_normalize(
+           WmBusRxModeC, frame, frame_len, normalized, sizeof(normalized), &result)) {
+        wmbus_selftest_set_detail(detail, detail_len, "normalize format-A failed");
+        return false;
+    }
+    if(!result.length_ok || !result.crc_known || !result.crc_ok ||
+       result.format != WmBusFrameFormatA || result.normalized_len != sizeof(wmbus_apator_b) ||
+       memcmp(wmbus_apator_b, normalized, sizeof(wmbus_apator_b)) != 0) {
+        wmbus_selftest_set_detail(
+            detail,
+            detail_len,
+            "unexpected format=%u len_ok=%u crc_ok=%u normalized_len=%u",
+            (unsigned int)result.format,
+            result.length_ok ? 1U : 0U,
+            result.crc_ok ? 1U : 0U,
+            (unsigned int)result.normalized_len);
+        return false;
+    }
+
+    wmbus_selftest_set_detail(detail, detail_len, "mode=C format=A normalized_len=%u", 79U);
     return true;
 }
 
@@ -1457,21 +1597,46 @@ static bool wmbus_selftest_check_capture_state_reset(char* detail, size_t detail
     return true;
 }
 
-static const WmBusSelftestCheck wmbus_selftest_checks[] = {
+static const WmBusSelftestCheck wmbus_selftest_checks_t[] = {
     {"check_3of6_valid_single_byte", wmbus_selftest_check_3of6_valid_single_byte},
     {"check_3of6_valid_single_byte_offset_1", wmbus_selftest_check_3of6_valid_single_byte_offset_1},
     {"check_3of6_reject_dangling_nibble", wmbus_selftest_check_3of6_reject_dangling_nibble},
     {"check_3of6_reject_invalid_symbol", wmbus_selftest_check_3of6_reject_invalid_symbol},
-    {"check_parser_plausibility", wmbus_selftest_check_parser_plausibility},
-    {"check_apator162_register_sizes", wmbus_selftest_check_apator162_register_sizes},
+    {
+        "check_capture_t_expected_raw_len_estimate",
+        wmbus_selftest_check_capture_t_expected_raw_len_estimate,
+    },
+    {
+        "check_capture_t_expected_raw_len_clamp",
+        wmbus_selftest_check_capture_t_expected_raw_len_clamp,
+    },
+    {
+        "check_capture_t_expected_raw_len_reject_invalid",
+        wmbus_selftest_check_capture_t_expected_raw_len_reject_invalid,
+    },
+    {
+        "check_frame_normalize_format_a_wire_frame",
+        wmbus_selftest_check_frame_normalize_format_a_wire_frame,
+    },
+};
+
+static const WmBusSelftestCheck wmbus_selftest_checks_c[] = {
     {"check_capture_reconstruct_c_frame", wmbus_selftest_check_capture_reconstruct_c_frame},
     {
         "check_capture_reconstruct_c_frame_reject_oversize",
         wmbus_selftest_check_capture_reconstruct_c_frame_reject_oversize,
     },
     {
-        "check_capture_t_expected_raw_len_estimate",
-        wmbus_selftest_check_capture_t_expected_raw_len_estimate,
+        "check_capture_c_frame_offset_waits_for_disambiguation",
+        wmbus_selftest_check_capture_c_frame_offset_waits_for_disambiguation,
+    },
+    {
+        "check_capture_c_frame_offset_with_signal_byte",
+        wmbus_selftest_check_capture_c_frame_offset_with_signal_byte,
+    },
+    {
+        "check_capture_c_frame_offset_l_field_54",
+        wmbus_selftest_check_capture_c_frame_offset_l_field_54,
     },
     {"check_capture_c_expected_len_estimate", wmbus_selftest_check_capture_c_expected_len_estimate},
     {
@@ -1479,13 +1644,22 @@ static const WmBusSelftestCheck wmbus_selftest_checks[] = {
         wmbus_selftest_check_capture_c_expected_len_estimate_with_signal_byte,
     },
     {
-        "check_frame_normalize_format_a_wire_frame",
-        wmbus_selftest_check_frame_normalize_format_a_wire_frame,
+        "check_capture_c_expected_len_real_l_field_54",
+        wmbus_selftest_check_capture_c_expected_len_real_l_field_54,
+    },
+    {
+        "check_frame_normalize_c_mode_format_a_wire_frame",
+        wmbus_selftest_check_frame_normalize_c_mode_format_a_wire_frame,
     },
     {
         "check_frame_normalize_format_b_wire_frame",
         wmbus_selftest_check_frame_normalize_format_b_wire_frame,
     },
+};
+
+static const WmBusSelftestCheck wmbus_selftest_checks_common[] = {
+    {"check_parser_plausibility", wmbus_selftest_check_parser_plausibility},
+    {"check_apator162_register_sizes", wmbus_selftest_check_apator162_register_sizes},
     {
         "check_parser_apator162_public_vectors",
         wmbus_selftest_check_parser_apator162_public_vectors,
@@ -1503,6 +1677,26 @@ static void wmbus_selftest_note_summary(WmBusSelftestSummary* summary, bool pass
         summary->passed++;
     } else {
         summary->failed++;
+    }
+}
+
+static void wmbus_selftest_run_checks(
+    WmBusSelftestSummary* summary,
+    bool log_results,
+    File* report,
+    const WmBusSelftestCheck* checks,
+    size_t check_count) {
+    for(size_t i = 0; i < check_count; i++) {
+        char detail[WMBUS_SELFTEST_LINE_MAX] = {0};
+        bool pass = checks[i].run(detail, sizeof(detail));
+
+        wmbus_selftest_note_summary(summary, pass);
+        if(log_results) {
+            wmbus_selftest_log_check_result(checks[i].name, detail, pass);
+        }
+        if(report) {
+            wmbus_selftest_report_check_result(report, checks[i].name, detail, pass);
+        }
     }
 }
 
@@ -1524,18 +1718,16 @@ static void wmbus_selftest_run_internal(
         }
     }
 
-    for(size_t i = 0; i < COUNT_OF(wmbus_selftest_checks); i++) {
-        char detail[WMBUS_SELFTEST_LINE_MAX] = {0};
-        bool pass = wmbus_selftest_checks[i].run(detail, sizeof(detail));
-
-        wmbus_selftest_note_summary(summary, pass);
-        if(log_results) {
-            wmbus_selftest_log_check_result(wmbus_selftest_checks[i].name, detail, pass);
-        }
-        if(report) {
-            wmbus_selftest_report_check_result(report, wmbus_selftest_checks[i].name, detail, pass);
-        }
-    }
+    wmbus_selftest_run_checks(
+        summary, log_results, report, wmbus_selftest_checks_t, COUNT_OF(wmbus_selftest_checks_t));
+    wmbus_selftest_run_checks(
+        summary, log_results, report, wmbus_selftest_checks_c, COUNT_OF(wmbus_selftest_checks_c));
+    wmbus_selftest_run_checks(
+        summary,
+        log_results,
+        report,
+        wmbus_selftest_checks_common,
+        COUNT_OF(wmbus_selftest_checks_common));
 }
 
 void wmbus_selftest_run_all(WmBusSelftestSummary* summary, bool log_results) {

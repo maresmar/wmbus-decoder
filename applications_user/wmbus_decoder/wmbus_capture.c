@@ -26,6 +26,24 @@ bool wmbus_capture_l_field_valid(uint8_t l_field) {
     return l_field >= 10;
 }
 
+static bool wmbus_capture_c_field_valid(uint8_t c_field) {
+    return c_field == 0x44U || c_field == 0x46U;
+}
+
+static bool wmbus_capture_mfg_valid(uint16_t man) {
+    uint8_t a = (man >> 10) & 0x1F;
+    uint8_t b = (man >> 5) & 0x1F;
+    uint8_t c = man & 0x1F;
+    return (a >= 1U && a <= 26U) && (b >= 1U && b <= 26U) && (c >= 1U && c <= 26U);
+}
+
+static bool wmbus_capture_candidate_mfg_valid(const uint8_t* raw, size_t raw_len, size_t offset) {
+    if(!raw || raw_len < (offset + 4U)) return false;
+
+    uint16_t man = (uint16_t)raw[offset + 2U] | ((uint16_t)raw[offset + 3U] << 8);
+    return wmbus_capture_mfg_valid(man);
+}
+
 size_t wmbus_capture_frame_len_format_a(uint8_t l_field) {
     size_t n = l_field;
     size_t len = 1U + n + 2U; // L + data + first CRC
@@ -41,17 +59,32 @@ size_t wmbus_capture_frame_len_format_b(uint8_t l_field) {
     return 1U + (size_t)l_field;
 }
 
-static size_t wmbus_capture_c_frame_offset(const uint8_t* raw, size_t raw_len) {
+size_t wmbus_capture_c_frame_offset(const uint8_t* raw, size_t raw_len) {
     if(!raw || raw_len == 0U) return SIZE_MAX;
 
-    // TI's C-mode framing can prepend a signaling 0x54 byte after sync. When present,
-    // the actual WM-Bus L-field is the next byte.
-    if(raw_len >= 2U && raw[0] == WMBUS_C_SIGNAL_BYTE && wmbus_capture_l_field_valid(raw[1])) {
+    bool offset0_valid =
+        (raw_len >= 2U) && wmbus_capture_l_field_valid(raw[0]) && wmbus_capture_c_field_valid(raw[1]);
+    bool offset1_valid =
+        (raw_len >= 3U) && (raw[0] == WMBUS_C_SIGNAL_BYTE) && wmbus_capture_l_field_valid(raw[1]) &&
+        wmbus_capture_c_field_valid(raw[2]);
+
+    if(offset0_valid && !offset1_valid) {
+        return 0U;
+    }
+
+    // TI's C-mode framing can prepend a signaling 0x54 byte after sync. When both
+    // offsets look superficially valid, use the manufacturer bytes to disambiguate.
+    if(offset1_valid && !offset0_valid) {
         return 1U;
     }
 
-    if(wmbus_capture_l_field_valid(raw[0])) {
-        return 0U;
+    if(offset0_valid && offset1_valid) {
+        bool offset0_mfg_valid = wmbus_capture_candidate_mfg_valid(raw, raw_len, 0U);
+        bool offset1_mfg_valid = wmbus_capture_candidate_mfg_valid(raw, raw_len, 1U);
+
+        if(offset0_mfg_valid != offset1_mfg_valid) {
+            return offset0_mfg_valid ? 0U : 1U;
+        }
     }
 
     return SIZE_MAX;

@@ -41,6 +41,7 @@ void wmbus_capture_state_t_reset(WmBusCaptureStateT* state);
 void wmbus_capture_state_c_reset(WmBusCaptureStateC* state);
 
 bool wmbus_capture_l_field_valid(uint8_t l_field);
+size_t wmbus_capture_c_frame_offset(const uint8_t* raw, size_t raw_len);
 
 size_t wmbus_capture_frame_len_format_a(uint8_t l_field);
 size_t wmbus_capture_frame_len_format_b(uint8_t l_field);
