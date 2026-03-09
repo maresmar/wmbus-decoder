@@ -36,6 +36,22 @@ static void wmbus_radio_recover_rx(void);
 static bool wmbus_radio_validate_c_mode_regs(void);
 static void wmbus_radio_reload_rx_preset(void);
 
+static bool wmbus_radio_preset_loadable(void) {
+    for(size_t i = 0;; i += 2) {
+        uint8_t reg = wmbus_cc1101_preset_regs[i];
+        uint8_t value = wmbus_cc1101_preset_regs[i + 1];
+
+        if(reg == 0U && value == 0U) {
+            return true;
+        }
+
+        // furi_hal_subghz_load_custom_preset() uses register 0x00 as the list terminator.
+        if(reg == 0U) {
+            return false;
+        }
+    }
+}
+
 static void wmbus_preset_set_reg(uint8_t reg, uint8_t value) {
     for(size_t i = 0;; i += 2) {
         if(wmbus_cc1101_preset_regs[i] == 0 && wmbus_cc1101_preset_regs[i + 1] == 0) break;
@@ -86,6 +102,8 @@ static void wmbus_radio_apply_c_mode(void) {
 }
 
 static void wmbus_radio_apply_mode(WmBusRxMode mode) {
+    furi_check(wmbus_radio_preset_loadable());
+
     if(mode == WmBusRxModeC) {
         wmbus_radio_apply_c_mode();
     } else {
@@ -195,9 +213,10 @@ static uint8_t wmbus_radio_read_fifo_raw(uint8_t* data, uint8_t data_max, bool* 
 // handling is patched at runtime.
 // Mode-specific fields (IOCFG0, PKTCTRL0, PKTCTRL1) are patched at runtime.
 static uint8_t wmbus_cc1101_preset_regs[] = {
+    // IOCFG2 (register 0x00) must not be present here: the Flipper preset loader uses
+    // 0x00 as the end-of-table sentinel. furi_hal_subghz_set_frequency_and_path() programs
+    // IOCFG2 for the selected RF path after the preset is loaded.
     // GPIO configuration
-    CC1101_IOCFG2,
-    0x06,
     CC1101_IOCFG1,
     0x2E,
     CC1101_IOCFG0,
