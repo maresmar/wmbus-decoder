@@ -27,6 +27,7 @@
 #define WMBUS_LED_PULSE_MS      40U
 #define WMBUS_T_GAP_TIMEOUT_MS  5U
 #define WMBUS_C_READ_TIMEOUT_MS 25U
+#define WMBUS_C_SIGNAL_BYTE     0x54U
 
 #define WMBUS_MODE_COUNT 2U
 #define WMBUS_C_RXBYTES_STABLE_RETRIES 6U
@@ -35,6 +36,20 @@ static uint8_t wmbus_cc1101_preset_regs[];
 static void wmbus_radio_recover_rx(void);
 static bool wmbus_radio_validate_c_mode_regs(void);
 static void wmbus_radio_reload_rx_preset(void);
+
+static size_t wmbus_c_frame_offset(const uint8_t* raw, size_t raw_len) {
+    if(!raw || raw_len == 0U) return SIZE_MAX;
+
+    if(raw_len >= 2U && raw[0] == WMBUS_C_SIGNAL_BYTE && wmbus_capture_l_field_valid(raw[1])) {
+        return 1U;
+    }
+
+    if(wmbus_capture_l_field_valid(raw[0])) {
+        return 0U;
+    }
+
+    return SIZE_MAX;
+}
 
 static void wmbus_preset_set_reg(uint8_t reg, uint8_t value) {
     for(size_t i = 0;; i += 2) {
@@ -80,6 +95,8 @@ static void wmbus_radio_apply_c_mode(void) {
     // Disable status append for parser-friendly payload bytes.
     wmbus_preset_set_reg(CC1101_PKTCTRL1, 0x00);
     // Infinite-length mode with hardware dewhitening for raw C-mode capture.
+    // The resulting stream can still start with the C-mode signaling 0x54 byte,
+    // which the software path strips before WM-Bus L-field parsing.
     wmbus_preset_set_reg(CC1101_PKTCTRL0, 0x42);
 }
 
@@ -189,6 +206,8 @@ static uint8_t wmbus_radio_read_fifo_raw(uint8_t* data, uint8_t data_max, bool* 
 }
 
 // CC1101 register preset baseline for Wireless M-Bus (868.95 MHz, 100 kbps).
+// These values track TI's Radio Link B receive baseline; mode-specific packet
+// handling is patched at runtime.
 // Mode-specific fields (IOCFG0, PKTCTRL0, PKTCTRL1) are patched at runtime.
 static uint8_t wmbus_cc1101_preset_regs[] = {
     // GPIO configuration
@@ -647,28 +666,31 @@ static bool wmbus_capture_c_step(
         frame_len = state->expected_len;
     }
 
-    if(!wmbus_capture_l_field_valid(state->raw[0])) {
+    size_t frame_offset = wmbus_c_frame_offset(state->raw, frame_len);
+    if(frame_offset == SIZE_MAX || frame_len <= frame_offset) {
         state->dropped_invalid++;
         FURI_LOG_D(
             TAG,
-            "C packet dropped: invalid L=%02X raw_len=%u",
+            "C packet dropped: invalid lead=%02X next=%02X raw_len=%u",
             state->raw[0],
+            (frame_len >= 2U) ? state->raw[1] : 0x00U,
             (unsigned int)frame_len);
         wmbus_capture_state_c_reset(state);
         wmbus_radio_recover_rx();
         return false;
     }
 
-    memcpy(frame->data, state->raw, frame_len);
-    frame->len = frame_len;
+    memcpy(frame->data, &state->raw[frame_offset], frame_len - frame_offset);
+    frame->len = frame_len - frame_offset;
     frame->raw_len = frame_len;
     frame->rssi = (int)furi_hal_subghz_get_rssi();
     frame->mode = WmBusRxModeC;
 
     FURI_LOG_D(
         TAG,
-        "C packet ok: raw_len=%u expected=%u complete=%s",
-        (unsigned int)frame_len,
+        "C packet ok: raw_len=%u offset=%u expected=%u complete=%s",
+        (unsigned int)frame->len,
+        (unsigned int)frame_offset,
         (unsigned int)state->expected_len,
         force_complete ? "LEN" : (full ? "FULL" : "GAP"));
 

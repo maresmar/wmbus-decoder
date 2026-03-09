@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#define WMBUS_C_SIGNAL_BYTE 0x54U
+
 void wmbus_capture_state_t_reset(WmBusCaptureStateT* state) {
     if(!state) return;
     state->raw_len = 0;
@@ -37,6 +39,22 @@ size_t wmbus_capture_frame_len_format_a(uint8_t l_field) {
 
 size_t wmbus_capture_frame_len_format_b(uint8_t l_field) {
     return 1U + (size_t)l_field;
+}
+
+static size_t wmbus_capture_c_frame_offset(const uint8_t* raw, size_t raw_len) {
+    if(!raw || raw_len == 0U) return SIZE_MAX;
+
+    // TI's C-mode framing can prepend a signaling 0x54 byte after sync. When present,
+    // the actual WM-Bus L-field is the next byte.
+    if(raw_len >= 2U && raw[0] == WMBUS_C_SIGNAL_BYTE && wmbus_capture_l_field_valid(raw[1])) {
+        return 1U;
+    }
+
+    if(wmbus_capture_l_field_valid(raw[0])) {
+        return 0U;
+    }
+
+    return SIZE_MAX;
 }
 
 bool wmbus_capture_estimate_t_expected_raw_len(
@@ -95,10 +113,11 @@ bool wmbus_capture_estimate_c_expected_len(
     size_t* expected_len) {
     if(!raw || !expected_len || raw_len < 1) return false;
 
-    uint8_t l_field = raw[0];
-    if(!wmbus_capture_l_field_valid(l_field)) return false;
+    size_t frame_offset = wmbus_capture_c_frame_offset(raw, raw_len);
+    if(frame_offset == SIZE_MAX) return false;
 
-    size_t expected = wmbus_capture_frame_len_format_a(l_field);
+    uint8_t l_field = raw[frame_offset];
+    size_t expected = frame_offset + wmbus_capture_frame_len_format_a(l_field);
     if(expected > raw_max) expected = raw_max;
     *expected_len = expected;
     return true;

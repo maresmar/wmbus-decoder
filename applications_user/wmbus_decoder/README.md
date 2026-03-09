@@ -48,10 +48,14 @@ From firmware root:
 ./fbt fap_wmbus_decoder
 ```
 
-Compile-time selftests are disabled by default with `WMBUS_SELFTESTS=0` in
-`application.fam`. To run the in-app selftest harness, flip that define to `1`,
-rebuild, and launch the app once. The selftests run before GUI/radio init and
-print their results through `FURI_LOG_I` / `FURI_LOG_W`.
+Compile-time selftests are currently enabled in `application.fam` with
+`WMBUS_SELFTESTS=1`. Rebuild and launch the app once to run the in-app selftest
+harness. Set that define back to `0` if you want normal startup without the
+selftest pass. The selftests run before GUI/radio init and print their results
+through `FURI_LOG_I` / `FURI_LOG_W`.
+They also write a plain-text report to `/ext/apps_data/wmbus_decoder/selftest.txt`,
+which makes it possible to verify a test run from the device without flashing a
+`unit_tests` firmware image.
 
 Output artifact:
 
@@ -59,38 +63,12 @@ Output artifact:
 
 Deploy as you normally deploy external apps in your Flipper firmware workflow.
 
-## Tests (Flipper Unit Tests)
-
-This app follows Flipper's built-in `applications/debug/unit_tests` plugin model.
-
-- test plugin id: `test_wmbus_decoder`
-- test source: `applications/debug/unit_tests/tests/wmbus_decoder/wmbus_decoder_test.c`
-- parser under test: `applications_user/wmbus_decoder/wmbus_parser.c`
-
-Build tests:
-
-```bash
-./fbt FIRMWARE_APP_SET=unit_tests faps
-```
-
-Run on device (CLI):
-
-```bash
-unit_tests test_wmbus_decoder
-```
-
-Covered scenarios:
-
-- 3-of-6 decode success/failure edges
-- WM-Bus plausibility gates (`L-field`, `C-field`, manufacturer)
-- Apator162 register size map sanity
-- Apator162 total-volume extraction from known vectors
-- rejection of unsupported old-style CI (`0xB6`)
-
 ## In-App Selftests
 
 When `WMBUS_SELFTESTS=1`, `wmbus_decoder_app()` calls `wmbus_run_selftests()`
 once at startup.
+
+This is now the only maintained test path for `wmbus_decoder`.
 
 Covered scenarios:
 
@@ -98,6 +76,10 @@ Covered scenarios:
 - Mode `T` synthetic 3-of-6 vectors with offset search across `0..7`
 - field parsing, length computation, CRC pass/fail behavior
 - negative cases for bad CRC, bad plausibility, and bad 3-of-6 symbols
+- low-level 3-of-6 decode success/failure edges
+- capture helpers for C-frame reconstruction, expected-length estimation, and state reset
+- format-A and format-B normalization checks
+- public Apator corpus parsing and old-style `CI=0xB6` rejection
 
 Important constraints:
 
@@ -144,18 +126,19 @@ Why both are needed:
 ### Radio
 
 - CC1101 custom preset for WM-Bus receive at `868.95 MHz`
+  - baseline matches the TI Radio Link B receive preset, with mode-specific packet handling patched at runtime
 - mode-specific packet handling:
   - `T`: infinite-length RX, software framing
-  - `C`: variable-length packet mode + whitening
+  - `C`: infinite-length RX with hardware dewhitening; software strips an optional leading signaling byte before WM-Bus parsing
 
 ### Packet processing
 
 1. Capture path by mode:
 - `T`: stream raw FIFO bytes, estimate expected raw length from decoded `L-field`, complete on timeout/full/expected-length.
-- `C`: use packet engine payload reads, reconstruct frame as `[L][payload]`.
+- `C`: stream dewhitened FIFO bytes, tolerate an optional leading `0x54` C-mode signaling byte, then parse the remaining bytes as a normal WM-Bus frame.
 2. Decode path:
 - `T`: 3-of-6 decode into byte stream.
-- `C`: direct byte stream after reconstruction.
+- `C`: direct byte stream after signaling-byte stripping.
 3. Plausibility gates:
 - minimum header length
 - valid `L-field`
@@ -167,7 +150,7 @@ Why both are needed:
 ### Frame format handling
 
 - Frame format (`A`/`B`) is selected by `L-field` length fit plus DLL CRC validation.
-- Preferred order follows RX mode (`T`: try `A` then `B`, `C`: try `B` then `A`), with fallback when CRC is bad.
+- Preferred order is currently `A` then `B`, with fallback when CRC is bad.
 - Once selected, DLL CRC bytes are stripped before CI/TPL/vendor parsing and model updates.
 
 ## Apator `AT-WMBUS-16-2` Parsing
