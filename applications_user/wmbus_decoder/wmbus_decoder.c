@@ -28,7 +28,7 @@
 #define WMBUS_T_GAP_TIMEOUT_MS  5U
 #define WMBUS_C_READ_TIMEOUT_MS 25U
 
-#define WMBUS_MODE_COUNT 2U
+#define WMBUS_MODE_COUNT               2U
 #define WMBUS_C_RXBYTES_STABLE_RETRIES 6U
 
 static uint8_t wmbus_cc1101_preset_regs[];
@@ -65,8 +65,7 @@ static void wmbus_preset_set_reg(uint8_t reg, uint8_t value) {
 static uint8_t wmbus_radio_read_reg(uint8_t reg) {
     uint8_t cmd[2] = {(uint8_t)(reg | CC1101_READ), 0};
     furi_hal_spi_acquire(&furi_hal_spi_bus_handle_subghz);
-    furi_hal_spi_bus_trx(
-        &furi_hal_spi_bus_handle_subghz, cmd, cmd, sizeof(cmd), CC1101_TIMEOUT);
+    furi_hal_spi_bus_trx(&furi_hal_spi_bus_handle_subghz, cmd, cmd, sizeof(cmd), CC1101_TIMEOUT);
     furi_hal_spi_release(&furi_hal_spi_bus_handle_subghz);
     return cmd[1];
 }
@@ -158,9 +157,8 @@ static bool wmbus_radio_validate_c_mode_regs(void) {
         pktctrl1,
         mdmcfg2);
 
-    bool ok =
-        (pktctrl0 == 0x42U) && (pktctrl1 == 0x00U) && (mdmcfg2 == 0x01U) && (sync1 == 0x54U) &&
-        (sync0 == 0x3DU);
+    bool ok = (pktctrl0 == 0x42U) && (pktctrl1 == 0x00U) && (mdmcfg2 == 0x01U) &&
+              (sync1 == 0x54U) && (sync0 == 0x3DU);
     if(!ok) {
         FURI_LOG_W(
             TAG,
@@ -444,6 +442,7 @@ static void wmbus_history_push(
     entry->total_m3_x1000 = total_m3_x1000;
     entry->frame_preview_len =
         (uint8_t)((frame_len < WMBUS_FRAME_PREVIEW_MAX) ? frame_len : WMBUS_FRAME_PREVIEW_MAX);
+    entry->status = model->last_status;
     memcpy(entry->frame_preview, frame, entry->frame_preview_len);
 
     if(model->freeze_display) {
@@ -743,12 +742,7 @@ static bool wmbus_try_decode_t_candidate(
     uint8_t normalized[WMBUS_DECODE_MAX] = {0};
     WmBusFrameNormalizeResult normalized_result = {0};
     if(wmbus_frame_normalize(
-           WmBusRxModeT,
-           decoded,
-           decoded_len,
-           normalized,
-           sizeof(normalized),
-           &normalized_result)) {
+           WmBusRxModeT, decoded, decoded_len, normalized, sizeof(normalized), &normalized_result)) {
         frame = normalized;
         frame_len = normalized_result.normalized_len;
     }
@@ -964,8 +958,7 @@ static int32_t wmbus_rx_thread(void* context) {
     uint32_t t_gap_ticks = (tick_freq * WMBUS_T_GAP_TIMEOUT_MS + 999U) / 1000U;
     uint32_t c_gap_ticks = (tick_freq * WMBUS_C_READ_TIMEOUT_MS + 999U) / 1000U;
     uint32_t rssi_ticks = furi_kernel_get_tick_frequency() / WMBUS_RSSI_UPDATE_HZ;
-    uint32_t led_pulse_ticks =
-        (tick_freq * WMBUS_LED_PULSE_MS + 999U) / 1000U;
+    uint32_t led_pulse_ticks = (tick_freq * WMBUS_LED_PULSE_MS + 999U) / 1000U;
     uint32_t last_rssi_tick = 0;
     uint32_t led_pulse_off_tick = 0;
     bool led_pulse_on = false;

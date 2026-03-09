@@ -104,7 +104,11 @@ static void wmbus_view_draw(Canvas* canvas, void* model) {
 
     //canvas_draw_line(canvas, 0, 29, canvas_width(canvas), 29);
 
-    snprintf(line, sizeof(line), "Pkt S:%s", wmbus_status_str(m->last_status));
+    if(m->freeze_display) {
+        snprintf(line, sizeof(line), "Pkt %s", wmbus_status_str(entry->status));
+    } else {
+        snprintf(line, sizeof(line), "Last %s", wmbus_status_str(m->last_status));
+    }
     canvas_draw_str(canvas, 0, 38, line);
 
     if(!entry) {

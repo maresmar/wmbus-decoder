@@ -36,6 +36,7 @@ typedef struct {
     uint8_t dev_type;
     uint8_t ci_field;
     int8_t rssi;
+    WmBusStatus status;
     bool crc_ok;
     bool used_3of6;
     bool has_total_m3;
