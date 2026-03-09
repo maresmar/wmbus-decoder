@@ -12,7 +12,10 @@ void wmbus_capture_state_t_reset(WmBusCaptureStateT* state) {
 
 void wmbus_capture_state_c_reset(WmBusCaptureStateC* state) {
     if(!state) return;
-    state->in_packet_signal = false;
+    state->raw_len = 0;
+    state->in_packet = false;
+    state->expected_len = 0;
+    state->last_byte_tick = 0;
     state->dropped_invalid = 0;
     state->dropped_oversize = 0;
 }
@@ -56,6 +59,22 @@ bool wmbus_capture_estimate_t_expected_raw_len(
     size_t expected = (expected_decoded_len * 12U + 7U) / 8U;
     if(expected > raw_max) expected = raw_max;
     *expected_raw_len = expected;
+    return true;
+}
+
+bool wmbus_capture_estimate_c_expected_len(
+    const uint8_t* raw,
+    size_t raw_len,
+    size_t raw_max,
+    size_t* expected_len) {
+    if(!raw || !expected_len || raw_len < 1) return false;
+
+    uint8_t l_field = raw[0];
+    if(!wmbus_capture_l_field_valid(l_field)) return false;
+
+    size_t expected = wmbus_capture_frame_len_format_a(l_field);
+    if(expected > raw_max) expected = raw_max;
+    *expected_len = expected;
     return true;
 }
 

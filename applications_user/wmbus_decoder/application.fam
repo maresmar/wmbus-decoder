@@ -3,6 +3,7 @@ App(
     name="WM-Bus Decoder",
     apptype=FlipperAppType.EXTERNAL,
     entry_point="wmbus_decoder_app",
+    cdefines=[("WMBUS_SELFTESTS", "1")],
     requires=["gui"],
     fap_category="Sub-GHz",
 )

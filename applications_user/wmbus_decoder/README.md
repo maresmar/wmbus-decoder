@@ -48,6 +48,11 @@ From firmware root:
 ./fbt fap_wmbus_decoder
 ```
 
+Compile-time selftests are disabled by default with `WMBUS_SELFTESTS=0` in
+`application.fam`. To run the in-app selftest harness, flip that define to `1`,
+rebuild, and launch the app once. The selftests run before GUI/radio init and
+print their results through `FURI_LOG_I` / `FURI_LOG_W`.
+
 Output artifact:
 
 - `build/f7-firmware-D/.extapps/wmbus_decoder.fap`
@@ -81,6 +86,24 @@ Covered scenarios:
 - Apator162 register size map sanity
 - Apator162 total-volume extraction from known vectors
 - rejection of unsupported old-style CI (`0xB6`)
+
+## In-App Selftests
+
+When `WMBUS_SELFTESTS=1`, `wmbus_decoder_app()` calls `wmbus_run_selftests()`
+once at startup.
+
+Covered scenarios:
+
+- Mode `C` vectors using already-decoded telegram bytes
+- Mode `T` synthetic 3-of-6 vectors with offset search across `0..7`
+- field parsing, length computation, CRC pass/fail behavior
+- negative cases for bad CRC, bad plausibility, and bad 3-of-6 symbols
+
+Important constraints:
+
+- no software PN9 whitening/dewhitening is implemented
+- Mode `C` assumes bytes already match the parser-visible post-radio form
+- Mode `T` selftests validate only the software 3-of-6/offset/parser path
 
 ## Runtime Controls
 
