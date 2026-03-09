@@ -41,6 +41,9 @@ typedef struct {
     bool used_3of6;
     bool has_total_m3;
     uint32_t total_m3_x1000;
+    bool has_short_tpl;
+    uint8_t security_mode;
+    bool security_likely_encrypted;
     uint8_t frame_preview_len;
     uint8_t frame_preview[WMBUS_FRAME_PREVIEW_MAX];
 } WmBusHistoryEntry;
@@ -69,6 +72,8 @@ typedef struct {
     uint8_t acc;
     uint8_t status;
     uint16_t cfg;
+    uint8_t security_mode;
+    bool security_likely_encrypted;
 
     uint16_t raw_len;
     uint16_t decoded_len;

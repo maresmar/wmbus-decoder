@@ -13,6 +13,7 @@
 
 #include "wmbus_config.h"
 #include "wmbus_frame.h"
+#include "wmbus_parser.h"
 #include "wmbus_selftest.h"
 #include "wmbus_view.h"
 #include "wmbus_capture.h"
@@ -30,6 +31,7 @@
 
 #define WMBUS_MODE_COUNT               2U
 #define WMBUS_C_RXBYTES_STABLE_RETRIES 6U
+#define WMBUS_LOG_HEX_BYTES_PER_LINE   24U
 
 static uint8_t wmbus_cc1101_preset_regs[];
 static void wmbus_radio_recover_rx(void);
@@ -356,6 +358,17 @@ typedef struct {
     uint8_t frame[WMBUS_DECODE_MAX];
 } WmBusTDecodeResult;
 
+typedef struct {
+    bool has_short_tpl;
+    uint8_t acc;
+    uint8_t tpl_status;
+    uint16_t cfg;
+    uint8_t security_mode;
+    bool security_likely_encrypted;
+    bool has_total_m3;
+    uint32_t total_m3_x1000;
+} WmBusPayloadInfo;
+
 static bool wmbus_ci_has_short_tpl(uint8_t ci) {
     switch(ci) {
     case 0x5A:
@@ -373,6 +386,105 @@ static bool wmbus_ci_has_short_tpl(uint8_t ci) {
     default:
         return false;
     }
+}
+
+static void wmbus_extract_payload_info(
+    const uint8_t* frame,
+    size_t frame_len,
+    WmBusPayloadInfo* payload_info) {
+    furi_check(frame);
+    furi_check(payload_info);
+
+    memset(payload_info, 0, sizeof(*payload_info));
+
+    if(frame_len >= 15U && wmbus_ci_has_short_tpl(frame[10])) {
+        payload_info->has_short_tpl = true;
+        payload_info->acc = frame[11];
+        payload_info->tpl_status = frame[12];
+        payload_info->cfg = (uint16_t)frame[13] | ((uint16_t)frame[14] << 8);
+        payload_info->security_mode =
+            wmbus_parser_short_tpl_security_mode(payload_info->cfg);
+        payload_info->security_likely_encrypted =
+            wmbus_parser_short_tpl_security_likely_encrypted(payload_info->cfg);
+    }
+
+    if(wmbus_parser_parse_apator162_total(frame, frame_len, &payload_info->total_m3_x1000)) {
+        payload_info->has_total_m3 = true;
+    }
+}
+
+static char wmbus_payload_encryption_flag(const WmBusPayloadInfo* payload_info) {
+    if(!payload_info->has_short_tpl) return '-';
+    if(payload_info->security_likely_encrypted) return 'Y';
+    return payload_info->security_mode ? '?' : 'N';
+}
+
+static void wmbus_log_frame_hex(const char* label, const uint8_t* frame, size_t frame_len) {
+    furi_check(label);
+    furi_check(frame);
+
+    char hex[(WMBUS_LOG_HEX_BYTES_PER_LINE * 2U) + 1U];
+
+    for(size_t offset = 0; offset < frame_len; offset += WMBUS_LOG_HEX_BYTES_PER_LINE) {
+        size_t chunk_len = frame_len - offset;
+        if(chunk_len > WMBUS_LOG_HEX_BYTES_PER_LINE) {
+            chunk_len = WMBUS_LOG_HEX_BYTES_PER_LINE;
+        }
+
+        for(size_t i = 0; i < chunk_len; i++) {
+            snprintf(&hex[i * 2U], 3U, "%02X", frame[offset + i]);
+        }
+        hex[chunk_len * 2U] = '\0';
+
+        FURI_LOG_I(TAG, "%s[%03u]=%s", label, (unsigned int)offset, hex);
+    }
+}
+
+static void wmbus_log_apator_missing_total(
+    const uint8_t* frame,
+    size_t frame_len,
+    bool used_3of6,
+    int rssi,
+    const WmBusPayloadInfo* payload_info) {
+    furi_check(frame);
+    furi_check(payload_info);
+
+    char mfg[WMBUS_MFG_STR_LEN] = {0};
+    char id[WMBUS_ID_STR_LEN] = {0};
+    uint16_t man = (uint16_t)frame[2] | ((uint16_t)frame[3] << 8);
+    wmbus_frame_decode_mfg(man, mfg);
+    wmbus_frame_format_id(&frame[4], id, NULL);
+
+    if(strncmp(mfg, "APA", sizeof(mfg)) != 0) {
+        return;
+    }
+
+    if(payload_info->has_short_tpl) {
+        FURI_LOG_I(
+            TAG,
+            "APA no-total M:%s DT:%02X CI:%02X ID:%s RSSI:%d ACC:%02X STS:%02X CFG:%04X S:%02X E:%c",
+            used_3of6 ? "T" : "C",
+            frame[9],
+            frame[10],
+            id,
+            rssi,
+            payload_info->acc,
+            payload_info->tpl_status,
+            payload_info->cfg,
+            payload_info->security_mode,
+            wmbus_payload_encryption_flag(payload_info));
+    } else {
+        FURI_LOG_I(
+            TAG,
+            "APA no-total M:%s DT:%02X CI:%02X ID:%s RSSI:%d short-tpl=NO",
+            used_3of6 ? "T" : "C",
+            frame[9],
+            frame[10],
+            id,
+            rssi);
+    }
+
+    wmbus_log_frame_hex("APA norm", frame, frame_len);
 }
 
 static uint8_t wmbus_calc_confidence(
@@ -440,6 +552,9 @@ static void wmbus_history_push(
     entry->used_3of6 = used_3of6;
     entry->has_total_m3 = has_total_m3;
     entry->total_m3_x1000 = total_m3_x1000;
+    entry->has_short_tpl = model->has_short_tpl;
+    entry->security_mode = model->security_mode;
+    entry->security_likely_encrypted = model->security_likely_encrypted;
     entry->frame_preview_len =
         (uint8_t)((frame_len < WMBUS_FRAME_PREVIEW_MAX) ? frame_len : WMBUS_FRAME_PREVIEW_MAX);
     entry->status = model->last_status;
@@ -465,8 +580,10 @@ static void wmbus_update_model_locked(
     uint8_t raw_len,
     int rssi,
     bool crc_ok,
-    bool length_ok) {
+    bool length_ok,
+    const WmBusPayloadInfo* payload_info) {
     if(frame_len < 11) return;
+    furi_check(payload_info);
 
     model->has_packet = true;
     model->used_3of6 = used_3of6;
@@ -486,19 +603,15 @@ static void wmbus_update_model_locked(
     model->dev_type = frame[9];
     model->ci_field = frame[10];
 
-    model->has_short_tpl = false;
-    if(wmbus_ci_has_short_tpl(model->ci_field) && frame_len >= 15) {
-        model->has_short_tpl = true;
-        model->acc = frame[11];
-        model->status = frame[12];
-        model->cfg = (uint16_t)frame[13] | ((uint16_t)frame[14] << 8);
-    }
+    model->has_short_tpl = payload_info->has_short_tpl;
+    model->acc = payload_info->acc;
+    model->status = payload_info->tpl_status;
+    model->cfg = payload_info->cfg;
+    model->security_mode = payload_info->security_mode;
+    model->security_likely_encrypted = payload_info->security_likely_encrypted;
 
-    model->has_total_m3 = false;
-    model->total_m3_x1000 = 0;
-    if(wmbus_parser_parse_apator162_total(frame, frame_len, &model->total_m3_x1000)) {
-        model->has_total_m3 = true;
-    }
+    model->has_total_m3 = payload_info->has_total_m3;
+    model->total_m3_x1000 = payload_info->total_m3_x1000;
 
     model->length_ok = length_ok;
     wmbus_history_push(
@@ -804,6 +917,7 @@ static void wmbus_process_captured_frame(WmBusApp* app, const WmBusCaptureFrame*
     bool crc_ok = false;
     bool crc_known = false;
     int t_best_offset = -1;
+    WmBusPayloadInfo payload_info = {0};
 
     if(used_3of6) {
         WmBusTDecodeResult t_result = {0};
@@ -845,6 +959,10 @@ static void wmbus_process_captured_frame(WmBusApp* app, const WmBusCaptureFrame*
         crc_ok = normalized_result.crc_ok;
     }
 
+    if(plausible && frame && frame_len >= 11U) {
+        wmbus_extract_payload_info(frame, frame_len, &payload_info);
+    }
+
     bool strong_rssi = (capture->rssi >= WMBUS_RSSI_STRONG_DBM);
     WmBusStatus status = WmBusStatusNone;
     if(used_3of6 && !decoded_ok) {
@@ -870,6 +988,10 @@ static void wmbus_process_captured_frame(WmBusApp* app, const WmBusCaptureFrame*
             decoded_ok ? "YES" : "NO",
             plausible ? "YES" : "NO",
             crc_known ? (crc_ok ? "YES" : "NO") : "??");
+    }
+
+    if(plausible && length_ok && crc_known && crc_ok && !payload_info.has_total_m3) {
+        wmbus_log_apator_missing_total(frame, frame_len, used_3of6, capture->rssi, &payload_info);
     }
 
     uint8_t confidence =
@@ -912,7 +1034,8 @@ static void wmbus_process_captured_frame(WmBusApp* app, const WmBusCaptureFrame*
                     (uint8_t)capture->raw_len,
                     rssi,
                     crc_ok,
-                    length_ok);
+                    length_ok,
+                    &payload_info);
             } else {
                 model->last_crc_valid = false;
                 model->last_crc_ok = false;

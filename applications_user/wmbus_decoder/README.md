@@ -21,6 +21,7 @@ Use this as startup context for future coding chats in this app.
 - Data model/UI:
   - `WmBusViewModel` and `WmBusHistoryEntry` include `has_total_m3` and `total_m3_x1000`.
   - Normal view should show `Tot:<whole>.<frac>m3` when available.
+  - If no total is found but short TPL is present, show the short-TPL security mode and a compact encryption hint.
   - Debug mode remains header/hex oriented.
 - Build/verify commands:
   - Preferred build: `CCACHE_DISABLE=1 ./fbt fap_wmbus_decoder`
@@ -170,6 +171,18 @@ Implemented behavior:
 Displayed on normal UI when available:
 
 - `Tot:<whole>.<frac>m3`
+
+When total volume is not found but short TPL is present, the fallback line shows:
+
+- `CI:<ci> S:<mode> E:<flag> R:<rssi>`
+  - `S` is the raw short-TPL security mode from `CFG`
+  - `E:Y` means a known OMS encrypted mode (`5/7/8/9/10`)
+  - `E:?` means a nonzero but non-classified security mode
+  - `E:N` means no short-TPL security mode bits are set
+
+CRC-valid Apator frames that still do not expose `total_m3` are also dumped to the log as
+chunked normalized-frame hex (`APA norm[...]`) to make it easier to inspect unsupported or
+secured payloads.
 
 Known limit (intentional):
 

@@ -23,6 +23,9 @@ bool wmbus_parser_is_plausible(const uint8_t* data, size_t len);
 
 int wmbus_parser_apator162_register_size(uint8_t reg);
 
+uint8_t wmbus_parser_short_tpl_security_mode(uint16_t cfg);
+bool wmbus_parser_short_tpl_security_likely_encrypted(uint16_t cfg);
+
 bool wmbus_parser_parse_apator162_total(
     const uint8_t* frame,
     size_t frame_len,

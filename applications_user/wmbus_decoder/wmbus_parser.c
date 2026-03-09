@@ -241,6 +241,24 @@ int wmbus_parser_apator162_register_size(uint8_t reg) {
     }
 }
 
+uint8_t wmbus_parser_short_tpl_security_mode(uint16_t cfg) {
+    return (uint8_t)((cfg >> 8) & 0x1FU);
+}
+
+bool wmbus_parser_short_tpl_security_likely_encrypted(uint16_t cfg) {
+    // OMS short-TPL security modes that imply encrypted content.
+    switch(wmbus_parser_short_tpl_security_mode(cfg)) {
+    case 0x05:
+    case 0x07:
+    case 0x08:
+    case 0x09:
+    case 0x0A:
+        return true;
+    default:
+        return false;
+    }
+}
+
 bool wmbus_parser_parse_apator162_total(
     const uint8_t* frame,
     size_t frame_len,

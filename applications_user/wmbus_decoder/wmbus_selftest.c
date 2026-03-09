@@ -1562,6 +1562,42 @@ static bool wmbus_selftest_check_parser_apator162_old_style_ci_b6_rejected(
     return true;
 }
 
+static bool wmbus_selftest_check_short_tpl_security_modes(char* detail, size_t detail_len) {
+    uint8_t clear_mode = wmbus_parser_short_tpl_security_mode(0x0000U);
+    uint8_t aes_cbc_iv_mode = wmbus_parser_short_tpl_security_mode(0x8560U);
+    uint8_t mfct_mode = wmbus_parser_short_tpl_security_mode(0x0100U);
+    uint8_t aes_ctr_cmac_mode = wmbus_parser_short_tpl_security_mode(0x0800U);
+
+    if(clear_mode != 0U || aes_cbc_iv_mode != 5U || mfct_mode != 1U || aes_ctr_cmac_mode != 8U) {
+        wmbus_selftest_set_detail(
+            detail,
+            detail_len,
+            "unexpected modes clear=%u aes=%u mfct=%u ctr=%u",
+            (unsigned int)clear_mode,
+            (unsigned int)aes_cbc_iv_mode,
+            (unsigned int)mfct_mode,
+            (unsigned int)aes_ctr_cmac_mode);
+        return false;
+    }
+
+    if(wmbus_parser_short_tpl_security_likely_encrypted(0x0000U) ||
+       !wmbus_parser_short_tpl_security_likely_encrypted(0x8560U) ||
+       wmbus_parser_short_tpl_security_likely_encrypted(0x0100U) ||
+       !wmbus_parser_short_tpl_security_likely_encrypted(0x0800U)) {
+        wmbus_selftest_set_detail(detail, detail_len, "security encryption heuristic mismatch");
+        return false;
+    }
+
+    wmbus_selftest_set_detail(
+        detail,
+        detail_len,
+        "clear=%u aes=%u ctr=%u",
+        (unsigned int)clear_mode,
+        (unsigned int)aes_cbc_iv_mode,
+        (unsigned int)aes_ctr_cmac_mode);
+    return true;
+}
+
 static bool wmbus_selftest_check_capture_state_reset(char* detail, size_t detail_len) {
     WmBusCaptureStateT state_t = {
         .raw_len = 9U,
@@ -1668,6 +1704,7 @@ static const WmBusSelftestCheck wmbus_selftest_checks_common[] = {
         "check_parser_apator162_old_style_ci_b6_rejected",
         wmbus_selftest_check_parser_apator162_old_style_ci_b6_rejected,
     },
+    {"check_short_tpl_security_modes", wmbus_selftest_check_short_tpl_security_modes},
     {"check_capture_state_reset", wmbus_selftest_check_capture_state_reset},
 };
 

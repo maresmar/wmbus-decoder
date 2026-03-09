@@ -47,6 +47,15 @@ static const WmBusHistoryEntry* wmbus_history_get(const WmBusViewModel* model, u
     return &model->hist[index];
 }
 
+static char wmbus_security_flag(
+    bool has_short_tpl,
+    uint8_t security_mode,
+    bool security_likely_encrypted) {
+    if(!has_short_tpl) return '-';
+    if(security_likely_encrypted) return 'Y';
+    return security_mode ? '?' : 'N';
+}
+
 static void wmbus_view_draw(Canvas* canvas, void* model) {
     WmBusViewModel* m = model;
     char line[64];
@@ -149,6 +158,18 @@ static void wmbus_view_draw(Canvas* canvas, void* model) {
             uint32_t whole = entry->total_m3_x1000 / 1000U;
             uint32_t frac = entry->total_m3_x1000 % 1000U;
             snprintf(line, sizeof(line), "Tot:%lu.%03lum3 R:%d", whole, frac, entry->rssi);
+        } else if(entry->has_short_tpl) {
+            snprintf(
+                line,
+                sizeof(line),
+                "CI:%02X S:%02X E:%c R:%d",
+                entry->ci_field,
+                entry->security_mode,
+                wmbus_security_flag(
+                    entry->has_short_tpl,
+                    entry->security_mode,
+                    entry->security_likely_encrypted),
+                entry->rssi);
         } else {
             snprintf(
                 line,
