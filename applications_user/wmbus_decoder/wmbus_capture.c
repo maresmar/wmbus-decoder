@@ -46,19 +46,45 @@ bool wmbus_capture_estimate_t_expected_raw_len(
     size_t* expected_raw_len) {
     if(!raw || !expected_raw_len) return false;
 
-    size_t decoded_len = 0;
     uint8_t decoded[256] = {0};
-    if(!wmbus_parser_decode_3of6(raw, raw_len, decoded, sizeof(decoded), &decoded_len) || decoded_len < 1) {
-        return false;
+    int best_score = -1;
+    size_t best_expected = 0;
+
+    for(uint8_t bit_offset = 0; bit_offset < 8U; bit_offset++) {
+        for(uint8_t tail_pad = 0; tail_pad < 8U; tail_pad++) {
+            size_t raw_bit_len = raw_len * 8U;
+            if(raw_bit_len <= tail_pad) continue;
+            raw_bit_len -= tail_pad;
+
+            size_t decoded_len = 0;
+            if(!wmbus_parser_decode_3of6_bits(
+                   raw, raw_bit_len, bit_offset, decoded, sizeof(decoded), &decoded_len) ||
+               decoded_len < 1) {
+                continue;
+            }
+
+            uint8_t l_field = decoded[0];
+            if(!wmbus_capture_l_field_valid(l_field)) continue;
+
+            size_t expected_decoded_len = wmbus_capture_frame_len_format_a(l_field);
+            size_t expected = (bit_offset + expected_decoded_len * 12U + 7U) / 8U;
+            if(expected > raw_max) expected = raw_max;
+
+            int score = 1;
+            if(decoded_len >= 11U && wmbus_parser_is_plausible(decoded, decoded_len)) {
+                score += 2;
+            }
+
+            if(score > best_score) {
+                best_score = score;
+                best_expected = expected;
+            }
+        }
     }
 
-    uint8_t l_field = decoded[0];
-    if(!wmbus_capture_l_field_valid(l_field)) return false;
+    if(best_score < 0) return false;
 
-    size_t expected_decoded_len = wmbus_capture_frame_len_format_a(l_field);
-    size_t expected = (expected_decoded_len * 12U + 7U) / 8U;
-    if(expected > raw_max) expected = raw_max;
-    *expected_raw_len = expected;
+    *expected_raw_len = best_expected;
     return true;
 }
 

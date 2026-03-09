@@ -444,32 +444,6 @@ static void corrupt_t_raw_bit(uint8_t* raw, size_t raw_bit_len, size_t bit_pos) 
     raw[bit_pos / 8U] ^= (uint8_t)(1U << (7U - (bit_pos % 8U)));
 }
 
-static bool wmbus_selftest_shift_raw_bits(
-    const uint8_t* raw,
-    size_t raw_bit_len,
-    uint8_t bit_offset,
-    uint8_t* out,
-    size_t out_max,
-    size_t* out_len) {
-    if(!raw || !out || !out_len || bit_offset > 7) return false;
-    if(bit_offset >= raw_bit_len) return false;
-
-    size_t shifted_bits = raw_bit_len - bit_offset;
-    size_t shifted_len = (shifted_bits + 7U) / 8U;
-    if(shifted_len > out_max) return false;
-
-    memset(out, 0, shifted_len);
-    for(size_t i = 0; i < shifted_bits; i++) {
-        size_t from_pos = bit_offset + i;
-        uint8_t bit = (raw[from_pos / 8U] >> (7U - (from_pos % 8U))) & 0x01U;
-        if(bit == 0U) continue;
-        out[i / 8U] |= (uint8_t)(1U << (7U - (i % 8U)));
-    }
-
-    *out_len = shifted_len;
-    return true;
-}
-
 static void find_best_t_offset(
     const uint8_t* raw,
     size_t raw_bit_len,
@@ -478,21 +452,11 @@ static void find_best_t_offset(
 
     int best_score = -1;
     for(uint8_t offset = 0; offset < 8U; offset++) {
-        size_t shifted_len = 0;
-        if(!wmbus_selftest_shift_raw_bits(
+        size_t decoded_len = 0;
+        if(!wmbus_parser_decode_3of6_bits(
                raw,
                raw_bit_len,
                offset,
-               wmbus_selftest_scratch.shifted,
-               sizeof(wmbus_selftest_scratch.shifted),
-               &shifted_len)) {
-            continue;
-        }
-
-        size_t decoded_len = 0;
-        if(!wmbus_parser_decode_3of6(
-               wmbus_selftest_scratch.shifted,
-               shifted_len,
                wmbus_selftest_scratch.decoded,
                sizeof(wmbus_selftest_scratch.decoded),
                &decoded_len)) {

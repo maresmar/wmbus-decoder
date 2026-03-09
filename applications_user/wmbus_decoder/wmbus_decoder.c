@@ -324,6 +324,17 @@ typedef struct {
     FuriMessageQueue* control_queue;
 } WmBusApp;
 
+typedef struct {
+    bool decoded_ok;
+    bool plausible;
+    bool length_ok;
+    bool crc_known;
+    bool crc_ok;
+    size_t frame_len;
+    int best_offset;
+    uint8_t frame[WMBUS_DECODE_MAX];
+} WmBusTDecodeResult;
+
 static bool wmbus_ci_has_short_tpl(uint8_t ci) {
     switch(ci) {
     case 0x5A:
@@ -502,6 +513,11 @@ static bool wmbus_capture_t_step(
         bool overflow = false;
         uint8_t chunk_len = wmbus_radio_read_fifo_raw(temp, sizeof(temp), &overflow);
         if(overflow) {
+            FURI_LOG_D(
+                TAG,
+                "T packet dropped: RX overflow raw_len=%u expected=%u",
+                (unsigned int)state->raw_len,
+                (unsigned int)state->expected_raw_len);
             wmbus_capture_state_t_reset(state);
             return false;
         }
@@ -549,6 +565,13 @@ static bool wmbus_capture_t_step(
             frame->raw_len = frame_raw_len;
             frame->rssi = (int)furi_hal_subghz_get_rssi();
             frame->mode = WmBusRxModeT;
+
+            FURI_LOG_D(
+                TAG,
+                "T capture complete: raw_len=%u expected=%u complete=%s",
+                (unsigned int)frame_raw_len,
+                (unsigned int)state->expected_raw_len,
+                force_complete ? "LEN" : (full ? "FULL" : "GAP"));
 
             wmbus_capture_state_t_reset(state);
             wmbus_radio_recover_rx();
@@ -654,10 +677,104 @@ static bool wmbus_capture_c_step(
     return true;
 }
 
-static void wmbus_process_captured_frame(WmBusApp* app, const WmBusCaptureFrame* capture) {
+static int wmbus_score_t_decode_candidate(const WmBusTDecodeResult* candidate) {
+    int score = 0;
+    if(candidate->decoded_ok) score += 1;
+    if(candidate->plausible) score += 4;
+    if(candidate->length_ok) score += 2;
+    if(candidate->crc_ok) score += 1;
+    return score;
+}
+
+static bool wmbus_try_decode_t_candidate(
+    const WmBusCaptureFrame* capture,
+    uint8_t bit_offset,
+    uint8_t tail_pad,
+    WmBusTDecodeResult* result) {
+    furi_check(capture);
+    furi_check(result);
+
+    size_t raw_bit_len = capture->len * 8U;
+    if(raw_bit_len <= tail_pad) return false;
+    raw_bit_len -= tail_pad;
+
+    memset(result, 0, sizeof(*result));
+    result->best_offset = bit_offset;
+
     uint8_t decoded[WMBUS_DECODE_MAX] = {0};
-    uint8_t normalized[WMBUS_DECODE_MAX] = {0};
     size_t decoded_len = 0;
+    if(!wmbus_parser_decode_3of6_bits(
+           capture->data, raw_bit_len, bit_offset, decoded, sizeof(decoded), &decoded_len)) {
+        return false;
+    }
+
+    result->decoded_ok = true;
+    result->plausible = wmbus_parser_is_plausible(decoded, decoded_len);
+    if(!result->plausible) return true;
+
+    const uint8_t* frame = decoded;
+    size_t frame_len = decoded_len;
+    uint8_t normalized[WMBUS_DECODE_MAX] = {0};
+    WmBusFrameNormalizeResult normalized_result = {0};
+    if(wmbus_frame_normalize(
+           WmBusRxModeT,
+           decoded,
+           decoded_len,
+           normalized,
+           sizeof(normalized),
+           &normalized_result)) {
+        frame = normalized;
+        frame_len = normalized_result.normalized_len;
+    }
+
+    result->length_ok = normalized_result.length_ok;
+    result->crc_known = normalized_result.crc_known;
+    result->crc_ok = normalized_result.crc_ok;
+    result->frame_len = frame_len;
+    memcpy(result->frame, frame, frame_len);
+    return true;
+}
+
+static void wmbus_decode_t_capture(const WmBusCaptureFrame* capture, WmBusTDecodeResult* result) {
+    furi_check(capture);
+    furi_check(result);
+
+    memset(result, 0, sizeof(*result));
+    result->best_offset = -1;
+
+    int best_score = -1;
+    uint8_t best_tail_pad = 0xFFU;
+
+    for(uint8_t bit_offset = 0; bit_offset < 8U; bit_offset++) {
+        for(uint8_t tail_pad = 0; tail_pad < 8U; tail_pad++) {
+            WmBusTDecodeResult candidate = {0};
+            if(!wmbus_try_decode_t_candidate(capture, bit_offset, tail_pad, &candidate)) {
+                continue;
+            }
+
+            int score = wmbus_score_t_decode_candidate(&candidate);
+            bool better = false;
+            if(score > best_score) {
+                better = true;
+            } else if(score == best_score && score >= 0) {
+                if(result->best_offset < 0 || candidate.best_offset < result->best_offset) {
+                    better = true;
+                } else if(candidate.best_offset == result->best_offset && tail_pad < best_tail_pad) {
+                    better = true;
+                }
+            }
+
+            if(better) {
+                *result = candidate;
+                best_score = score;
+                best_tail_pad = tail_pad;
+            }
+        }
+    }
+}
+
+static void wmbus_process_captured_frame(WmBusApp* app, const WmBusCaptureFrame* capture) {
+    uint8_t normalized[WMBUS_DECODE_MAX] = {0};
     bool decoded_ok = false;
     bool plausible = false;
     const uint8_t* frame = NULL;
@@ -666,14 +783,21 @@ static void wmbus_process_captured_frame(WmBusApp* app, const WmBusCaptureFrame*
     bool length_ok = false;
     bool crc_ok = false;
     bool crc_known = false;
+    int t_best_offset = -1;
 
     if(used_3of6) {
-        decoded_ok = wmbus_parser_decode_3of6(
-            capture->data, capture->len, decoded, sizeof(decoded), &decoded_len);
-        if(decoded_ok && wmbus_parser_is_plausible(decoded, decoded_len)) {
-            frame = decoded;
-            frame_len = decoded_len;
-            plausible = true;
+        WmBusTDecodeResult t_result = {0};
+        wmbus_decode_t_capture(capture, &t_result);
+        decoded_ok = t_result.decoded_ok;
+        plausible = t_result.plausible;
+        length_ok = t_result.length_ok;
+        crc_known = t_result.crc_known;
+        crc_ok = t_result.crc_ok;
+        t_best_offset = t_result.best_offset;
+
+        if(plausible) {
+            frame = t_result.frame;
+            frame_len = t_result.frame_len;
         }
     } else {
         decoded_ok = true;
@@ -684,7 +808,7 @@ static void wmbus_process_captured_frame(WmBusApp* app, const WmBusCaptureFrame*
         }
     }
 
-    if(plausible) {
+    if(plausible && !used_3of6) {
         WmBusFrameNormalizeResult normalized_result = {0};
         if(wmbus_frame_normalize(
                capture->mode,
@@ -715,6 +839,17 @@ static void wmbus_process_captured_frame(WmBusApp* app, const WmBusCaptureFrame*
         status = WmBusStatusWeakRssi;
     } else {
         status = WmBusStatusOk;
+    }
+
+    if(used_3of6) {
+        FURI_LOG_D(
+            TAG,
+            "T decode raw_len=%u offset=%d decoded=%s plausible=%s crc=%s",
+            (unsigned int)capture->raw_len,
+            t_best_offset,
+            decoded_ok ? "YES" : "NO",
+            plausible ? "YES" : "NO",
+            crc_known ? (crc_ok ? "YES" : "NO") : "??");
     }
 
     uint8_t confidence =

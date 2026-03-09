@@ -50,19 +50,22 @@ static uint8_t wmbus_get_bits_msb(const uint8_t* data, size_t bit_pos, size_t bi
     return out;
 }
 
-bool wmbus_parser_decode_3of6(
+bool wmbus_parser_decode_3of6_bits(
     const uint8_t* raw,
-    size_t raw_len,
+    size_t raw_bit_len,
+    uint8_t bit_offset,
     uint8_t* out,
     size_t out_max,
     size_t* out_len) {
-    size_t bit_len = raw_len * 8U;
-    size_t bit_pos = 0;
+    if(!raw || !out || !out_len || bit_offset > 7U) return false;
+    if(raw_bit_len <= bit_offset) return false;
+
+    size_t bit_pos = bit_offset;
     size_t out_idx = 0;
     bool have_high = false;
     uint8_t high_nibble = 0;
 
-    while((bit_pos + 6U) <= bit_len) {
+    while((bit_pos + 6U) <= raw_bit_len) {
         uint8_t sym = wmbus_get_bits_msb(raw, bit_pos, 6);
         bit_pos += 6U;
 
@@ -83,6 +86,15 @@ bool wmbus_parser_decode_3of6(
 
     *out_len = out_idx;
     return (out_idx > 0) && !have_high;
+}
+
+bool wmbus_parser_decode_3of6(
+    const uint8_t* raw,
+    size_t raw_len,
+    uint8_t* out,
+    size_t out_max,
+    size_t* out_len) {
+    return wmbus_parser_decode_3of6_bits(raw, raw_len * 8U, 0U, out, out_max, out_len);
 }
 
 static bool wmbus_mfg_valid(uint16_t man) {
