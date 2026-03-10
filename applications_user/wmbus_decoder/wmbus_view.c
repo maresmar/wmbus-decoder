@@ -47,19 +47,14 @@ static const WmBusHistoryEntry* wmbus_history_get(const WmBusViewModel* model, u
     return &model->hist[index];
 }
 
-static char wmbus_security_flag(
-    bool has_short_tpl,
-    uint8_t security_mode,
-    bool security_likely_encrypted) {
+static char
+    wmbus_security_flag(bool has_short_tpl, uint8_t security_mode, bool security_likely_encrypted) {
     if(!has_short_tpl) return '-';
     if(security_likely_encrypted) return 'Y';
     return security_mode ? '?' : 'N';
 }
 
-static void wmbus_format_entry_age(
-    const WmBusHistoryEntry* entry,
-    char* out,
-    size_t out_size) {
+static void wmbus_format_entry_age(const WmBusHistoryEntry* entry, char* out, size_t out_size) {
     if(out_size == 0U) return;
     out[0] = '\0';
 
@@ -91,7 +86,7 @@ static void wmbus_view_draw(Canvas* canvas, void* model) {
     char mode_header[16];
     const char* sync_label = wmbus_sync_label(m->sync_index);
     uint8_t display_cursor = m->hist_cursor;
-    if(display_cursor >= m->hist_count || !m->freeze_display) {
+    if(display_cursor >= m->hist_count && !m->freeze_display) {
         display_cursor = (uint8_t)(m->hist_count - 1U);
     }
     const WmBusHistoryEntry* entry = wmbus_history_get(m, display_cursor);
@@ -144,8 +139,7 @@ static void wmbus_view_draw(Canvas* canvas, void* model) {
 
     //canvas_draw_line(canvas, 0, 29, canvas_width(canvas), 29);
 
-    WmBusStatus displayed_status =
-        (m->freeze_display && entry) ? entry->status : m->last_status;
+    WmBusStatus displayed_status = (m->freeze_display && entry) ? entry->status : m->last_status;
     snprintf(
         line,
         sizeof(line),
@@ -204,9 +198,7 @@ static void wmbus_view_draw(Canvas* canvas, void* model) {
                 entry->ci_field,
                 entry->security_mode,
                 wmbus_security_flag(
-                    entry->has_short_tpl,
-                    entry->security_mode,
-                    entry->security_likely_encrypted),
+                    entry->has_short_tpl, entry->security_mode, entry->security_likely_encrypted),
                 entry->rssi);
         } else {
             snprintf(
