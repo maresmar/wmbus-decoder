@@ -7,7 +7,7 @@
 #include <gui/view.h>
 #include <gui/view_dispatcher.h>
 
-#define WMBUS_HIST_MAX          20
+#define WMBUS_HIST_MAX          80
 #define WMBUS_FRAME_PREVIEW_MAX 32
 #define WMBUS_RSSI_HISTORY      64
 
@@ -36,6 +36,7 @@ typedef struct {
     uint8_t dev_type;
     uint8_t ci_field;
     int8_t rssi;
+    uint32_t rx_tick;
     WmBusStatus status;
     bool crc_ok;
     bool used_3of6;

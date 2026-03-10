@@ -56,9 +56,38 @@ static char wmbus_security_flag(
     return security_mode ? '?' : 'N';
 }
 
+static void wmbus_format_entry_age(
+    const WmBusHistoryEntry* entry,
+    char* out,
+    size_t out_size) {
+    if(out_size == 0U) return;
+    out[0] = '\0';
+
+    if(!entry || entry->rx_tick == 0U) {
+        return;
+    }
+
+    uint32_t tick_freq = furi_kernel_get_tick_frequency();
+    if(tick_freq == 0U) {
+        return;
+    }
+
+    uint32_t age_seconds = (furi_get_tick() - entry->rx_tick) / tick_freq;
+    if(age_seconds < 60U) {
+        snprintf(out, out_size, "%lus", (unsigned long)age_seconds);
+    } else if(age_seconds < 3600U) {
+        snprintf(out, out_size, "%lum", (unsigned long)(age_seconds / 60U));
+    } else if(age_seconds < 86400U) {
+        snprintf(out, out_size, "%luh", (unsigned long)(age_seconds / 3600U));
+    } else {
+        snprintf(out, out_size, "%lud", (unsigned long)(age_seconds / 86400U));
+    }
+}
+
 static void wmbus_view_draw(Canvas* canvas, void* model) {
     WmBusViewModel* m = model;
     char line[64];
+    char age[12];
     char mode_header[16];
     const char* sync_label = wmbus_sync_label(m->sync_index);
     uint8_t display_cursor = m->hist_cursor;
@@ -76,6 +105,8 @@ static void wmbus_view_draw(Canvas* canvas, void* model) {
     } else {
         snprintf(mode_header, sizeof(mode_header), "Latest");
     }
+
+    wmbus_format_entry_age(entry, age, sizeof(age));
 
     // Title
     canvas_set_color(canvas, ColorBlack);
@@ -113,12 +144,19 @@ static void wmbus_view_draw(Canvas* canvas, void* model) {
 
     //canvas_draw_line(canvas, 0, 29, canvas_width(canvas), 29);
 
-    if(m->freeze_display) {
-        snprintf(line, sizeof(line), "Pkt %s", wmbus_status_str(entry->status));
-    } else {
-        snprintf(line, sizeof(line), "Last %s", wmbus_status_str(m->last_status));
-    }
+    WmBusStatus displayed_status =
+        (m->freeze_display && entry) ? entry->status : m->last_status;
+    snprintf(
+        line,
+        sizeof(line),
+        "%s %s",
+        m->freeze_display ? "Pkt" : "Last",
+        wmbus_status_str(displayed_status));
     canvas_draw_str(canvas, 0, 38, line);
+    if(age[0] != '\0') {
+        snprintf(line, sizeof(line), "A:%s", age);
+        canvas_draw_str_aligned(canvas, canvas_width(canvas), 38, AlignRight, AlignBottom, line);
+    }
 
     if(!entry) {
         canvas_draw_str(canvas, 0, 48, "Waiting for RX...");

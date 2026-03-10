@@ -525,7 +525,8 @@ static void wmbus_history_push(
     int rssi,
     bool crc_ok,
     bool has_total_m3,
-    uint32_t total_m3_x1000) {
+    uint32_t total_m3_x1000,
+    uint32_t rx_tick) {
     uint8_t next = 0;
     if(model->hist_count == 0) {
         next = 0;
@@ -548,6 +549,7 @@ static void wmbus_history_push(
     entry->dev_type = frame[9];
     entry->ci_field = frame[10];
     entry->rssi = (int8_t)rssi;
+    entry->rx_tick = rx_tick;
     entry->crc_ok = crc_ok;
     entry->used_3of6 = used_3of6;
     entry->has_total_m3 = has_total_m3;
@@ -581,7 +583,8 @@ static void wmbus_update_model_locked(
     int rssi,
     bool crc_ok,
     bool length_ok,
-    const WmBusPayloadInfo* payload_info) {
+    const WmBusPayloadInfo* payload_info,
+    uint32_t rx_tick) {
     if(frame_len < 11) return;
     furi_check(payload_info);
 
@@ -622,7 +625,8 @@ static void wmbus_update_model_locked(
         rssi,
         crc_ok,
         model->has_total_m3,
-        model->total_m3_x1000);
+        model->total_m3_x1000,
+        rx_tick);
 }
 
 static bool wmbus_navigation_callback(void* context) {
@@ -1035,7 +1039,8 @@ static void wmbus_process_captured_frame(WmBusApp* app, const WmBusCaptureFrame*
                     rssi,
                     crc_ok,
                     length_ok,
-                    &payload_info);
+                    &payload_info,
+                    now_tick);
             } else {
                 model->last_crc_valid = false;
                 model->last_crc_ok = false;

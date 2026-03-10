@@ -20,6 +20,7 @@ Use this as startup context for future coding chats in this app.
   - Keep frame length trimming before CRC/model updates.
 - Data model/UI:
   - `WmBusViewModel` and `WmBusHistoryEntry` include `has_total_m3` and `total_m3_x1000`.
+  - History entries also store their RX tick so the UI can show packet age while browsing.
   - Normal view should show `Tot:<whole>.<frac>m3` when available.
   - If no total is found but short TPL is present, show the short-TPL security mode and a compact encryption hint.
   - Debug mode remains header/hex oriented.
@@ -101,12 +102,12 @@ Mode commands are delivered to RX thread through a `FuriMessageQueue`, avoiding 
 
 ## Runtime View Lines
 
-- header right: `Latest` in live mode, or `H:<pos>/20` in history mode
+- header right: `Latest` in live mode, or `H:<pos>/<count>` in history mode
 - line 1: `DEC:<decoded> Rhi:<strong RSSI> OK:<crc_ok> BAD:<crc_bad>`
   - `Rhi` counts packets with RSSI at/above strong threshold (`-70 dBm`)
 - line 2: `R:<packets_per_sec>/s RSSI:<last_live_rssi>`
-- line 3: `PKT M:<T/C> R:<captured_rssi> S:<status>`
-  - mode/rssi follow the currently shown packet in history; if no packet is shown, fallback is current sync mode + live RSSI
+- line 3: `Last <status>` or `Pkt <status>`, with `A:<age>` right-aligned for the currently shown packet
+- line 4: packet details for the currently shown packet, or a waiting message before first decode
 
 ## Mode Selection For Apator162
 
