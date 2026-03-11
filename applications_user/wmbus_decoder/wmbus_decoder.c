@@ -36,7 +36,9 @@
 #define WMBUS_C_RXBYTES_STABLE_RETRIES 6U
 #define WMBUS_LOG_HEX_BYTES_PER_LINE   24U
 #define WMBUS_PACKET_LOG_PATH          APP_DATA_PATH("packets.csv")
-#define WMBUS_PACKET_LOG_LINE_MAX      160U
+#define WMBUS_PACKET_LOG_HEADER \
+    "mode,manufacturer,id,version,device_type,ci,security_mode,encryption,total_m3,rssi,packet_hex"
+#define WMBUS_PACKET_LOG_LINE_MAX      ((WMBUS_DECODE_MAX * 2U) + 192U)
 
 static uint8_t wmbus_cc1101_preset_regs[];
 static void wmbus_radio_recover_rx(void);
@@ -397,13 +399,31 @@ static bool wmbus_packet_log_write_line(File* file, const char* format, ...) {
     return storage_file_write(file, line, to_write) == to_write;
 }
 
+static void wmbus_packet_log_format_hex(
+    const uint8_t* frame,
+    size_t frame_len,
+    char* out,
+    size_t out_size) {
+    furi_check(frame);
+    furi_check(out);
+
+    if(out_size == 0U) return;
+
+    size_t write = 0;
+    for(size_t i = 0; i < frame_len && (write + 2U) < out_size; i++) {
+        snprintf(&out[write], out_size - write, "%02X", frame[i]);
+        write += 2U;
+    }
+    out[write] = '\0';
+}
+
 static bool wmbus_packet_log_open(WmBusApp* app) {
     furi_check(app);
 
     if(!app->packet_log) return false;
     if(storage_file_is_open(app->packet_log)) return true;
 
-    if(!storage_file_open(app->packet_log, WMBUS_PACKET_LOG_PATH, FSAM_WRITE, FSOM_OPEN_APPEND)) {
+    if(!storage_file_open(app->packet_log, WMBUS_PACKET_LOG_PATH, FSAM_READ_WRITE, FSOM_OPEN_APPEND)) {
         if(!app->packet_log_error_reported) {
             FURI_LOG_W(TAG, "failed to open packet log: %s", WMBUS_PACKET_LOG_PATH);
             app->packet_log_error_reported = true;
@@ -413,10 +433,24 @@ static bool wmbus_packet_log_open(WmBusApp* app) {
 
     app->packet_log_error_reported = false;
 
-    if(storage_file_size(app->packet_log) == 0U) {
-        if(!wmbus_packet_log_write_line(
-               app->packet_log,
-               "mode,manufacturer,id,version,device_type,ci,security_mode,encryption,total_m3,rssi\n")) {
+    uint64_t log_size = storage_file_size(app->packet_log);
+    bool need_header = (log_size == 0U);
+
+    if(log_size > 0U) {
+        char header[sizeof(WMBUS_PACKET_LOG_HEADER) + 32U] = {0};
+        if(storage_file_seek(app->packet_log, 0U, true)) {
+            size_t read = storage_file_read(app->packet_log, header, sizeof(header) - 1U);
+            header[read] = '\0';
+            if(!strstr(header, "packet_hex")) {
+                need_header = true;
+            }
+        }
+
+        storage_file_seek(app->packet_log, (uint32_t)log_size, true);
+    }
+
+    if(need_header) {
+        if(!wmbus_packet_log_write_line(app->packet_log, "%s\n", WMBUS_PACKET_LOG_HEADER)) {
             FURI_LOG_W(TAG, "failed to initialize packet log header");
             storage_file_close(app->packet_log);
             app->packet_log_error_reported = true;
@@ -454,10 +488,12 @@ static void wmbus_packet_log_frame(
     char id[WMBUS_ID_STR_LEN] = {0};
     char security_mode[3 + 1] = {0};
     char total_m3[16] = {0};
+    char packet_hex[(WMBUS_DECODE_MAX * 2U) + 1U] = {0};
 
     uint16_t man = (uint16_t)frame[2] | ((uint16_t)frame[3] << 8);
     wmbus_frame_decode_mfg(man, mfg);
     wmbus_frame_format_id(&frame[4], id, NULL);
+    wmbus_packet_log_format_hex(frame, frame_len, packet_hex, sizeof(packet_hex));
 
     if(payload_info->has_short_tpl) {
         snprintf(security_mode, sizeof(security_mode), "%02X", payload_info->security_mode);
@@ -471,7 +507,7 @@ static void wmbus_packet_log_frame(
 
     if(!wmbus_packet_log_write_line(
            app->packet_log,
-           "%c,%s,%s,%02X,%02X,%02X,%s,%s,%s,%d\n",
+           "%c,%s,%s,%02X,%02X,%02X,%s,%s,%s,%d,%s\n",
            used_3of6 ? 'T' : 'C',
            mfg,
            id,
@@ -481,7 +517,8 @@ static void wmbus_packet_log_frame(
            security_mode,
            wmbus_packet_log_encryption_text(payload_info),
            total_m3,
-           rssi)) {
+           rssi,
+           packet_hex)) {
         FURI_LOG_W(TAG, "failed to append packet log line");
         storage_file_close(app->packet_log);
         app->packet_log_error_reported = true;
