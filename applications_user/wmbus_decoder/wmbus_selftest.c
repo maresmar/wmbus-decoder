@@ -218,6 +218,21 @@ static const char* wmbus_selftest_apator_old_style_b6 =
 static const size_t wmbus_selftest_apator_old_style_b6_len = 91U;
 static const uint32_t wmbus_selftest_apator_old_style_b6_fnv1a = 0x1CD6AC05U;
 
+static const char* wmbus_selftest_apator_encrypted_mode5 =
+    "6E4401068888888805077A85006085BC2630713819512EB4CD87FBA554FB43F67CF9654A68EE8E19"
+    "4088160DF752E716238292E8AF1AC20986202EE561D743602466915E42F1105D9C6782A54504E4F09"
+    "9E65A7656B930C73A30775122D2FDF074B5035CFAA7E0050BF32FAAE03A77";
+
+static const char* wmbus_selftest_apator_encrypted_mode5_user =
+    "6E4401069785770205077AD300608581DEFDBBD4763A91106A2FFF142030384C614C354994F5100C7"
+    "F4338C7FE7A48AE27A9684F453C61E37AF33D9FBA10B7F299EC2A0F9F6FAF940AB4608FA60EC2D2758"
+    "D11E4D5BD35D7589A375025783AC1CF932C42611302A8EDB8E9ECA4C14B";
+
+static const char* wmbus_selftest_apator_encrypted_mode5_corrupt =
+    "6E4401068888888805077A85006085BD2630713819512EB4CD87FBA554FB43F67CF9654A68EE8E19"
+    "4088160DF752E716238292E8AF1AC20986202EE561D743602466915E42F1105D9C6782A54504E4F09"
+    "9E65A7656B930C73A30775122D2FDF074B5035CFAA7E0050BF32FAAE03A77";
+
 static const WmBusTestVector wmbus_vector_c_apator_a_ok = {
     .name = "c_apator_a_ok",
     .data = wmbus_apator_a,
@@ -1562,6 +1577,80 @@ static bool wmbus_selftest_check_parser_apator162_old_style_ci_b6_rejected(
     return true;
 }
 
+static bool wmbus_selftest_check_parser_apator162_mode5_zero_key_vectors(
+    char* detail,
+    size_t detail_len) {
+    const struct {
+        const char* telegram;
+        uint32_t total_m3_x1000;
+    } vectors[] = {
+        {wmbus_selftest_apator_encrypted_mode5, 4848U},
+        {wmbus_selftest_apator_encrypted_mode5_user, 117329U},
+    };
+
+    for(size_t i = 0; i < COUNT_OF(vectors); i++) {
+        uint8_t normalized[WMBUS_SELFTEST_BUF_MAX] = {0};
+        size_t normalized_len = 0;
+        uint32_t total_m3_x1000 = 0;
+        uint16_t cfg = 0;
+
+        if(!wmbus_selftest_hex_to_bytes(
+               vectors[i].telegram, normalized, sizeof(normalized), &normalized_len)) {
+            wmbus_selftest_set_detail(detail, detail_len, "vector %u hex parse failed", (unsigned int)i);
+            return false;
+        }
+        if(normalized_len < 17U || normalized[10] != 0x7AU) {
+            wmbus_selftest_set_detail(detail, detail_len, "vector %u unexpected frame", (unsigned int)i);
+            return false;
+        }
+        cfg = (uint16_t)normalized[13] | ((uint16_t)normalized[14] << 8);
+        if(!wmbus_parser_short_tpl_security_likely_encrypted(cfg) ||
+           (normalized[15] == 0x2FU && normalized[16] == 0x2FU)) {
+            wmbus_selftest_set_detail(detail, detail_len, "vector %u unexpected cipher state", (unsigned int)i);
+            return false;
+        }
+        if(!wmbus_parser_parse_apator162_total(normalized, normalized_len, &total_m3_x1000) ||
+           total_m3_x1000 != vectors[i].total_m3_x1000) {
+            wmbus_selftest_set_detail(
+                detail,
+                detail_len,
+                "vector %u total=%lu expected=%lu",
+                (unsigned int)i,
+                (unsigned long)total_m3_x1000,
+                (unsigned long)vectors[i].total_m3_x1000);
+            return false;
+        }
+    }
+
+    wmbus_selftest_set_detail(detail, detail_len, "mode5 zero-key vectors=%u", (unsigned int)COUNT_OF(vectors));
+    return true;
+}
+
+static bool wmbus_selftest_check_parser_apator162_mode5_corrupt_rejected(
+    char* detail,
+    size_t detail_len) {
+    uint8_t normalized[WMBUS_SELFTEST_BUF_MAX] = {0};
+    size_t normalized_len = 0;
+    uint32_t total_m3_x1000 = 0;
+
+    if(!wmbus_selftest_hex_to_bytes(
+           wmbus_selftest_apator_encrypted_mode5_corrupt,
+           normalized,
+           sizeof(normalized),
+           &normalized_len)) {
+        wmbus_selftest_set_detail(detail, detail_len, "hex parse failed");
+        return false;
+    }
+    if(wmbus_parser_parse_apator162_total(normalized, normalized_len, &total_m3_x1000)) {
+        wmbus_selftest_set_detail(
+            detail, detail_len, "corrupt ciphertext accepted total=%lu", (unsigned long)total_m3_x1000);
+        return false;
+    }
+
+    wmbus_selftest_set_detail(detail, detail_len, "mode5 corrupt rejected=YES");
+    return true;
+}
+
 static bool wmbus_selftest_check_short_tpl_security_modes(char* detail, size_t detail_len) {
     uint8_t clear_mode = wmbus_parser_short_tpl_security_mode(0x0000U);
     uint8_t aes_cbc_iv_mode = wmbus_parser_short_tpl_security_mode(0x8560U);
@@ -1703,6 +1792,14 @@ static const WmBusSelftestCheck wmbus_selftest_checks_common[] = {
     {
         "check_parser_apator162_old_style_ci_b6_rejected",
         wmbus_selftest_check_parser_apator162_old_style_ci_b6_rejected,
+    },
+    {
+        "check_parser_apator162_mode5_zero_key_vectors",
+        wmbus_selftest_check_parser_apator162_mode5_zero_key_vectors,
+    },
+    {
+        "check_parser_apator162_mode5_corrupt_rejected",
+        wmbus_selftest_check_parser_apator162_mode5_corrupt_rejected,
     },
     {"check_short_tpl_security_modes", wmbus_selftest_check_short_tpl_security_modes},
     {"check_capture_state_reset", wmbus_selftest_check_capture_state_reset},

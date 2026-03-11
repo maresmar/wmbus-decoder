@@ -162,10 +162,14 @@ A targeted parser extracts total volume from proprietary register payloads.
 Implemented behavior:
 
 - requires `CI == 0x7A`
+- for short-TPL security mode `5`, decrypts AES-CBC payloads using the WM-Bus mode-5 IV and the fixed all-zero 16-byte key
+- for other encrypted short-TPL modes, requires visible decrypted `2F2F` check bytes before parsing
 - starts after short TPL header
 - skips leading `0x2F` fillers
+- requires vendor header byte `0x0F` before the 8-byte Apator fixed block
 - skips first 8 vendor bytes
 - iterates vendor registers using `apator162` register-size table
+- validates register boundaries until end marker / padding before trusting the parsed total
 - extracts register `0x10` or `0xA1` as little-endian `uint32`
 - interprets raw value as `m3 * 1000`
 
