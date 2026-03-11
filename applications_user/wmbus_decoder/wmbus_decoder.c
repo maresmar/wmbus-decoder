@@ -2,12 +2,15 @@
 #include <furi_hal.h>
 #include <furi_hal_spi.h>
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
 #include <gui/gui.h>
 #include <gui/view_dispatcher.h>
 #include <gui/view.h>
+
+#include <storage/storage.h>
 
 #include <lib/drivers/cc1101_regs.h>
 
@@ -32,6 +35,8 @@
 #define WMBUS_MODE_COUNT               2U
 #define WMBUS_C_RXBYTES_STABLE_RETRIES 6U
 #define WMBUS_LOG_HEX_BYTES_PER_LINE   24U
+#define WMBUS_PACKET_LOG_PATH          APP_DATA_PATH("packets.csv")
+#define WMBUS_PACKET_LOG_LINE_MAX      160U
 
 static uint8_t wmbus_cc1101_preset_regs[];
 static void wmbus_radio_recover_rx(void);
@@ -345,6 +350,9 @@ typedef struct {
     WmBusViewContext view_ctx;
     FuriThread* rx_thread;
     FuriMessageQueue* control_queue;
+    Storage* storage;
+    File* packet_log;
+    bool packet_log_error_reported;
 } WmBusApp;
 
 typedef struct {
@@ -368,6 +376,117 @@ typedef struct {
     bool has_total_m3;
     uint32_t total_m3_x1000;
 } WmBusPayloadInfo;
+
+static bool wmbus_packet_log_write_line(File* file, const char* format, ...) {
+    if(!file || !format) return false;
+
+    char line[WMBUS_PACKET_LOG_LINE_MAX];
+
+    va_list args;
+    va_start(args, format);
+    int len = vsnprintf(line, sizeof(line), format, args);
+    va_end(args);
+
+    if(len < 0) return false;
+
+    size_t to_write = (size_t)len;
+    if(to_write >= sizeof(line)) {
+        to_write = sizeof(line) - 1U;
+    }
+
+    return storage_file_write(file, line, to_write) == to_write;
+}
+
+static bool wmbus_packet_log_open(WmBusApp* app) {
+    furi_check(app);
+
+    if(!app->packet_log) return false;
+    if(storage_file_is_open(app->packet_log)) return true;
+
+    if(!storage_file_open(app->packet_log, WMBUS_PACKET_LOG_PATH, FSAM_WRITE, FSOM_OPEN_APPEND)) {
+        if(!app->packet_log_error_reported) {
+            FURI_LOG_W(TAG, "failed to open packet log: %s", WMBUS_PACKET_LOG_PATH);
+            app->packet_log_error_reported = true;
+        }
+        return false;
+    }
+
+    app->packet_log_error_reported = false;
+
+    if(storage_file_size(app->packet_log) == 0U) {
+        if(!wmbus_packet_log_write_line(
+               app->packet_log,
+               "mode,manufacturer,id,version,device_type,ci,security_mode,encryption,total_m3,rssi\n")) {
+            FURI_LOG_W(TAG, "failed to initialize packet log header");
+            storage_file_close(app->packet_log);
+            app->packet_log_error_reported = true;
+            return false;
+        }
+        storage_file_sync(app->packet_log);
+    }
+
+    return true;
+}
+
+static const char* wmbus_packet_log_encryption_text(const WmBusPayloadInfo* payload_info) {
+    furi_check(payload_info);
+
+    if(!payload_info->has_short_tpl) return "n/a";
+    if(payload_info->security_likely_encrypted) return "yes";
+    return payload_info->security_mode ? "unknown" : "no";
+}
+
+static void wmbus_packet_log_frame(
+    WmBusApp* app,
+    const uint8_t* frame,
+    size_t frame_len,
+    bool used_3of6,
+    int rssi,
+    const WmBusPayloadInfo* payload_info) {
+    furi_check(app);
+    furi_check(frame);
+    furi_check(payload_info);
+
+    if(frame_len < 11U) return;
+    if(!wmbus_packet_log_open(app)) return;
+
+    char mfg[WMBUS_MFG_STR_LEN] = {0};
+    char id[WMBUS_ID_STR_LEN] = {0};
+    char security_mode[3 + 1] = {0};
+    char total_m3[16] = {0};
+
+    uint16_t man = (uint16_t)frame[2] | ((uint16_t)frame[3] << 8);
+    wmbus_frame_decode_mfg(man, mfg);
+    wmbus_frame_format_id(&frame[4], id, NULL);
+
+    if(payload_info->has_short_tpl) {
+        snprintf(security_mode, sizeof(security_mode), "%02X", payload_info->security_mode);
+    }
+
+    if(payload_info->has_total_m3) {
+        uint32_t whole = payload_info->total_m3_x1000 / 1000U;
+        uint32_t frac = payload_info->total_m3_x1000 % 1000U;
+        snprintf(total_m3, sizeof(total_m3), "%lu.%03lu", (unsigned long)whole, (unsigned long)frac);
+    }
+
+    if(!wmbus_packet_log_write_line(
+           app->packet_log,
+           "%c,%s,%s,%02X,%02X,%02X,%s,%s,%s,%d\n",
+           used_3of6 ? 'T' : 'C',
+           mfg,
+           id,
+           frame[8],
+           frame[9],
+           frame[10],
+           security_mode,
+           wmbus_packet_log_encryption_text(payload_info),
+           total_m3,
+           rssi)) {
+        FURI_LOG_W(TAG, "failed to append packet log line");
+        storage_file_close(app->packet_log);
+        app->packet_log_error_reported = true;
+    }
+}
 
 static bool wmbus_ci_has_short_tpl(uint8_t ci) {
     switch(ci) {
@@ -998,6 +1117,10 @@ static void wmbus_process_captured_frame(WmBusApp* app, const WmBusCaptureFrame*
         wmbus_log_apator_missing_total(frame, frame_len, used_3of6, capture->rssi, &payload_info);
     }
 
+    if(plausible && length_ok && crc_known && crc_ok) {
+        wmbus_packet_log_frame(app, frame, frame_len, used_3of6, capture->rssi, &payload_info);
+    }
+
     uint8_t confidence =
         wmbus_calc_confidence(decoded_ok, plausible, length_ok, crc_ok, strong_rssi);
 
@@ -1168,6 +1291,11 @@ static WmBusApp* wmbus_app_alloc(void) {
     WmBusApp* app = malloc(sizeof(WmBusApp));
     memset(app, 0, sizeof(WmBusApp));
 
+    app->storage = furi_record_open(RECORD_STORAGE);
+    furi_check(app->storage);
+    app->packet_log = storage_file_alloc(app->storage);
+    furi_check(app->packet_log);
+
     app->control_queue = furi_message_queue_alloc(8, sizeof(WmBusControlCmd));
     furi_check(app->control_queue);
 
@@ -1210,11 +1338,19 @@ static void wmbus_app_free(WmBusApp* app) {
         furi_thread_free(app->rx_thread);
     }
 
+    if(app->packet_log) {
+        if(storage_file_is_open(app->packet_log)) {
+            storage_file_close(app->packet_log);
+        }
+        storage_file_free(app->packet_log);
+    }
+
     view_dispatcher_remove_view(app->view_dispatcher, 0);
     view_dispatcher_free(app->view_dispatcher);
     view_free(app->view);
     furi_message_queue_free(app->control_queue);
     furi_record_close(RECORD_GUI);
+    furi_record_close(RECORD_STORAGE);
     free(app);
 }
 
