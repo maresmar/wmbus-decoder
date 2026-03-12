@@ -326,6 +326,56 @@ static bool wmbus_packet_decode_bcd(const uint8_t* data, uint8_t data_len, uint6
     return true;
 }
 
+static bool wmbus_packet_decode_date2(const uint8_t* data, char* out, size_t out_size) {
+    if(!data || !out || out_size == 0U) return false;
+
+    uint8_t day = data[0] & 0x1FU;
+    uint8_t month = data[1] & 0x0FU;
+    uint16_t year = (uint16_t)(((data[0] >> 5) & 0x07U) | ((data[1] >> 1) & 0x78U)) + 2000U;
+    if(day == 0U || day > 31U || month == 0U || month > 12U) return false;
+
+    snprintf(out, out_size, "%04u-%02u-%02u", (unsigned int)year, (unsigned int)month, (unsigned int)day);
+    return true;
+}
+
+static bool wmbus_packet_decode_datetime4(const uint8_t* data, char* out, size_t out_size) {
+    if(!data || !out || out_size == 0U) return false;
+
+    uint8_t minute = data[0] & 0x3FU;
+    uint8_t hour = data[1] & 0x1FU;
+    uint8_t day = data[2] & 0x1FU;
+    uint8_t month = data[3] & 0x0FU;
+    uint16_t year = (uint16_t)(((data[2] >> 5) & 0x07U) | ((data[3] >> 1) & 0x78U)) + 2000U;
+
+    if(minute > 59U || hour > 23U || day == 0U || day > 31U || month == 0U || month > 12U) {
+        return false;
+    }
+
+    snprintf(
+        out,
+        out_size,
+        "%04u-%02u-%02u %02u:%02u",
+        (unsigned int)year,
+        (unsigned int)month,
+        (unsigned int)day,
+        (unsigned int)hour,
+        (unsigned int)minute);
+    return true;
+}
+
+static void
+    wmbus_packet_format_hex_text(const uint8_t* data, uint8_t data_len, char* out, size_t out_size) {
+    if(!out || out_size == 0U) return;
+    out[0] = '\0';
+    if(!data) return;
+
+    size_t write = 0U;
+    for(uint8_t i = 0; i < data_len && (write + 2U) < out_size; i++) {
+        snprintf(&out[write], out_size - write, "%02X", data[i]);
+        write += 2U;
+    }
+}
+
 static int wmbus_packet_data_len_from_dif(uint8_t dif, bool* is_bcd, bool* is_variable_text) {
     if(is_bcd) *is_bcd = false;
     if(is_variable_text) *is_variable_text = false;
@@ -385,6 +435,40 @@ static void wmbus_packet_map_vif(WmBusApplicationRecord* record) {
         record->scale10 = (int8_t)(record->vif & 0x07U) - 3;
         snprintf(record->label, sizeof(record->label), "Energy");
         snprintf(record->unit, sizeof(record->unit), "Wh");
+    } else if((record->vif & 0xF8U) == 0x28U) {
+        record->quantity = WmBusApplicationQuantityPower;
+        record->scale10 = (int8_t)(record->vif & 0x07U) - 3;
+        snprintf(record->label, sizeof(record->label), "Power");
+        snprintf(record->unit, sizeof(record->unit), "W");
+    } else if((record->vif & 0xF8U) == 0x38U) {
+        record->quantity = WmBusApplicationQuantityVolumeFlow;
+        record->scale10 = (int8_t)(record->vif & 0x07U) - 6;
+        snprintf(record->label, sizeof(record->label), "Flow");
+        snprintf(record->unit, sizeof(record->unit), "m3/h");
+    } else if((record->vif & 0xFCU) == 0x58U) {
+        record->quantity = WmBusApplicationQuantityFlowTemperature;
+        record->scale10 = (int8_t)(record->vif & 0x03U) - 3;
+        snprintf(record->label, sizeof(record->label), "Flow temp");
+        snprintf(record->unit, sizeof(record->unit), "C");
+    } else if((record->vif & 0xFCU) == 0x5CU) {
+        record->quantity = WmBusApplicationQuantityReturnTemperature;
+        record->scale10 = (int8_t)(record->vif & 0x03U) - 3;
+        snprintf(record->label, sizeof(record->label), "Return temp");
+        snprintf(record->unit, sizeof(record->unit), "C");
+    } else if((record->vif & 0xFCU) == 0x60U) {
+        record->quantity = WmBusApplicationQuantityTemperatureDifference;
+        record->scale10 = (int8_t)(record->vif & 0x03U) - 3;
+        snprintf(record->label, sizeof(record->label), "Delta temp");
+        snprintf(record->unit, sizeof(record->unit), "K");
+    } else if(record->vif == 0x6CU) {
+        record->quantity = WmBusApplicationQuantityDate;
+        snprintf(record->label, sizeof(record->label), "Date");
+    } else if(record->vif == 0x6DU) {
+        record->quantity = WmBusApplicationQuantityDateTime;
+        snprintf(record->label, sizeof(record->label), "Measured at");
+    } else if(record->vif == 0xFDU && record->vife_count > 0U && record->vifes[0] == 0x17U) {
+        record->quantity = WmBusApplicationQuantityStatus;
+        snprintf(record->label, sizeof(record->label), "Status");
     }
 }
 
@@ -405,17 +489,25 @@ static void wmbus_packet_decode_record_value(
         return;
     }
 
+    if(record->quantity == WmBusApplicationQuantityDate && data_len == 2U) {
+        record->value_type = WmBusApplicationValueText;
+        if(wmbus_packet_decode_date2(data, record->value_text, sizeof(record->value_text))) {
+            return;
+        }
+    } else if(record->quantity == WmBusApplicationQuantityDateTime && data_len == 4U) {
+        record->value_type = WmBusApplicationValueText;
+        if(wmbus_packet_decode_datetime4(data, record->value_text, sizeof(record->value_text))) {
+            return;
+        }
+    } else if(record->quantity == WmBusApplicationQuantityStatus) {
+        record->value_type = WmBusApplicationValueText;
+        wmbus_packet_format_hex_text(data, data_len, record->value_text, sizeof(record->value_text));
+        return;
+    }
+
     if(is_variable_text) {
         record->value_type = WmBusApplicationValueText;
-        size_t write = 0U;
-        for(uint8_t i = 0; i < data_len && (write + 2U) < sizeof(record->value_text); i++) {
-            snprintf(
-                &record->value_text[write],
-                sizeof(record->value_text) - write,
-                "%02X",
-                data[i]);
-            write += 2U;
-        }
+        wmbus_packet_format_hex_text(data, data_len, record->value_text, sizeof(record->value_text));
         return;
     }
 
@@ -429,15 +521,7 @@ static void wmbus_packet_decode_record_value(
 
     if(!decoded) {
         record->value_type = WmBusApplicationValueText;
-        size_t write = 0U;
-        for(uint8_t i = 0; i < data_len && (write + 2U) < sizeof(record->value_text); i++) {
-            snprintf(
-                &record->value_text[write],
-                sizeof(record->value_text) - write,
-                "%02X",
-                data[i]);
-            write += 2U;
-        }
+        wmbus_packet_format_hex_text(data, data_len, record->value_text, sizeof(record->value_text));
         return;
     }
 

@@ -34,6 +34,14 @@ typedef enum {
     WmBusApplicationQuantityUnknown = 0,
     WmBusApplicationQuantityVolume,
     WmBusApplicationQuantityEnergy,
+    WmBusApplicationQuantityPower,
+    WmBusApplicationQuantityVolumeFlow,
+    WmBusApplicationQuantityFlowTemperature,
+    WmBusApplicationQuantityReturnTemperature,
+    WmBusApplicationQuantityTemperatureDifference,
+    WmBusApplicationQuantityDate,
+    WmBusApplicationQuantityDateTime,
+    WmBusApplicationQuantityStatus,
 } WmBusApplicationQuantity;
 
 typedef struct {

@@ -2073,6 +2073,13 @@ static bool wmbus_selftest_check_dif_vif_decode_basic(char* detail, size_t detai
         0x04, 0x13, 0x40, 0xE2, 0x01, 0x00,
         0x0C, 0x03, 0x56, 0x34, 0x12, 0x00,
         0x84, 0x01, 0x80, 0x13, 0x78, 0x56, 0x34, 0x12,
+        0x04, 0x38, 0x4E, 0x61, 0xBC, 0x00,
+        0x02, 0x5A, 0xD7, 0x00,
+        0x02, 0x5E, 0xA0, 0x00,
+        0x02, 0x62, 0x37, 0x00,
+        0x02, 0x6C, 0x2C, 0x33,
+        0x04, 0x6D, 0x25, 0x10, 0x2C, 0x33,
+        0x02, 0xFD, 0x17, 0x34, 0x12,
     };
     WmBusApplicationRecord records[WMBUS_PACKET_RECORD_MAX] = {0};
     uint8_t count = 0U;
@@ -2082,26 +2089,45 @@ static bool wmbus_selftest_check_dif_vif_decode_basic(char* detail, size_t detai
         wmbus_selftest_set_detail(detail, detail_len, "decode failed");
         return false;
     }
-    if(count != 3U || records[0].quantity != WmBusApplicationQuantityVolume ||
+    if(count != 10U || records[0].quantity != WmBusApplicationQuantityVolume ||
        records[0].value_unsigned != 123456U || strcmp(records[0].value_text, "123.456 m3") != 0 ||
        records[1].quantity != WmBusApplicationQuantityEnergy ||
        records[1].value_unsigned != 123456U || strcmp(records[1].value_text, "123456 Wh") != 0 ||
        records[2].dife_count != 1U || records[2].vife_count != 1U ||
-       records[2].storage_no != 2U) {
+       records[2].storage_no != 2U ||
+       records[3].quantity != WmBusApplicationQuantityVolumeFlow ||
+       strcmp(records[3].value_text, "12.345678 m3/h") != 0 ||
+       records[4].quantity != WmBusApplicationQuantityFlowTemperature ||
+       strcmp(records[4].value_text, "21.5 C") != 0 ||
+       records[5].quantity != WmBusApplicationQuantityReturnTemperature ||
+       strcmp(records[5].value_text, "16.0 C") != 0 ||
+       records[6].quantity != WmBusApplicationQuantityTemperatureDifference ||
+       strcmp(records[6].value_text, "5.5 K") != 0 ||
+       records[7].quantity != WmBusApplicationQuantityDate ||
+       strcmp(records[7].value_text, "2025-03-12") != 0 ||
+       records[8].quantity != WmBusApplicationQuantityDateTime ||
+       strcmp(records[8].value_text, "2025-03-12 16:37") != 0 ||
+       records[9].quantity != WmBusApplicationQuantityStatus ||
+       strcmp(records[9].value_text, "3412") != 0) {
         wmbus_selftest_set_detail(
             detail,
             detail_len,
-            "count=%u vol=%s energy=%s dife=%u vife=%u storage=%u",
+            "count=%u vol=%s energy=%s flow=%s date=%s dt=%s status=%s",
             (unsigned int)count,
             records[0].value_text,
             records[1].value_text,
-            (unsigned int)records[2].dife_count,
-            (unsigned int)records[2].vife_count,
-            (unsigned int)records[2].storage_no);
+            records[3].value_text,
+            records[7].value_text,
+            records[8].value_text,
+            records[9].value_text);
         return false;
     }
 
-    wmbus_selftest_set_detail(detail, detail_len, "records=%u volume+energy+extensions=YES", (unsigned int)count);
+    wmbus_selftest_set_detail(
+        detail,
+        detail_len,
+        "records=%u common_types=volume,energy,flow,temp,date,status",
+        (unsigned int)count);
     return true;
 }
 
