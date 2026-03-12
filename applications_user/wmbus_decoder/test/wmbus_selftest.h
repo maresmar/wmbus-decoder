@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "wmbus_frame.h"
+#include "../protocol/frame/wmbus_frame.h"
 
 #define WMBUS_SELFTEST_BUF_MAX 256U
 #define WMBUS_BIT_NONE         SIZE_MAX

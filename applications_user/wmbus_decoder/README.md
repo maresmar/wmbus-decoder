@@ -8,22 +8,20 @@ Use this as startup context for future coding chats in this app.
 
 - Scope:
   - Work only inside `applications_user/wmbus_decoder/` unless explicitly requested.
-  - Preserve manual mode control (`Left=T`, `Right=C`).
+  - Keep live RX mode changes inside the config scene only.
 - Target meter:
   - Primary target is Apator `AT-WMBUS-16-2` (`apator162`).
-  - Proprietary payload support is intentionally limited to total volume extraction (`total_m3_x1000`).
   - Old Apator style with `CI=0xB6` is out of scope unless asked.
 - RX architecture constraints:
-  - RX control is queue-driven (`FuriMessageQueue`) using `WmBusControlCmd`.
+  - RX control is queue-driven (`FuriMessageQueue`) using runtime config snapshots.
   - Do not reintroduce shared volatile mode/running flags across threads.
   - Keep plausibility gate for WM-Bus `C-field` valid values (`0x44`, `0x46`).
   - Keep frame length trimming before CRC/model updates.
 - Data model/UI:
-  - `WmBusViewModel` and `WmBusHistoryEntry` include `has_total_m3` and `total_m3_x1000`.
-  - History entries also store their RX tick so the UI can show packet age while browsing.
-  - Normal view should show `Tot:<whole>.<frac>m3` when available.
-  - If no total is found but short TPL is present, show the short-TPL security mode and a compact encryption hint.
-  - Debug mode remains header/hex oriented.
+  - The app now has a live RX scene, a config scene, and a packet detail view.
+  - History entries store their RX tick so the UI can show packet age while browsing.
+  - Normal view should show parser-provided primary fields when available.
+  - Settings use status thresholds for memory and CSV retention.
 - Build/verify commands:
   - Preferred build: `CCACHE_DISABLE=1 ./fbt fap_wmbus_decoder`
   - If parser changes are made, validate against known Apator vectors from
@@ -40,7 +38,21 @@ It focuses on:
 
 - link-layer RX quality (frame plausibility, length and CRC checks)
 - quick field visibility on-device (manufacturer, meter ID, CI, RSSI)
-- targeted payload extraction for Apator `AT-WMBUS-16-2` (`apator162`) total volume
+- configurable packet retention/logging by decode status
+- generic parser output with targeted payload extraction for Apator `AT-WMBUS-16-2`
+- optional AES mode-5 decryption using keys from `keys.txt`
+
+## Folder Layout
+
+```text
+applications_user/wmbus_decoder/
+  app/         app entry point and runtime shell
+  core/        shared types and compile-time config
+  protocol/    packet pipeline, capture, frame, parser, crypto
+  storage/     settings, paths, keyring, CSV logging
+  test/        selftest harness
+  ui/          scenes, views, and legacy archived UI
+```
 
 ## Build and Install
 
@@ -51,13 +63,9 @@ From firmware root:
 ```
 
 Compile-time selftests are currently enabled in `application.fam` with
-`WMBUS_SELFTESTS=1`. Rebuild and launch the app once to run the in-app selftest
-harness. Set that define back to `0` if you want normal startup without the
-selftest pass. The selftests run before GUI/radio init and print their results
-through `FURI_LOG_I` / `FURI_LOG_W`.
-They also write a plain-text report to `/ext/apps_data/wmbus_decoder/selftest.txt`,
-which makes it possible to verify a test run from the device without flashing a
-`unit_tests` firmware image.
+`WMBUS_SELFTESTS=1`. The app runs the selftest harness before GUI/radio init and prints results through
+`FURI_LOG_I` / `FURI_LOG_W`. The report is also written to
+`/ext/apps_data/wmbus_decoder/selftest.txt`.
 
 Output artifact:
 
@@ -83,6 +91,13 @@ Covered scenarios:
 - format-A and format-B normalization checks
 - public Apator corpus parsing and old-style `CI=0xB6` rejection
 
+Regression vector sources:
+
+- clear-text Apator corpus copied from the vendored `wmbusmeters/src/driver_apator162.cc`
+- matching JSON expectations cross-checked with `wmbusmeters/simulations/simulation_apas.txt`
+- encrypted zero-key Apator sample cross-checked with `wmbusmeters/simulations/serial_aes.msg`
+- two additional encrypted Apator gold telegrams are field samples provided on March 12, 2026 with expected totals `345.654 m3` and `200.257 m3`
+
 Important constraints:
 
 - no software PN9 whitening/dewhitening is implemented
@@ -91,14 +106,49 @@ Important constraints:
 
 ## Runtime Controls
 
-- `Left`: force `T` mode (3-of-6 path)
-- `Right`: force `C` mode (whitened direct-byte path)
 - `OK`: toggle display mode (`Latest` <-> `History`)
 - `Up`/`Down`: browse history only in `History` mode (`Latest` mode ignores browse keys)
-- `Long Up`: toggle debug overlay
+- `Long OK`: open config screen
+- `Long Down`: open packet detail view for the selected history entry
 - `Back`: exit app
 
-Mode commands are delivered to RX thread through a `FuriMessageQueue`, avoiding racy shared state.
+Mode and logging changes are delivered to RX through a queued runtime-config snapshot, avoiding racy shared state.
+
+## Config Screen
+
+The config scene currently supports:
+
+- RX mode: `T` / `C`
+- CSV logging: `None` / `Basic` / `Full`
+- memory threshold: `Store if >=`
+- CSV threshold: `Log if >=`
+- keyring status display and key entry through the UI
+
+CSV files are written to:
+
+- `/ext/apps_data/wmbus_decoder/packets_basic.csv`
+- `/ext/apps_data/wmbus_decoder/packets_full.csv`
+
+Settings are persisted in:
+
+- `/ext/apps_data/wmbus_decoder/settings.txt`
+
+## Key File
+
+Optional decryption keys are loaded from:
+
+- `/ext/apps_data/wmbus_decoder/keys.txt`
+
+Line format:
+
+```text
+00112233445566778899AABBCCDDEEFF
+```
+
+- one 16-byte AES key per line as 32 hex characters
+- lines starting with `#` are ignored
+
+Keys are tried in file order. For short-TPL mode-5 telegrams the shared packet path also tries the legacy all-zero key, but a decrypted candidate is only accepted when it has visible `2F2F` check bytes or a registered device parser validates the payload.
 
 ## Runtime View Lines
 
@@ -107,15 +157,16 @@ Mode commands are delivered to RX thread through a `FuriMessageQueue`, avoiding 
   - `Rhi` counts packets with RSSI at/above strong threshold (`-70 dBm`)
 - line 2: `R:<packets_per_sec>/s RSSI:<last_live_rssi>`
 - line 3: `Last <status>` or `Pkt <status>`, with `A:<age>` right-aligned for the currently shown packet
-- line 4: packet details for the currently shown packet, or a waiting message before first decode
+- line 4: left `MF:<manufacturer> DT:<device_type>`, right `ID:<meter_id>`
+- line 5: `M:<rx_mode> R:<packet_rssi>` followed by crypto status and either `CI:<ci>` or parsed total
 
 ## Mode Selection For Apator162
 
 Apator `AT-WMBUS-16-2` can be configured to transmit either `T1` or `C1`.
 There is no universal default that always works in the field.
 
-- try `T` first (`Left`)
-- if counters stay at `0 decoded`, switch to `C` (`Right`)
+- try `T` first in the config screen
+- if counters stay at `0 decoded`, switch to `C` in the config screen
 - keep the mode where decoded/CRC counters start moving
 
 Why both are needed:
@@ -147,7 +198,9 @@ Why both are needed:
 - valid WM-Bus `C-field` (`0x44` or `0x46`)
 - valid manufacturer code shape
 4. Length + EN13757 CRC checks.
-5. Update view model/history and confidence counters.
+5. Build a generic packet record, run shared decrypt candidate selection, then let registered device parsers claim validated payloads before routing the record through:
+- memory history sink filtered by status threshold
+- CSV sink filtered by status threshold and CSV mode
 
 ### Frame format handling
 
@@ -162,32 +215,24 @@ A targeted parser extracts total volume from proprietary register payloads.
 Implemented behavior:
 
 - requires `CI == 0x7A`
-- for short-TPL security mode `5`, decrypts AES-CBC payloads using the WM-Bus mode-5 IV and the fixed all-zero 16-byte key
+- requires Apator identity (`APA` or legacy manufacturer `0x8614`, version `0x05`, device type `0x07`) plus a validated proprietary payload layout
+- for short-TPL security mode `5`, tries keys from `keys.txt` in file order
+- after configured keys, the shared packet path also tries the legacy fixed all-zero 16-byte key
+- mode-5 decrypt candidates are produced in shared code; a candidate is accepted when it has visible `2F2F` check bytes or the Apator parser validates the payload
 - for other encrypted short-TPL modes, requires visible decrypted `2F2F` check bytes before parsing
 - starts after short TPL header
 - skips leading `0x2F` fillers
-- requires vendor header byte `0x0F` before the 8-byte Apator fixed block
-- skips first 8 vendor bytes
+- when vendor header byte `0x0F` is present, skips the 8-byte Apator fixed block
+- otherwise accepts payloads that begin directly with a known Apator register
 - iterates vendor registers using `apator162` register-size table
 - validates register boundaries until end marker / padding before trusting the parsed total
 - extracts register `0x10` or `0xA1` as little-endian `uint32`
 - interprets raw value as `m3 * 1000`
 
-Displayed on normal UI when available:
+Displayed on normal UI when available as parser-provided primary fields, for example:
 
-- `Tot:<whole>.<frac>m3`
-
-When total volume is not found but short TPL is present, the fallback line shows:
-
-- `CI:<ci> S:<mode> E:<flag> R:<rssi>`
-  - `S` is the raw short-TPL security mode from `CFG`
-  - `E:Y` means a known OMS encrypted mode (`5/7/8/9/10`)
-  - `E:?` means a nonzero but non-classified security mode
-  - `E:N` means no short-TPL security mode bits are set
-
-CRC-valid Apator frames that still do not expose `total_m3` are also dumped to the log as
-chunked normalized-frame hex (`APA norm[...]`) to make it easier to inspect unsupported or
-secured payloads.
+- `3.843 m3`
+- `Key:#2`
 
 Known limit (intentional):
 

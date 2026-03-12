@@ -1,7 +1,9 @@
 #include "wmbus_selftest.h"
 
-#include "wmbus_config.h"
-#include "wmbus_parser.h"
+#include "../core/wmbus_config.h"
+#include "../protocol/wmbus_packet.h"
+#include "../protocol/parser/wmbus_parser.h"
+#include "../protocol/parser/wmbus_parser_apator162.h"
 
 #include <furi.h>
 #include <storage/storage.h>
@@ -10,42 +12,38 @@
 #include <stdio.h>
 #include <string.h>
 
-#define TAG "WmBusSelftest"
-#define WMBUS_SELFTEST_REPORT_PATH APP_DATA_PATH("selftest.txt")
-#define WMBUS_SELFTEST_LINE_MAX    256U
+#define TAG                     "WmBusSelftest"
+#define WMBUS_SELFTEST_LINE_MAX 256U
 
 static const uint8_t wmbus_apator_a[] = {
-    0x6E, 0x44, 0x01, 0x06, 0x20, 0x20, 0x20, 0x20, 0x05, 0x07, 0x7A, 0x9A,
-    0x00, 0x60, 0x85, 0x2F, 0x2F, 0x0F, 0x0A, 0x73, 0x43, 0x93, 0xCC, 0x00,
-    0x00, 0x43, 0x5B, 0x01, 0x83, 0x00, 0x1A, 0x54, 0xE0, 0x6F, 0x63, 0x02,
-    0x91, 0x34, 0x25, 0x10, 0x03, 0x0F, 0x00, 0x00, 0x7B, 0x01, 0x3E, 0x0B,
-    0x00, 0x00, 0x3E, 0x0B, 0x00, 0x00, 0x3E, 0x0B, 0x00, 0x00, 0x3E, 0x0B,
-    0x00, 0x00, 0x3E, 0x0B, 0x00, 0x00, 0x3E, 0x0B, 0x00, 0x00, 0x3E, 0x0B,
-    0x00, 0x00, 0x65, 0x00, 0x00, 0x00, 0x3D, 0x00, 0x00, 0x00, 0x3D, 0x00,
-    0x00, 0x00, 0x3D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xA0, 0x91,
-    0x0C, 0xB0, 0x03, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xA6, 0x2B,
+    0x6E, 0x44, 0x01, 0x06, 0x20, 0x20, 0x20, 0x20, 0x05, 0x07, 0x7A, 0x9A, 0x00, 0x60, 0x85, 0x2F,
+    0x2F, 0x0F, 0x0A, 0x73, 0x43, 0x93, 0xCC, 0x00, 0x00, 0x43, 0x5B, 0x01, 0x83, 0x00, 0x1A, 0x54,
+    0xE0, 0x6F, 0x63, 0x02, 0x91, 0x34, 0x25, 0x10, 0x03, 0x0F, 0x00, 0x00, 0x7B, 0x01, 0x3E, 0x0B,
+    0x00, 0x00, 0x3E, 0x0B, 0x00, 0x00, 0x3E, 0x0B, 0x00, 0x00, 0x3E, 0x0B, 0x00, 0x00, 0x3E, 0x0B,
+    0x00, 0x00, 0x3E, 0x0B, 0x00, 0x00, 0x3E, 0x0B, 0x00, 0x00, 0x65, 0x00, 0x00, 0x00, 0x3D, 0x00,
+    0x00, 0x00, 0x3D, 0x00, 0x00, 0x00, 0x3D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xA0, 0x91,
+    0x0C, 0xB0, 0x03, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xA6, 0x2B,
 };
 
 static const uint8_t wmbus_apator_b[] = {
-    0x4E, 0x44, 0x01, 0x06, 0x20, 0x20, 0x20, 0x21, 0x05, 0x07, 0x7A, 0x13,
-    0x00, 0x40, 0x85, 0x2F, 0x2F, 0x0F, 0x6D, 0x4C, 0x38, 0x93, 0x00, 0x02,
-    0x00, 0x43, 0x84, 0x02, 0x10, 0x35, 0x1F, 0x04, 0x00, 0x75, 0x01, 0x2C,
-    0x0B, 0x04, 0x00, 0x48, 0xD6, 0x03, 0x00, 0x3E, 0x63, 0x03, 0x00, 0xCD,
-    0x2C, 0x03, 0x00, 0x1E, 0xF4, 0x02, 0x00, 0x0A, 0xCE, 0x02, 0x00, 0xA0,
-    0x98, 0xA3, 0x96, 0x03, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x19, 0x77,
+    0x4E, 0x44, 0x01, 0x06, 0x20, 0x20, 0x20, 0x21, 0x05, 0x07, 0x7A, 0x13, 0x00, 0x40, 0x85, 0x2F,
+    0x2F, 0x0F, 0x6D, 0x4C, 0x38, 0x93, 0x00, 0x02, 0x00, 0x43, 0x84, 0x02, 0x10, 0x35, 0x1F, 0x04,
+    0x00, 0x75, 0x01, 0x2C, 0x0B, 0x04, 0x00, 0x48, 0xD6, 0x03, 0x00, 0x3E, 0x63, 0x03, 0x00, 0xCD,
+    0x2C, 0x03, 0x00, 0x1E, 0xF4, 0x02, 0x00, 0x0A, 0xCE, 0x02, 0x00, 0xA0, 0x98, 0xA3, 0x96, 0x03,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x19, 0x77,
 };
 
 static const uint8_t wmbus_apator_c[] = {
-    0x3E, 0x44, 0x01, 0x06, 0x14, 0x05, 0x41, 0x03, 0x05, 0x07, 0x7A, 0x19,
-    0x00, 0x30, 0x85, 0x2F, 0x2F, 0x0F, 0x86, 0xB4, 0xB8, 0x95, 0x29, 0x02,
-    0x00, 0x40, 0xC6, 0xC1, 0xB4, 0xF0, 0xF3, 0xF3, 0x41, 0x55, 0x59, 0x42,
-    0xFA, 0x70, 0x10, 0x00, 0xF0, 0x01, 0x01, 0x00, 0x00, 0x10, 0xBC, 0x78,
-    0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0x24, 0x83,
+    0x3E, 0x44, 0x01, 0x06, 0x14, 0x05, 0x41, 0x03, 0x05, 0x07, 0x7A, 0x19, 0x00, 0x30, 0x85, 0x2F,
+    0x2F, 0x0F, 0x86, 0xB4, 0xB8, 0x95, 0x29, 0x02, 0x00, 0x40, 0xC6, 0xC1, 0xB4, 0xF0, 0xF3, 0xF3,
+    0x41, 0x55, 0x59, 0x42, 0xFA, 0x70, 0x10, 0x00, 0xF0, 0x01, 0x01, 0x00, 0x00, 0x10, 0xBC, 0x78,
+    0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x24, 0x83,
 };
 
+// Clear-text Apator regression corpus copied from the vendored wmbusmeters
+// sources in this repository:
+// - wmbusmeters/src/driver_apator162.cc
+// - wmbusmeters/simulations/simulation_apas.txt
 typedef struct {
     const char* id;
     uint32_t total_m3_x1000;
@@ -223,15 +221,31 @@ static const char* wmbus_selftest_apator_encrypted_mode5 =
     "4088160DF752E716238292E8AF1AC20986202EE561D743602466915E42F1105D9C6782A54504E4F09"
     "9E65A7656B930C73A30775122D2FDF074B5035CFAA7E0050BF32FAAE03A77";
 
-static const char* wmbus_selftest_apator_encrypted_mode5_user =
-    "6E4401069785770205077AD300608581DEFDBBD4763A91106A2FFF142030384C614C354994F5100C7"
-    "F4338C7FE7A48AE27A9684F453C61E37AF33D9FBA10B7F299EC2A0F9F6FAF940AB4608FA60EC2D2758"
-    "D11E4D5BD35D7589A375025783AC1CF932C42611302A8EDB8E9ECA4C14B";
+// Encrypted Apator sample provided by the user on 2026-03-12 and verified
+// against the current parser as a zero-key mode-5 telegram with total 345.654 m3.
+static const char* wmbus_selftest_apator_encrypted_mode5_gold =
+    "6E4401065610990205077A3C006085FB01BBE79622F34A94D066D776406F31554FC96E46E974F5A0"
+    "134E47D8E291316394056DFC945A813D7E0B09E2CC4BC58275D33BEEF1D6D834D83C59EF8551CDEFC"
+    "0683BAE0DB6F536FB7F9B947A3AE6C2B9BB5B3D214D745D6A7B5F397E6BC9";
+
+// Additional field sample captured from meter 02991035 on 2026-03-12 and
+// verified against the current parser as a zero-key mode-5 telegram with
+// total 200.257 m3.
+static const char* wmbus_selftest_apator_encrypted_mode5_field_02991035 =
+    "6E4401063510990205077AFB0060853C383827B03BFE30F3C8A65E56CB7FCD00F8EFB75C43B106D9"
+    "B46489032587D00F6EB9967A74CB50BA23288E874F0AC183238E8BA7939C7092F9DEC3ED457DC9EBF"
+    "3DB0D97778739645056CCCCB62DB8C8DA8B32F516D8BF0EB6F28AD74FFB5D";
 
 static const char* wmbus_selftest_apator_encrypted_mode5_corrupt =
     "6E4401068888888805077A85006085BD2630713819512EB4CD87FBA554FB43F67CF9654A68EE8E19"
     "4088160DF752E716238292E8AF1AC20986202EE561D743602466915E42F1105D9C6782A54504E4F09"
     "9E65A7656B930C73A30775122D2FDF074B5035CFAA7E0050BF32FAAE03A77";
+
+typedef struct {
+    const char* telegram;
+    uint32_t total_m3_x1000;
+    const char* id;
+} WmBusSelftestApatorFieldVector;
 
 static const WmBusTestVector wmbus_vector_c_apator_a_ok = {
     .name = "c_apator_a_ok",
@@ -462,11 +476,8 @@ static int wmbus_selftest_hex_nibble(char c) {
     return -1;
 }
 
-static bool wmbus_selftest_hex_to_bytes(
-    const char* hex,
-    uint8_t* out,
-    size_t out_max,
-    size_t* out_len) {
+static bool
+    wmbus_selftest_hex_to_bytes(const char* hex, uint8_t* out, size_t out_max, size_t* out_len) {
     if(!hex || !out || !out_len) return false;
 
     int high = -1;
@@ -497,45 +508,6 @@ static uint32_t wmbus_selftest_fnv1a32(const uint8_t* data, size_t len) {
         hash *= 0x01000193U;
     }
     return hash;
-}
-
-static uint16_t wmbus_selftest_crc16_en13757(const uint8_t* data, size_t len) {
-    uint16_t crc = 0x0000;
-    for(size_t i = 0; i < len; i++) {
-        uint8_t b = data[i];
-        for(uint8_t bit = 0; bit < 8; bit++) {
-            if((((crc & 0x8000U) >> 8) ^ (b & 0x80U)) != 0U) {
-                crc = (uint16_t)((crc << 1) ^ 0x3D65U);
-            } else {
-                crc = (uint16_t)(crc << 1);
-            }
-            b <<= 1;
-        }
-    }
-    return (uint16_t)(~crc);
-}
-
-static bool wmbus_selftest_build_format_b(
-    const uint8_t* normalized,
-    size_t normalized_len,
-    uint8_t* out,
-    size_t out_max,
-    size_t* out_len) {
-    if(!normalized || !out || !out_len) return false;
-    if(normalized_len < 11U || normalized_len > 126U) return false;
-    if(!wmbus_capture_l_field_valid(normalized[0])) return false;
-    if(normalized_len != (size_t)normalized[0] + 1U) return false;
-    if(normalized_len + 2U > out_max) return false;
-
-    memcpy(out, normalized, normalized_len);
-    out[0] = (uint8_t)(normalized[0] + 2U);
-
-    uint16_t crc = wmbus_selftest_crc16_en13757(out, normalized_len);
-    out[normalized_len] = (uint8_t)(crc >> 8);
-    out[normalized_len + 1U] = (uint8_t)crc;
-
-    *out_len = normalized_len + 2U;
-    return true;
 }
 
 static bool wmbus_selftest_write_report_line(File* file, const char* format, ...) {
@@ -575,77 +547,6 @@ static void wmbus_selftest_set_identity(
     wmbus_frame_decode_mfg(man, result->manufacturer);
     wmbus_frame_format_id(&frame[4], result->id, NULL);
     result->has_identity = true;
-}
-
-static bool wmbus_selftest_guess_computed_len(
-    WmBusRxMode mode,
-    const uint8_t* frame,
-    size_t frame_len,
-    size_t* computed_len) {
-    if(!frame || !computed_len || frame_len < 1) return false;
-    if(!wmbus_capture_l_field_valid(frame[0])) return false;
-
-    WmBusFrameFormat ordered_formats[2];
-    if(mode == WmBusRxModeT) {
-        ordered_formats[0] = WmBusFrameFormatA;
-        ordered_formats[1] = WmBusFrameFormatB;
-    } else {
-        ordered_formats[0] = WmBusFrameFormatB;
-        ordered_formats[1] = WmBusFrameFormatA;
-    }
-
-    size_t preferred_len = wmbus_frame_expected_len(frame[0], ordered_formats[0]);
-    for(size_t i = 0; i < 2; i++) {
-        size_t expected_len = wmbus_frame_expected_len(frame[0], ordered_formats[i]);
-        if(frame_len >= expected_len) {
-            *computed_len = expected_len;
-            return true;
-        }
-    }
-
-    *computed_len = preferred_len;
-    return true;
-}
-
-static void wmbus_selftest_analyze_decoded(
-    WmBusRxMode mode,
-    const uint8_t* frame,
-    size_t frame_len,
-    WmBusSelftestResult* result) {
-    wmbus_selftest_result_reset(result);
-    result->decoded_ok = true;
-
-    if(frame_len < 1) return;
-
-    result->l_field = frame[0];
-    result->has_l_field = true;
-    wmbus_selftest_guess_computed_len(mode, frame, frame_len, &result->computed_len);
-    result->has_computed_len = wmbus_capture_l_field_valid(frame[0]);
-    wmbus_selftest_set_identity(frame, frame_len, result);
-
-    result->plausible = wmbus_parser_is_plausible(frame, frame_len);
-    if(!result->plausible) return;
-
-    WmBusFrameNormalizeResult normalized_result = {0};
-    bool normalized_ok = wmbus_frame_normalize(
-        mode,
-        frame,
-        frame_len,
-        wmbus_selftest_scratch.normalized,
-        sizeof(wmbus_selftest_scratch.normalized),
-        &normalized_result);
-
-    result->length_ok = normalized_result.length_ok;
-    result->crc_ok = normalized_result.crc_ok;
-    if(normalized_result.computed_len > 0) {
-        result->computed_len = normalized_result.computed_len;
-        result->has_computed_len = true;
-    }
-
-    if(normalized_ok) {
-        wmbus_selftest_set_identity(
-            wmbus_selftest_scratch.normalized, normalized_result.normalized_len, result);
-    }
 }
 
 static void wmbus_selftest_corrupt_byte(uint8_t* data, size_t len, size_t byte_pos) {
@@ -689,7 +590,8 @@ static bool wmbus_selftest_prepare_frame(
     if(!test_case->build_format_a) {
         *frame = wmbus_selftest_scratch.seed;
         *frame_len = test_case->vector->len;
-        wmbus_selftest_apply_frame_corruption(*frame, *frame_len, test_case->frame_corrupt_byte_pos);
+        wmbus_selftest_apply_frame_corruption(
+            *frame, *frame_len, test_case->frame_corrupt_byte_pos);
         return true;
     }
 
@@ -747,40 +649,71 @@ static void corrupt_t_raw_bit(uint8_t* raw, size_t raw_bit_len, size_t bit_pos) 
     raw[bit_pos / 8U] ^= (uint8_t)(1U << (7U - (bit_pos % 8U)));
 }
 
-static void find_best_t_offset(
-    const uint8_t* raw,
-    size_t raw_bit_len,
+static void wmbus_selftest_result_from_record(
+    const WmBusPacketRecord* record,
     WmBusSelftestResult* result) {
+    furi_check(record);
     wmbus_selftest_result_reset(result);
 
-    int best_score = -1;
-    for(uint8_t offset = 0; offset < 8U; offset++) {
-        size_t decoded_len = 0;
-        if(!wmbus_parser_decode_3of6_bits(
-               raw,
-               raw_bit_len,
-               offset,
-               wmbus_selftest_scratch.decoded,
-               sizeof(wmbus_selftest_scratch.decoded),
-               &decoded_len)) {
-            continue;
-        }
+    result->decoded_ok = record->decoded_ok;
+    result->plausible = record->plausible;
+    result->length_ok = record->length_ok;
+    result->crc_ok = record->crc_ok;
+    result->best_offset = record->best_offset;
 
-        WmBusSelftestResult candidate = {0};
-        wmbus_selftest_analyze_decoded(
-            WmBusRxModeT, wmbus_selftest_scratch.decoded, decoded_len, &candidate);
-        candidate.best_offset = offset;
-
-        int score = 0;
-        if(candidate.plausible) score += 4;
-        if(candidate.length_ok) score += 2;
-        if(candidate.crc_ok) score += 1;
-
-        if(score > best_score) {
-            *result = candidate;
-            best_score = score;
-        }
+    if(record->packet_len > 0U) {
+        result->l_field = record->packet_bytes[0];
+        result->has_l_field = true;
+        result->computed_len = record->packet_len;
+        result->has_computed_len = true;
     }
+
+    if(record->packet_len >= 8U) {
+        wmbus_selftest_set_identity(record->packet_bytes, record->packet_len, result);
+    }
+}
+
+static bool wmbus_selftest_process_capture_record(
+    WmBusRxMode mode,
+    const uint8_t* data,
+    size_t data_len,
+    const WmBusKeyring* keyring,
+    WmBusPacketRecord* record) {
+    WmBusCaptureFrame capture = {0};
+
+    if(!data || !record || data_len > sizeof(capture.data)) {
+        return false;
+    }
+
+    memset(record, 0, sizeof(*record));
+    memcpy(capture.data, data, data_len);
+    capture.len = data_len;
+    capture.raw_len = data_len;
+    capture.rssi = -60;
+    capture.mode = mode;
+
+    return wmbus_packet_process_capture(&capture, keyring, record);
+}
+
+static bool wmbus_selftest_run_capture(
+    WmBusRxMode mode,
+    const uint8_t* data,
+    size_t data_len,
+    const WmBusKeyring* keyring,
+    WmBusSelftestResult* result) {
+    WmBusPacketRecord record = {0};
+
+    if(!data || !result) {
+        return false;
+    }
+
+    if(!wmbus_selftest_process_capture_record(mode, data, data_len, keyring, &record)) {
+        wmbus_selftest_result_reset(result);
+        return false;
+    }
+
+    wmbus_selftest_result_from_record(&record, result);
+    return true;
 }
 
 static bool wmbus_selftest_offset_match(
@@ -790,9 +723,7 @@ static bool wmbus_selftest_offset_match(
            ((uint8_t)result->best_offset == test_case->vector->expected_offset);
 }
 
-static const char* wmbus_selftest_format_l_field(
-    const WmBusSelftestResult* result,
-    char out[8]) {
+static const char* wmbus_selftest_format_l_field(const WmBusSelftestResult* result, char out[8]) {
     if(!result->has_l_field) {
         memcpy(out, "??", 3);
     } else {
@@ -801,9 +732,8 @@ static const char* wmbus_selftest_format_l_field(
     return out;
 }
 
-static const char* wmbus_selftest_format_computed_len(
-    const WmBusSelftestResult* result,
-    char out[16]) {
+static const char*
+    wmbus_selftest_format_computed_len(const WmBusSelftestResult* result, char out[16]) {
     if(!result->has_computed_len) {
         memcpy(out, "??", 3);
     } else {
@@ -812,9 +742,8 @@ static const char* wmbus_selftest_format_computed_len(
     return out;
 }
 
-static bool wmbus_selftest_run_c_case(
-    const WmBusSelftestCase* test_case,
-    WmBusSelftestResult* result) {
+static bool
+    wmbus_selftest_run_c_case(const WmBusSelftestCase* test_case, WmBusSelftestResult* result) {
     const uint8_t* frame = NULL;
     size_t frame_len = 0;
     if(!wmbus_selftest_prepare_frame(test_case, &frame, &frame_len)) {
@@ -822,15 +751,16 @@ static bool wmbus_selftest_run_c_case(
         return false;
     }
 
-    wmbus_selftest_analyze_decoded(WmBusRxModeC, frame, frame_len, result);
+    if(!wmbus_selftest_run_capture(WmBusRxModeC, frame, frame_len, NULL, result)) {
+        return false;
+    }
 
     return (result->plausible == test_case->vector->expect_plausible) &&
            (result->crc_ok == test_case->vector->expect_crc_ok);
 }
 
-static bool wmbus_selftest_run_t_case(
-    const WmBusSelftestCase* test_case,
-    WmBusSelftestResult* result) {
+static bool
+    wmbus_selftest_run_t_case(const WmBusSelftestCase* test_case, WmBusSelftestResult* result) {
     const uint8_t* frame = NULL;
     size_t frame_len = 0;
     if(!wmbus_selftest_prepare_frame(test_case, &frame, &frame_len)) {
@@ -852,10 +782,11 @@ static bool wmbus_selftest_run_t_case(
         return false;
     }
 
-    UNUSED(raw_len);
-    corrupt_t_raw_bit(
-        wmbus_selftest_scratch.raw, raw_bit_len, test_case->raw_corrupt_bit_pos);
-    find_best_t_offset(wmbus_selftest_scratch.raw, raw_bit_len, result);
+    corrupt_t_raw_bit(wmbus_selftest_scratch.raw, raw_bit_len, test_case->raw_corrupt_bit_pos);
+    if(!wmbus_selftest_run_capture(
+           WmBusRxModeT, wmbus_selftest_scratch.raw, raw_len, NULL, result)) {
+        return false;
+    }
 
     bool offset_match = wmbus_selftest_offset_match(test_case, result);
     return (result->plausible == test_case->vector->expect_plausible) &&
@@ -1021,8 +952,7 @@ static void wmbus_selftest_report_check_result(
     bool pass) {
     if(!file || !name || !detail) return;
 
-    wmbus_selftest_write_report_line(
-        file, "%s %s %s\n", pass ? "PASS" : "FAIL", name, detail);
+    wmbus_selftest_write_report_line(file, "%s %s %s\n", pass ? "PASS" : "FAIL", name, detail);
 }
 
 static bool wmbus_selftest_check_3of6_valid_single_byte(char* detail, size_t detail_len) {
@@ -1044,9 +974,7 @@ static bool wmbus_selftest_check_3of6_valid_single_byte(char* detail, size_t det
     return true;
 }
 
-static bool wmbus_selftest_check_3of6_valid_single_byte_offset_1(
-    char* detail,
-    size_t detail_len) {
+static bool wmbus_selftest_check_3of6_valid_single_byte_offset_1(char* detail, size_t detail_len) {
     const uint8_t raw[] = {0x2C, 0x68, 0x00};
     uint8_t out[4] = {0};
     size_t out_len = 0;
@@ -1164,15 +1092,16 @@ static bool wmbus_selftest_check_capture_reconstruct_c_frame(char* detail, size_
         return false;
     }
 
-    wmbus_selftest_set_detail(detail, detail_len, "frame_len=%u L=%02X C=%02X", 6U, frame[0], frame[1]);
+    wmbus_selftest_set_detail(
+        detail, detail_len, "frame_len=%u L=%02X C=%02X", 6U, frame[0], frame[1]);
     return true;
 }
 
 static bool wmbus_selftest_check_capture_reconstruct_c_frame_reject_oversize(
     char* detail,
     size_t detail_len) {
-    uint8_t payload[255] = {0};
-    uint8_t frame[64] = {0};
+    uint8_t payload[256] = {0};
+    uint8_t frame[300] = {0};
     size_t frame_len = 0;
 
     if(wmbus_capture_reconstruct_c_frame(
@@ -1185,14 +1114,12 @@ static bool wmbus_selftest_check_capture_reconstruct_c_frame_reject_oversize(
     return true;
 }
 
-static bool wmbus_selftest_check_capture_t_expected_raw_len_estimate(
-    char* detail,
-    size_t detail_len) {
+static bool
+    wmbus_selftest_check_capture_t_expected_raw_len_estimate(char* detail, size_t detail_len) {
     const uint8_t raw[] = {0x5A, 0x60};
     size_t expected_raw_len = 0;
 
-    if(!wmbus_capture_estimate_t_expected_raw_len(
-           raw, sizeof(raw), 256U, &expected_raw_len)) {
+    if(!wmbus_capture_estimate_t_expected_raw_len(raw, sizeof(raw), 256U, &expected_raw_len)) {
         wmbus_selftest_set_detail(detail, detail_len, "estimate failed");
         return false;
     }
@@ -1206,9 +1133,8 @@ static bool wmbus_selftest_check_capture_t_expected_raw_len_estimate(
     return true;
 }
 
-static bool wmbus_selftest_check_capture_t_expected_raw_len_clamp(
-    char* detail,
-    size_t detail_len) {
+static bool
+    wmbus_selftest_check_capture_t_expected_raw_len_clamp(char* detail, size_t detail_len) {
     const uint8_t raw[] = {0x5A, 0x60};
     size_t expected_raw_len = 0;
 
@@ -1258,9 +1184,8 @@ static bool wmbus_selftest_check_capture_c_frame_offset_waits_for_disambiguation
     return true;
 }
 
-static bool wmbus_selftest_check_capture_c_frame_offset_with_signal_byte(
-    char* detail,
-    size_t detail_len) {
+static bool
+    wmbus_selftest_check_capture_c_frame_offset_with_signal_byte(char* detail, size_t detail_len) {
     const uint8_t raw[] = {0x54, 0x3E, 0x44, 0x01, 0x06};
     size_t frame_offset = wmbus_capture_c_frame_offset(raw, sizeof(raw));
 
@@ -1274,9 +1199,8 @@ static bool wmbus_selftest_check_capture_c_frame_offset_with_signal_byte(
     return true;
 }
 
-static bool wmbus_selftest_check_capture_c_frame_offset_l_field_54(
-    char* detail,
-    size_t detail_len) {
+static bool
+    wmbus_selftest_check_capture_c_frame_offset_l_field_54(char* detail, size_t detail_len) {
     const uint8_t raw[] = {0x54, 0x44, 0x01, 0x06, 0x20};
     size_t frame_offset = wmbus_capture_c_frame_offset(raw, sizeof(raw));
 
@@ -1290,9 +1214,7 @@ static bool wmbus_selftest_check_capture_c_frame_offset_l_field_54(
     return true;
 }
 
-static bool wmbus_selftest_check_capture_c_expected_len_estimate(
-    char* detail,
-    size_t detail_len) {
+static bool wmbus_selftest_check_capture_c_expected_len_estimate(char* detail, size_t detail_len) {
     const uint8_t raw[] = {0x3E, 0x44, 0x01, 0x06};
     size_t expected_len = 0;
 
@@ -1330,9 +1252,8 @@ static bool wmbus_selftest_check_capture_c_expected_len_estimate_with_signal_byt
     return true;
 }
 
-static bool wmbus_selftest_check_capture_c_expected_len_real_l_field_54(
-    char* detail,
-    size_t detail_len) {
+static bool
+    wmbus_selftest_check_capture_c_expected_len_real_l_field_54(char* detail, size_t detail_len) {
     const uint8_t raw[] = {0x54, 0x44, 0x01, 0x06, 0x20};
     size_t expected_len = 0;
 
@@ -1350,9 +1271,8 @@ static bool wmbus_selftest_check_capture_c_expected_len_real_l_field_54(
     return true;
 }
 
-static bool wmbus_selftest_check_frame_normalize_format_a_wire_frame(
-    char* detail,
-    size_t detail_len) {
+static bool
+    wmbus_selftest_check_frame_normalize_format_a_wire_frame(char* detail, size_t detail_len) {
     uint8_t frame[WMBUS_SELFTEST_BUF_MAX] = {0};
     size_t frame_len = 0;
     uint8_t normalized[WMBUS_SELFTEST_BUF_MAX] = {0};
@@ -1422,15 +1342,14 @@ static bool wmbus_selftest_check_frame_normalize_c_mode_format_a_wire_frame(
     return true;
 }
 
-static bool wmbus_selftest_check_frame_normalize_format_b_wire_frame(
-    char* detail,
-    size_t detail_len) {
+static bool
+    wmbus_selftest_check_frame_normalize_format_b_wire_frame(char* detail, size_t detail_len) {
     uint8_t frame[WMBUS_SELFTEST_BUF_MAX] = {0};
     size_t frame_len = 0;
     uint8_t normalized[WMBUS_SELFTEST_BUF_MAX] = {0};
     WmBusFrameNormalizeResult result = {0};
 
-    if(!wmbus_selftest_build_format_b(
+    if(!wmbus_frame_build_format_b(
            wmbus_apator_c, sizeof(wmbus_apator_c), frame, sizeof(frame), &frame_len)) {
         wmbus_selftest_set_detail(detail, detail_len, "build format-B failed");
         return false;
@@ -1458,9 +1377,7 @@ static bool wmbus_selftest_check_frame_normalize_format_b_wire_frame(
     return true;
 }
 
-static bool wmbus_selftest_check_parser_apator162_public_vectors(
-    char* detail,
-    size_t detail_len) {
+static bool wmbus_selftest_check_parser_apator162_public_vectors(char* detail, size_t detail_len) {
     for(size_t i = 0; i < COUNT_OF(wmbus_selftest_apator_public_vectors); i++) {
         const WmBusSelftestApatorPublicVector* vector = &wmbus_selftest_apator_public_vectors[i];
         uint8_t normalized[WMBUS_SELFTEST_BUF_MAX] = {0};
@@ -1469,12 +1386,13 @@ static bool wmbus_selftest_check_parser_apator162_public_vectors(
         size_t frame_len = 0;
         uint8_t roundtrip[WMBUS_SELFTEST_BUF_MAX] = {0};
         WmBusFrameNormalizeResult result = {0};
-        uint32_t total_m3_x1000 = 0;
+        WmBusPacketRecord record = {0};
         char id[WMBUS_ID_STR_LEN] = {0};
 
         if(!wmbus_selftest_hex_to_bytes(
                vector->telegram, normalized, sizeof(normalized), &normalized_len)) {
-            wmbus_selftest_set_detail(detail, detail_len, "vector %s hex parse failed", vector->id);
+            wmbus_selftest_set_detail(
+                detail, detail_len, "vector %s hex parse failed", vector->id);
             return false;
         }
         if(normalized_len != vector->parsed_len) {
@@ -1487,28 +1405,33 @@ static bool wmbus_selftest_check_parser_apator162_public_vectors(
             return false;
         }
         if(wmbus_selftest_fnv1a32(normalized, normalized_len) != vector->parsed_fnv1a) {
-            wmbus_selftest_set_detail(detail, detail_len, "vector %s fingerprint mismatch", vector->id);
+            wmbus_selftest_set_detail(
+                detail, detail_len, "vector %s fingerprint mismatch", vector->id);
             return false;
         }
         if(normalized[0] != (uint8_t)(normalized_len - 1U) ||
            !wmbus_parser_is_plausible(normalized, normalized_len)) {
-            wmbus_selftest_set_detail(detail, detail_len, "vector %s plausibility failed", vector->id);
+            wmbus_selftest_set_detail(
+                detail, detail_len, "vector %s plausibility failed", vector->id);
             return false;
         }
         if(!wmbus_frame_build_format_a(
                normalized, normalized_len, frame, sizeof(frame), &frame_len)) {
-            wmbus_selftest_set_detail(detail, detail_len, "vector %s format-A build failed", vector->id);
+            wmbus_selftest_set_detail(
+                detail, detail_len, "vector %s format-A build failed", vector->id);
             return false;
         }
         if(!wmbus_frame_normalize(
                WmBusRxModeT, frame, frame_len, roundtrip, sizeof(roundtrip), &result)) {
-            wmbus_selftest_set_detail(detail, detail_len, "vector %s normalize failed", vector->id);
+            wmbus_selftest_set_detail(
+                detail, detail_len, "vector %s normalize failed", vector->id);
             return false;
         }
         if(!result.length_ok || !result.crc_known || !result.crc_ok ||
            result.format != WmBusFrameFormatA || result.normalized_len != normalized_len ||
            memcmp(normalized, roundtrip, normalized_len) != 0) {
-            wmbus_selftest_set_detail(detail, detail_len, "vector %s roundtrip failed", vector->id);
+            wmbus_selftest_set_detail(
+                detail, detail_len, "vector %s roundtrip failed", vector->id);
             return false;
         }
         wmbus_frame_format_id(&roundtrip[4], id, NULL);
@@ -1517,16 +1440,24 @@ static bool wmbus_selftest_check_parser_apator162_public_vectors(
                 detail, detail_len, "vector expected id=%s got=%s", vector->id, id);
             return false;
         }
-        if(!wmbus_parser_parse_apator162_total(
-               roundtrip, result.normalized_len, &total_m3_x1000) ||
-           total_m3_x1000 != vector->total_m3_x1000) {
+        if(!wmbus_selftest_process_capture_record(
+               WmBusRxModeC, roundtrip, result.normalized_len, NULL, &record)) {
+            wmbus_selftest_set_detail(
+                detail, detail_len, "vector %s packet process failed", vector->id);
+            return false;
+        }
+        if(strcmp(record.data.parser_name, "Apator162") != 0 || !record.data.has_total_m3 ||
+           record.data.total_m3_x1000 != vector->total_m3_x1000 ||
+           strcmp(record.data.id_str, vector->id) != 0) {
             wmbus_selftest_set_detail(
                 detail,
                 detail_len,
-                "vector %s total=%lu expected=%lu",
+                "vector %s parser=%s total=%lu expected=%lu id=%s",
                 vector->id,
-                (unsigned long)total_m3_x1000,
-                (unsigned long)vector->total_m3_x1000);
+                record.data.parser_name,
+                (unsigned long)record.data.total_m3_x1000,
+                (unsigned long)vector->total_m3_x1000,
+                record.data.id_str);
             return false;
         }
     }
@@ -1544,13 +1475,10 @@ static bool wmbus_selftest_check_parser_apator162_old_style_ci_b6_rejected(
     size_t detail_len) {
     uint8_t normalized[WMBUS_SELFTEST_BUF_MAX] = {0};
     size_t normalized_len = 0;
-    uint32_t total_m3_x1000 = 0;
+    WmBusPacketRecord record = {0};
 
     if(!wmbus_selftest_hex_to_bytes(
-           wmbus_selftest_apator_old_style_b6,
-           normalized,
-           sizeof(normalized),
-           &normalized_len)) {
+           wmbus_selftest_apator_old_style_b6, normalized, sizeof(normalized), &normalized_len)) {
         wmbus_selftest_set_detail(detail, detail_len, "hex parse failed");
         return false;
     }
@@ -1568,8 +1496,18 @@ static bool wmbus_selftest_check_parser_apator162_old_style_ci_b6_rejected(
         wmbus_selftest_set_detail(detail, detail_len, "expected CI=B6");
         return false;
     }
-    if(wmbus_parser_parse_apator162_total(normalized, normalized_len, &total_m3_x1000)) {
-        wmbus_selftest_set_detail(detail, detail_len, "old-style CI=B6 accepted");
+    if(!wmbus_selftest_process_capture_record(
+           WmBusRxModeC, normalized, normalized_len, NULL, &record)) {
+        wmbus_selftest_set_detail(detail, detail_len, "packet process failed");
+        return false;
+    }
+    if(strcmp(record.data.parser_name, "Apator162") == 0 || record.data.has_total_m3) {
+        wmbus_selftest_set_detail(
+            detail,
+            detail_len,
+            "old-style CI=B6 accepted parser=%s total=%lu",
+            record.data.parser_name,
+            (unsigned long)record.data.total_m3_x1000);
         return false;
     }
 
@@ -1577,61 +1515,318 @@ static bool wmbus_selftest_check_parser_apator162_old_style_ci_b6_rejected(
     return true;
 }
 
-static bool wmbus_selftest_check_parser_apator162_mode5_zero_key_vectors(
-    char* detail,
-    size_t detail_len) {
+static bool
+    wmbus_selftest_check_parser_apator162_mode5_zero_key_vectors(char* detail, size_t detail_len) {
     const struct {
         const char* telegram;
         uint32_t total_m3_x1000;
+        const char* id;
     } vectors[] = {
-        {wmbus_selftest_apator_encrypted_mode5, 4848U},
-        {wmbus_selftest_apator_encrypted_mode5_user, 117329U},
+        {wmbus_selftest_apator_encrypted_mode5, 4848U, "88888888"},
+        {wmbus_selftest_apator_encrypted_mode5_gold, 345654U, "02991056"},
+        {wmbus_selftest_apator_encrypted_mode5_field_02991035, 200257U, "02991035"},
     };
 
     for(size_t i = 0; i < COUNT_OF(vectors); i++) {
         uint8_t normalized[WMBUS_SELFTEST_BUF_MAX] = {0};
         size_t normalized_len = 0;
-        uint32_t total_m3_x1000 = 0;
+        WmBusPacketRecord record = {0};
         uint16_t cfg = 0;
 
         if(!wmbus_selftest_hex_to_bytes(
                vectors[i].telegram, normalized, sizeof(normalized), &normalized_len)) {
-            wmbus_selftest_set_detail(detail, detail_len, "vector %u hex parse failed", (unsigned int)i);
+            wmbus_selftest_set_detail(
+                detail, detail_len, "vector %s hex parse failed", vectors[i].id);
             return false;
         }
         if(normalized_len < 17U || normalized[10] != 0x7AU) {
-            wmbus_selftest_set_detail(detail, detail_len, "vector %u unexpected frame", (unsigned int)i);
+            wmbus_selftest_set_detail(
+                detail, detail_len, "vector %s unexpected frame", vectors[i].id);
             return false;
         }
         cfg = (uint16_t)normalized[13] | ((uint16_t)normalized[14] << 8);
         if(!wmbus_parser_short_tpl_security_likely_encrypted(cfg) ||
            (normalized[15] == 0x2FU && normalized[16] == 0x2FU)) {
-            wmbus_selftest_set_detail(detail, detail_len, "vector %u unexpected cipher state", (unsigned int)i);
+            wmbus_selftest_set_detail(
+                detail, detail_len, "vector %s unexpected cipher state", vectors[i].id);
             return false;
         }
-        if(!wmbus_parser_parse_apator162_total(normalized, normalized_len, &total_m3_x1000) ||
-           total_m3_x1000 != vectors[i].total_m3_x1000) {
+        if(!wmbus_selftest_process_capture_record(
+               WmBusRxModeC, normalized, normalized_len, NULL, &record)) {
+            wmbus_selftest_set_detail(
+                detail, detail_len, "vector %s packet process failed", vectors[i].id);
+            return false;
+        }
+        if(strcmp(record.data.parser_name, "Apator162") != 0 || !record.data.has_total_m3 ||
+           record.data.total_m3_x1000 != vectors[i].total_m3_x1000 || !record.data.decrypted ||
+           record.data.key_applied || record.data.key_index != 0U ||
+           strcmp(record.data.id_str, vectors[i].id) != 0) {
             wmbus_selftest_set_detail(
                 detail,
                 detail_len,
-                "vector %u total=%lu expected=%lu",
-                (unsigned int)i,
-                (unsigned long)total_m3_x1000,
-                (unsigned long)vectors[i].total_m3_x1000);
+                "vector %s parser=%s total=%lu dec=%s key=%s idx=%u id=%s",
+                vectors[i].id,
+                record.data.parser_name,
+                (unsigned long)record.data.total_m3_x1000,
+                record.data.decrypted ? "YES" : "NO",
+                record.data.key_applied ? "YES" : "NO",
+                (unsigned int)record.data.key_index,
+                record.data.id_str);
             return false;
         }
     }
 
-    wmbus_selftest_set_detail(detail, detail_len, "mode5 zero-key vectors=%u", (unsigned int)COUNT_OF(vectors));
+    wmbus_selftest_set_detail(
+        detail, detail_len, "mode5 zero-key vectors=%u", (unsigned int)COUNT_OF(vectors));
     return true;
 }
 
-static bool wmbus_selftest_check_parser_apator162_mode5_corrupt_rejected(
+static bool wmbus_selftest_check_packet_process_mode5_zero_key_fallback_vector(
     char* detail,
     size_t detail_len) {
     uint8_t normalized[WMBUS_SELFTEST_BUF_MAX] = {0};
     size_t normalized_len = 0;
-    uint32_t total_m3_x1000 = 0;
+    WmBusCaptureFrame capture = {0};
+    WmBusKeyring keyring = {0};
+    WmBusPacketRecord record = {0};
+
+    if(!wmbus_selftest_hex_to_bytes(
+           wmbus_selftest_apator_encrypted_mode5,
+           normalized,
+           sizeof(normalized),
+           &normalized_len)) {
+        wmbus_selftest_set_detail(detail, detail_len, "hex parse failed");
+        return false;
+    }
+
+    memcpy(capture.data, normalized, normalized_len);
+    capture.len = normalized_len;
+    capture.raw_len = normalized_len;
+    capture.rssi = -60;
+    capture.mode = WmBusRxModeC;
+
+    if(!wmbus_packet_process_capture(&capture, &keyring, &record)) {
+        wmbus_selftest_set_detail(detail, detail_len, "packet process failed");
+        return false;
+    }
+
+    if(strcmp(record.data.parser_name, "Apator162") != 0 || !record.data.has_total_m3 ||
+       record.data.total_m3_x1000 != 4848U || !record.data.decrypted || record.data.key_applied ||
+       record.data.key_index != 0U || strcmp(record.data.id_str, "88888888") != 0) {
+        wmbus_selftest_set_detail(
+            detail,
+            detail_len,
+            "parser=%s total=%lu dec=%s key=%s idx=%u id=%s",
+            record.data.parser_name,
+            (unsigned long)record.data.total_m3_x1000,
+            record.data.decrypted ? "YES" : "NO",
+            record.data.key_applied ? "YES" : "NO",
+            (unsigned int)record.data.key_index,
+            record.data.id_str);
+        return false;
+    }
+
+    wmbus_selftest_set_detail(
+        detail,
+        detail_len,
+        "parser=%s total=%lu fallback=zero id=%s",
+        record.data.parser_name,
+        (unsigned long)record.data.total_m3_x1000,
+        record.data.id_str);
+    return true;
+}
+
+static bool wmbus_selftest_check_packet_process_mode5_parser_zero_key_fallback(
+    char* detail,
+    size_t detail_len) {
+    const WmBusSelftestApatorFieldVector vectors[] = {
+        {wmbus_selftest_apator_encrypted_mode5_gold, 345654U, "02991056"},
+        {wmbus_selftest_apator_encrypted_mode5_field_02991035, 200257U, "02991035"},
+    };
+
+    for(size_t i = 0; i < COUNT_OF(vectors); i++) {
+        uint8_t normalized[WMBUS_SELFTEST_BUF_MAX] = {0};
+        size_t normalized_len = 0;
+        WmBusCaptureFrame capture = {0};
+        WmBusPacketRecord record = {0};
+        const WmBusSelftestApatorFieldVector* vector = &vectors[i];
+
+        if(!wmbus_selftest_hex_to_bytes(
+               vector->telegram, normalized, sizeof(normalized), &normalized_len)) {
+            wmbus_selftest_set_detail(
+                detail, detail_len, "vector %s hex parse failed", vector->id);
+            return false;
+        }
+
+        memcpy(capture.data, normalized, normalized_len);
+        capture.len = normalized_len;
+        capture.raw_len = normalized_len;
+        capture.rssi = -60;
+        capture.mode = WmBusRxModeC;
+
+        if(!wmbus_packet_process_capture(&capture, NULL, &record)) {
+            wmbus_selftest_set_detail(
+                detail, detail_len, "vector %s packet process failed", vector->id);
+            return false;
+        }
+
+        if(strcmp(record.data.parser_name, "Apator162") != 0 || !record.data.has_total_m3 ||
+           record.data.total_m3_x1000 != vector->total_m3_x1000 || !record.data.decrypted ||
+           record.data.key_applied || record.data.key_index != 0U ||
+           strcmp(record.data.id_str, vector->id) != 0) {
+            wmbus_selftest_set_detail(
+                detail,
+                detail_len,
+                "vector %s parser=%s total=%lu dec=%s key=%s idx=%u id=%s",
+                vector->id,
+                record.data.parser_name,
+                (unsigned long)record.data.total_m3_x1000,
+                record.data.decrypted ? "YES" : "NO",
+                record.data.key_applied ? "YES" : "NO",
+                (unsigned int)record.data.key_index,
+                record.data.id_str);
+            return false;
+        }
+    }
+
+    wmbus_selftest_set_detail(
+        detail, detail_len, "parser_fallback=zero vectors=%u", (unsigned int)COUNT_OF(vectors));
+    return true;
+}
+
+static bool wmbus_selftest_check_packet_process_mode5_configured_zero_key_slot(
+    char* detail,
+    size_t detail_len) {
+    const WmBusSelftestApatorFieldVector vectors[] = {
+        {wmbus_selftest_apator_encrypted_mode5_gold, 345654U, "02991056"},
+        {wmbus_selftest_apator_encrypted_mode5_field_02991035, 200257U, "02991035"},
+    };
+    WmBusKeyring keyring = {0};
+
+    memset(&keyring, 0, sizeof(keyring));
+    keyring.count = 1U;
+
+    for(size_t i = 0; i < COUNT_OF(vectors); i++) {
+        uint8_t normalized[WMBUS_SELFTEST_BUF_MAX] = {0};
+        size_t normalized_len = 0;
+        WmBusCaptureFrame capture = {0};
+        WmBusPacketRecord record = {0};
+        const WmBusSelftestApatorFieldVector* vector = &vectors[i];
+
+        if(!wmbus_selftest_hex_to_bytes(
+               vector->telegram, normalized, sizeof(normalized), &normalized_len)) {
+            wmbus_selftest_set_detail(
+                detail, detail_len, "vector %s hex parse failed", vector->id);
+            return false;
+        }
+
+        memcpy(capture.data, normalized, normalized_len);
+        capture.len = normalized_len;
+        capture.raw_len = normalized_len;
+        capture.rssi = -60;
+        capture.mode = WmBusRxModeC;
+
+        if(!wmbus_packet_process_capture(&capture, &keyring, &record)) {
+            wmbus_selftest_set_detail(
+                detail, detail_len, "vector %s packet process failed", vector->id);
+            return false;
+        }
+
+        if(strcmp(record.data.parser_name, "Apator162") != 0 || !record.data.has_total_m3 ||
+           record.data.total_m3_x1000 != vector->total_m3_x1000 || !record.data.decrypted ||
+           !record.data.key_applied || record.data.key_index != 1U ||
+           strcmp(record.data.id_str, vector->id) != 0) {
+            wmbus_selftest_set_detail(
+                detail,
+                detail_len,
+                "vector %s parser=%s total=%lu dec=%s key=%s idx=%u id=%s",
+                vector->id,
+                record.data.parser_name,
+                (unsigned long)record.data.total_m3_x1000,
+                record.data.decrypted ? "YES" : "NO",
+                record.data.key_applied ? "YES" : "NO",
+                (unsigned int)record.data.key_index,
+                record.data.id_str);
+            return false;
+        }
+    }
+
+    wmbus_selftest_set_detail(
+        detail,
+        detail_len,
+        "configured_zero_key vectors=%u key_index=1",
+        (unsigned int)COUNT_OF(vectors));
+    return true;
+}
+
+static bool wmbus_selftest_check_packet_process_mode5_wrong_key_falls_back_to_zero(
+    char* detail,
+    size_t detail_len) {
+    const WmBusSelftestApatorFieldVector vectors[] = {
+        {wmbus_selftest_apator_encrypted_mode5_gold, 345654U, "02991056"},
+        {wmbus_selftest_apator_encrypted_mode5_field_02991035, 200257U, "02991035"},
+    };
+    WmBusKeyring keyring = {0};
+
+    memset(&keyring, 0, sizeof(keyring));
+    memset(keyring.entries[0].key, 0xA5, sizeof(keyring.entries[0].key));
+    keyring.count = 1U;
+
+    for(size_t i = 0; i < COUNT_OF(vectors); i++) {
+        uint8_t normalized[WMBUS_SELFTEST_BUF_MAX] = {0};
+        size_t normalized_len = 0;
+        WmBusCaptureFrame capture = {0};
+        WmBusPacketRecord record = {0};
+        const WmBusSelftestApatorFieldVector* vector = &vectors[i];
+
+        if(!wmbus_selftest_hex_to_bytes(
+               vector->telegram, normalized, sizeof(normalized), &normalized_len)) {
+            wmbus_selftest_set_detail(
+                detail, detail_len, "vector %s hex parse failed", vector->id);
+            return false;
+        }
+
+        memcpy(capture.data, normalized, normalized_len);
+        capture.len = normalized_len;
+        capture.raw_len = normalized_len;
+        capture.rssi = -60;
+        capture.mode = WmBusRxModeC;
+
+        if(!wmbus_packet_process_capture(&capture, &keyring, &record)) {
+            wmbus_selftest_set_detail(
+                detail, detail_len, "vector %s packet process failed", vector->id);
+            return false;
+        }
+
+        if(strcmp(record.data.parser_name, "Apator162") != 0 || !record.data.has_total_m3 ||
+           record.data.total_m3_x1000 != vector->total_m3_x1000 || !record.data.decrypted ||
+           record.data.key_applied || record.data.key_index != 0U ||
+           strcmp(record.data.id_str, vector->id) != 0) {
+            wmbus_selftest_set_detail(
+                detail,
+                detail_len,
+                "vector %s parser=%s total=%lu dec=%s key=%s idx=%u id=%s",
+                vector->id,
+                record.data.parser_name,
+                (unsigned long)record.data.total_m3_x1000,
+                record.data.decrypted ? "YES" : "NO",
+                record.data.key_applied ? "YES" : "NO",
+                (unsigned int)record.data.key_index,
+                record.data.id_str);
+            return false;
+        }
+    }
+
+    wmbus_selftest_set_detail(
+        detail, detail_len, "wrong_key=MISS zero=HIT vectors=%u", (unsigned int)COUNT_OF(vectors));
+    return true;
+}
+
+static bool
+    wmbus_selftest_check_parser_apator162_mode5_corrupt_rejected(char* detail, size_t detail_len) {
+    uint8_t normalized[WMBUS_SELFTEST_BUF_MAX] = {0};
+    size_t normalized_len = 0;
+    WmBusPacketRecord record = {0};
 
     if(!wmbus_selftest_hex_to_bytes(
            wmbus_selftest_apator_encrypted_mode5_corrupt,
@@ -1641,13 +1836,82 @@ static bool wmbus_selftest_check_parser_apator162_mode5_corrupt_rejected(
         wmbus_selftest_set_detail(detail, detail_len, "hex parse failed");
         return false;
     }
-    if(wmbus_parser_parse_apator162_total(normalized, normalized_len, &total_m3_x1000)) {
+    if(!wmbus_selftest_process_capture_record(
+           WmBusRxModeC, normalized, normalized_len, NULL, &record)) {
+        wmbus_selftest_set_detail(detail, detail_len, "packet process failed");
+        return false;
+    }
+    if(strcmp(record.data.parser_name, "Apator162") == 0 || record.data.has_total_m3 ||
+       record.data.decrypted) {
         wmbus_selftest_set_detail(
-            detail, detail_len, "corrupt ciphertext accepted total=%lu", (unsigned long)total_m3_x1000);
+            detail,
+            detail_len,
+            "corrupt ciphertext accepted parser=%s total=%lu dec=%s",
+            record.data.parser_name,
+            (unsigned long)record.data.total_m3_x1000,
+            record.data.decrypted ? "YES" : "NO");
         return false;
     }
 
     wmbus_selftest_set_detail(detail, detail_len, "mode5 corrupt rejected=YES");
+    return true;
+}
+static bool wmbus_selftest_check_parser_apator162_payload_validate_without_total(
+    char* detail,
+    size_t detail_len) {
+    static const char* payload_hex = "2F2F0F00000000000000436E0A415242FF";
+    uint8_t payload[WMBUS_SELFTEST_BUF_MAX] = {0};
+    size_t payload_len = 0U;
+    uint32_t total_m3_x1000 = 0U;
+
+    if(!wmbus_selftest_hex_to_bytes(payload_hex, payload, sizeof(payload), &payload_len)) {
+        wmbus_selftest_set_detail(detail, detail_len, "hex parse failed");
+        return false;
+    }
+
+    if(!wmbus_parser_validate_apator162_payload(payload, payload_len)) {
+        wmbus_selftest_set_detail(detail, detail_len, "payload validate failed");
+        return false;
+    }
+
+    if(wmbus_parser_parse_apator162_payload_total(payload, payload_len, &total_m3_x1000)) {
+        wmbus_selftest_set_detail(
+            detail,
+            detail_len,
+            "payload unexpectedly parsed total=%lu",
+            (unsigned long)total_m3_x1000);
+        return false;
+    }
+
+    wmbus_selftest_set_detail(detail, detail_len, "payload validate=YES total=NO");
+    return true;
+}
+
+static bool wmbus_selftest_check_parser_apator162_invalid_payload_not_claimed(
+    char* detail,
+    size_t detail_len) {
+    uint8_t frame[sizeof(wmbus_apator_b)] = {0};
+    WmBusPacketRecord record = {0};
+
+    memcpy(frame, wmbus_apator_b, sizeof(frame));
+    frame[25] = 0xFEU;
+
+    if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, sizeof(frame), NULL, &record)) {
+        wmbus_selftest_set_detail(detail, detail_len, "packet process failed");
+        return false;
+    }
+
+    if(strcmp(record.data.parser_name, "Apator162") == 0 || record.data.has_total_m3) {
+        wmbus_selftest_set_detail(
+            detail,
+            detail_len,
+            "invalid payload accepted parser=%s total=%lu",
+            record.data.parser_name,
+            (unsigned long)record.data.total_m3_x1000);
+        return false;
+    }
+
+    wmbus_selftest_set_detail(detail, detail_len, "invalid payload rejected=YES");
     return true;
 }
 
@@ -1724,7 +1988,8 @@ static bool wmbus_selftest_check_capture_state_reset(char* detail, size_t detail
 
 static const WmBusSelftestCheck wmbus_selftest_checks_t[] = {
     {"check_3of6_valid_single_byte", wmbus_selftest_check_3of6_valid_single_byte},
-    {"check_3of6_valid_single_byte_offset_1", wmbus_selftest_check_3of6_valid_single_byte_offset_1},
+    {"check_3of6_valid_single_byte_offset_1",
+     wmbus_selftest_check_3of6_valid_single_byte_offset_1},
     {"check_3of6_reject_dangling_nibble", wmbus_selftest_check_3of6_reject_dangling_nibble},
     {"check_3of6_reject_invalid_symbol", wmbus_selftest_check_3of6_reject_invalid_symbol},
     {
@@ -1763,7 +2028,8 @@ static const WmBusSelftestCheck wmbus_selftest_checks_c[] = {
         "check_capture_c_frame_offset_l_field_54",
         wmbus_selftest_check_capture_c_frame_offset_l_field_54,
     },
-    {"check_capture_c_expected_len_estimate", wmbus_selftest_check_capture_c_expected_len_estimate},
+    {"check_capture_c_expected_len_estimate",
+     wmbus_selftest_check_capture_c_expected_len_estimate},
     {
         "check_capture_c_expected_len_estimate_with_signal_byte",
         wmbus_selftest_check_capture_c_expected_len_estimate_with_signal_byte,
@@ -1796,6 +2062,30 @@ static const WmBusSelftestCheck wmbus_selftest_checks_common[] = {
     {
         "check_parser_apator162_mode5_zero_key_vectors",
         wmbus_selftest_check_parser_apator162_mode5_zero_key_vectors,
+    },
+    {
+        "check_parser_apator162_payload_validate_without_total",
+        wmbus_selftest_check_parser_apator162_payload_validate_without_total,
+    },
+    {
+        "check_parser_apator162_invalid_payload_not_claimed",
+        wmbus_selftest_check_parser_apator162_invalid_payload_not_claimed,
+    },
+    {
+        "check_packet_process_mode5_zero_key_fallback_vector",
+        wmbus_selftest_check_packet_process_mode5_zero_key_fallback_vector,
+    },
+    {
+        "check_packet_process_mode5_parser_zero_key_fallback",
+        wmbus_selftest_check_packet_process_mode5_parser_zero_key_fallback,
+    },
+    {
+        "check_packet_process_mode5_configured_zero_key_slot",
+        wmbus_selftest_check_packet_process_mode5_configured_zero_key_slot,
+    },
+    {
+        "check_packet_process_mode5_wrong_key_falls_back_to_zero",
+        wmbus_selftest_check_packet_process_mode5_wrong_key_falls_back_to_zero,
     },
     {
         "check_parser_apator162_mode5_corrupt_rejected",
@@ -1834,10 +2124,8 @@ static void wmbus_selftest_run_checks(
     }
 }
 
-static void wmbus_selftest_run_internal(
-    WmBusSelftestSummary* summary,
-    bool log_results,
-    File* report) {
+static void
+    wmbus_selftest_run_internal(WmBusSelftestSummary* summary, bool log_results, File* report) {
     for(size_t i = 0; i < wmbus_selftest_get_case_count(); i++) {
         const WmBusSelftestCase* test_case = wmbus_selftest_get_case(i);
         WmBusSelftestResult result = {0};
@@ -1876,6 +2164,7 @@ void wmbus_run_selftests(void) {
 #if WMBUS_SELFTESTS
     WmBusSelftestSummary summary = {0};
     Storage* storage = furi_record_open(RECORD_STORAGE);
+    wmbus_storage_ensure_app_folder(storage);
     File* report = storage_file_alloc(storage);
     bool report_open =
         storage_file_open(report, WMBUS_SELFTEST_REPORT_PATH, FSAM_WRITE, FSOM_CREATE_ALWAYS);
@@ -1891,10 +2180,7 @@ void wmbus_run_selftests(void) {
 
     if(summary.failed == 0) {
         FURI_LOG_I(
-            TAG,
-            "selftests done total=%lu passed=%lu failed=0",
-            summary.total,
-            summary.passed);
+            TAG, "selftests done total=%lu passed=%lu failed=0", summary.total, summary.passed);
         if(report_open) {
             wmbus_selftest_write_report_line(
                 report,

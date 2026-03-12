@@ -167,6 +167,29 @@ bool wmbus_frame_build_format_a(
     return true;
 }
 
+bool wmbus_frame_build_format_b(
+    const uint8_t* normalized,
+    size_t normalized_len,
+    uint8_t* out,
+    size_t out_max,
+    size_t* out_len) {
+    if(!normalized || !out || !out_len) return false;
+    if(normalized_len < 11U || normalized_len > 126U) return false;
+    if(!wmbus_capture_l_field_valid(normalized[0])) return false;
+    if(normalized_len != (size_t)normalized[0] + 1U) return false;
+    if(normalized_len + 2U > out_max) return false;
+
+    memcpy(out, normalized, normalized_len);
+    out[0] = (uint8_t)(normalized[0] + 2U);
+
+    uint16_t crc = wmbus_crc16_en13757(out, normalized_len);
+    out[normalized_len] = (uint8_t)(crc >> 8);
+    out[normalized_len + 1U] = (uint8_t)crc;
+
+    *out_len = normalized_len + 2U;
+    return true;
+}
+
 static bool wmbus_frame_trim_crc_a(
     const uint8_t* data,
     size_t len,

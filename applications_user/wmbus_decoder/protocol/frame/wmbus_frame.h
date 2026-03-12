@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "wmbus_capture.h"
+#include "../capture/wmbus_capture.h"
 
 #define WMBUS_MFG_STR_LEN 4U
 #define WMBUS_ID_STR_LEN  9U
@@ -30,6 +30,13 @@ void wmbus_frame_format_id(const uint8_t id[4], char out[WMBUS_ID_STR_LEN], bool
 size_t wmbus_frame_expected_len(uint8_t l_field, WmBusFrameFormat format);
 
 bool wmbus_frame_build_format_a(
+    const uint8_t* normalized,
+    size_t normalized_len,
+    uint8_t* out,
+    size_t out_max,
+    size_t* out_len);
+
+bool wmbus_frame_build_format_b(
     const uint8_t* normalized,
     size_t normalized_len,
     uint8_t* out,

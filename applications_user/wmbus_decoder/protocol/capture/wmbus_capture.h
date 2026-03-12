@@ -4,12 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "wmbus_parser.h"
-
-typedef enum {
-    WmBusRxModeT = 0,
-    WmBusRxModeC = 1,
-} WmBusRxMode;
+#include "../../core/wmbus_types.h"
+#include "../parser/wmbus_parser.h"
 
 typedef struct {
     uint8_t data[256];

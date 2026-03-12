@@ -1,13 +1,12 @@
 #include "wmbus_parser.h"
-#include "wmbus_aes.h"
+#include "../crypto/wmbus_aes.h"
 
+#include "core/wmbus_types.h"
 #include <string.h>
 
 #define WMBUS_PARSER_FRAME_MAX 256U
 #define WMBUS_AES_BLOCK_LEN    16U
 #define WMBUS_SHORT_TPL_POS    15U
-
-static const uint8_t wmbus_apator162_zero_key[WMBUS_AES_BLOCK_LEN] = {0};
 
 static uint8_t wmbus_3of6_decode_symbol(uint8_t sym) {
     switch(sym) {
@@ -127,129 +126,6 @@ bool wmbus_parser_is_plausible(const uint8_t* data, size_t len) {
     return true;
 }
 
-int wmbus_parser_apator162_register_size(uint8_t reg) {
-    switch(reg) {
-    case 0x00:
-        return 4;
-    case 0x01:
-        return 3;
-    case 0xA1:
-    case 0x10:
-        return 4;
-    case 0x11:
-        return 2;
-    case 0x40:
-        return 6;
-    case 0x41:
-        return 2;
-    case 0x42:
-        return 4;
-    case 0x43:
-        return 2;
-    case 0x44:
-        return 3;
-    case 0x71:
-        return 1 + 2 * 4;
-    case 0x72:
-        return 1 + 3 * 4;
-    case 0x73:
-        return 1 + 4 * 4;
-    case 0x74:
-        return 1 + 5 * 4;
-    case 0x75:
-        return 1 + 6 * 4;
-    case 0x76:
-        return 1 + 7 * 4;
-    case 0x77:
-        return 1 + 8 * 4;
-    case 0x78:
-        return 1 + 9 * 4;
-    case 0x79:
-        return 1 + 10 * 4;
-    case 0x7A:
-        return 1 + 11 * 4;
-    case 0x7B:
-        return 1 + 12 * 4;
-    case 0x80:
-    case 0x81:
-    case 0x82:
-    case 0x83:
-    case 0x84:
-    case 0x86:
-    case 0x87:
-        return 10;
-    case 0x85:
-    case 0x88:
-    case 0x8F:
-        return 11;
-    case 0x8A:
-        return 9;
-    case 0x8B:
-    case 0x8C:
-        return 6;
-    case 0x8E:
-        return 7;
-    case 0xA0:
-        return 4;
-    case 0xA2:
-        return 1;
-    case 0xA3:
-        return 7;
-    case 0xA4:
-        return 4;
-    case 0xA5:
-    case 0xA9:
-    case 0xAF:
-        return 1;
-    case 0xA6:
-        return 3;
-    case 0xA7:
-    case 0xA8:
-    case 0xAA:
-    case 0xAB:
-    case 0xAC:
-    case 0xAD:
-        return 2;
-    case 0xB0:
-        return 5;
-    case 0xB1:
-        return 8;
-    case 0xB2:
-        return 16;
-    case 0xB3:
-        return 8;
-    case 0xB4:
-        return 2;
-    case 0xB5:
-        return 16;
-    case 0xB6:
-    case 0xB7:
-    case 0xB8:
-    case 0xB9:
-    case 0xBA:
-    case 0xBB:
-    case 0xBC:
-    case 0xBD:
-    case 0xBE:
-    case 0xBF:
-    case 0xC0:
-    case 0xC1:
-    case 0xC2:
-    case 0xC3:
-    case 0xC4:
-    case 0xC5:
-    case 0xC6:
-    case 0xC7:
-    case 0xD0:
-    case 0xD3:
-        return 3;
-    case 0xF0:
-        return 4;
-    default:
-        return -1;
-    }
-}
-
 uint8_t wmbus_parser_short_tpl_security_mode(uint16_t cfg) {
     return (uint8_t)((cfg >> 8) & 0x1FU);
 }
@@ -268,7 +144,7 @@ bool wmbus_parser_short_tpl_security_likely_encrypted(uint16_t cfg) {
     }
 }
 
-static bool wmbus_parser_short_tpl_payload_has_check_bytes(const uint8_t* frame, size_t frame_len) {
+bool wmbus_parser_short_tpl_payload_has_check_bytes(const uint8_t* frame, size_t frame_len) {
     return frame_len >= (WMBUS_SHORT_TPL_POS + 2U) && frame[WMBUS_SHORT_TPL_POS] == 0x2F &&
            frame[WMBUS_SHORT_TPL_POS + 1U] == 0x2F;
 }
@@ -278,12 +154,25 @@ static void wmbus_parser_build_mode5_iv(const uint8_t* frame, uint8_t iv[WMBUS_A
     memset(&iv[8], frame[11], 8U);
 }
 
-static bool wmbus_parser_decrypt_mode5(
+WmBusMode5DecryptInfo wmbus_parser_decrypt_mode5(
     const uint8_t* frame,
-    size_t frame_len,
+    const size_t frame_len,
     uint16_t cfg,
+    const uint8_t key[WMBUS_AES_BLOCK_LEN],
     uint8_t* out_frame) {
-    if(frame_len > WMBUS_PARSER_FRAME_MAX || frame_len <= WMBUS_SHORT_TPL_POS) return false;
+    WmBusMode5DecryptInfo info = {
+        .result = WmBusDecryptResultInvalidArgs,
+        .has_check_bytes = false,
+    };
+
+    if(!frame || !key || !out_frame) {
+        return info;
+    }
+    if(frame_len > WMBUS_PARSER_FRAME_MAX || frame_len <= WMBUS_SHORT_TPL_POS)
+        return (WmBusMode5DecryptInfo){
+            .result = WmBusDecryptResultFrameTooShort,
+            .has_check_bytes = false,
+        };
 
     size_t encrypted_len = ((size_t)cfg >> 4) & 0x0FU;
     size_t payload_len = frame_len - WMBUS_SHORT_TPL_POS;
@@ -294,7 +183,12 @@ static bool wmbus_parser_decrypt_mode5(
         encrypted_len = payload_len;
     }
     encrypted_len -= (encrypted_len % WMBUS_AES_BLOCK_LEN);
-    if(encrypted_len < WMBUS_AES_BLOCK_LEN) return false;
+    if(encrypted_len < WMBUS_AES_BLOCK_LEN) {
+        return (WmBusMode5DecryptInfo){
+            .result = WmBusDecryptResultEncryptedPayloadTooShort,
+            .has_check_bytes = false,
+        };
+    }
 
     memcpy(out_frame, frame, frame_len);
     wmbus_parser_build_mode5_iv(frame, iv);
@@ -302,65 +196,10 @@ static bool wmbus_parser_decrypt_mode5(
         &out_frame[WMBUS_SHORT_TPL_POS],
         &frame[WMBUS_SHORT_TPL_POS],
         (uint32_t)encrypted_len,
-        wmbus_apator162_zero_key,
+        key,
         iv);
 
-    return wmbus_parser_short_tpl_payload_has_check_bytes(out_frame, frame_len);
-}
-
-bool wmbus_parser_parse_apator162_total(
-    const uint8_t* frame,
-    size_t frame_len,
-    uint32_t* total_m3_x1000) {
-    if(frame_len < 15) return false;
-    if(frame[10] != 0x7A) return false;
-
-    uint16_t cfg = (uint16_t)frame[13] | ((uint16_t)frame[14] << 8);
-    uint8_t security_mode = wmbus_parser_short_tpl_security_mode(cfg);
-    bool security_likely_encrypted =
-        wmbus_parser_short_tpl_security_likely_encrypted(cfg);
-    uint8_t decrypted_frame[WMBUS_PARSER_FRAME_MAX] = {0};
-    const uint8_t* parse_frame = frame;
-
-    if(security_likely_encrypted && !wmbus_parser_short_tpl_payload_has_check_bytes(frame, frame_len)) {
-        if(security_mode != 0x05U || !wmbus_parser_decrypt_mode5(frame, frame_len, cfg, decrypted_frame)) {
-            return false;
-        }
-        parse_frame = decrypted_frame;
-    }
-
-    size_t pos = WMBUS_SHORT_TPL_POS;
-    while(pos < frame_len && parse_frame[pos] == 0x2F) {
-        pos++;
-    }
-
-    if(pos + 8 > frame_len) return false;
-    if(parse_frame[pos] != 0x0F) return false;
-
-    pos += 8;
-    uint32_t parsed_total = 0;
-    bool have_total = false;
-
-    while(pos < frame_len) {
-        uint8_t reg = parse_frame[pos++];
-        if(reg == 0xFF) break;
-
-        int reg_size = wmbus_parser_apator162_register_size(reg);
-        if(reg_size < 0) return false;
-        if(pos + (size_t)reg_size > frame_len) return false;
-
-        if(!have_total && (reg == 0x10 || reg == 0xA1) && reg_size >= 4) {
-            parsed_total = (uint32_t)parse_frame[pos] | ((uint32_t)parse_frame[pos + 1] << 8) |
-                           ((uint32_t)parse_frame[pos + 2] << 16) |
-                           ((uint32_t)parse_frame[pos + 3] << 24);
-            have_total = true;
-        }
-
-        pos += (size_t)reg_size;
-    }
-
-    if(!have_total) return false;
-
-    *total_m3_x1000 = parsed_total;
-    return true;
+    info.result = WmBusDecryptResultOk;
+    info.has_check_bytes = wmbus_parser_short_tpl_payload_has_check_bytes(out_frame, frame_len);
+    return info;
 }
