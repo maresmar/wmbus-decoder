@@ -40,7 +40,7 @@ static const char* wmbus_packet_decrypt_result_str(WmBusDecryptResult result) {
 
 static const char* wmbus_packet_log_id(const WmBusPacketRecord* record) {
     if(!record) return "--------";
-    return record->data.id_str[0] ? record->data.id_str : "--------";
+    return record->frame.id_str[0] ? record->frame.id_str : "--------";
 }
 
 static void wmbus_packet_log_decrypt_failure_reason(
@@ -53,8 +53,8 @@ static void wmbus_packet_log_decrypt_failure_reason(
         TAG,
         "decrypt failed id=%s ci=%02X cfg=%04X key=%02X%02X.. reason=%s",
         wmbus_packet_log_id(record),
-        record->data.ci_field,
-        record->data.cfg,
+        record->frame.ci_field,
+        record->transport.cfg,
         key[0],
         key[1],
         reason);
@@ -72,24 +72,24 @@ static void wmbus_packet_log_decrypt_failure(
 static void
     wmbus_packet_add_field(WmBusPacketRecord* record, const char* label, const char* value) {
     if(!record || !label || !value) return;
-    if(record->data.field_count >= WMBUS_PACKET_FIELD_MAX) return;
+    if(record->application.field_count >= WMBUS_PACKET_FIELD_MAX) return;
 
-    WmBusPacketField* field = &record->data.fields[record->data.field_count++];
+    WmBusPacketField* field = &record->application.fields[record->application.field_count++];
     snprintf(field->label, sizeof(field->label), "%s", label);
     snprintf(field->value, sizeof(field->value), "%s", value);
 }
 
-static void wmbus_packet_set_primary(
+static void wmbus_packet_set_summary(
     WmBusPacketRecord* record,
-    const char* primary_a,
-    const char* primary_b) {
+    const char* summary_a,
+    const char* summary_b) {
     if(!record) return;
 
-    if(primary_a) {
-        snprintf(record->data.primary_a, sizeof(record->data.primary_a), "%s", primary_a);
+    if(summary_a) {
+        snprintf(record->application.summary_a, sizeof(record->application.summary_a), "%s", summary_a);
     }
-    if(primary_b) {
-        snprintf(record->data.primary_b, sizeof(record->data.primary_b), "%s", primary_b);
+    if(summary_b) {
+        snprintf(record->application.summary_b, sizeof(record->application.summary_b), "%s", summary_b);
     }
 }
 
@@ -112,7 +112,7 @@ static bool wmbus_packet_parser_name_is_generic(const char* parser_name) {
     if(!parser_name || parser_name[0] == '\0') return true;
 
     return strcmp(parser_name, "Short TPL") == 0 || strcmp(parser_name, "Header") == 0 ||
-           strcmp(parser_name, "Raw") == 0;
+           strcmp(parser_name, "Raw") == 0 || strcmp(parser_name, "DIF/VIF") == 0;
 }
 
 const char* wmbus_packet_status_str(WmBusStatus status) {
@@ -264,73 +264,457 @@ static bool wmbus_ci_has_short_tpl(uint8_t ci) {
     }
 }
 
+static uint64_t wmbus_packet_pow10_u64(uint8_t power) {
+    uint64_t result = 1U;
+    while(power > 0U) {
+        result *= 10U;
+        power--;
+    }
+    return result;
+}
+
+static void
+    wmbus_packet_format_scaled_unsigned(uint64_t value, int8_t scale10, char* out, size_t out_size) {
+    if(!out || out_size == 0U) return;
+    out[0] = '\0';
+
+    if(scale10 >= 0) {
+        uint64_t scaled = value * wmbus_packet_pow10_u64((uint8_t)scale10);
+        snprintf(out, out_size, "%llu", (unsigned long long)scaled);
+        return;
+    }
+
+    uint8_t decimals = (uint8_t)(-scale10);
+    uint64_t div = wmbus_packet_pow10_u64(decimals);
+    uint64_t whole = value / div;
+    uint64_t frac = value % div;
+    snprintf(
+        out,
+        out_size,
+        "%llu.%0*llu",
+        (unsigned long long)whole,
+        (int)decimals,
+        (unsigned long long)frac);
+}
+
+static bool wmbus_packet_decode_unsigned_le(const uint8_t* data, uint8_t data_len, uint64_t* value) {
+    if(!data || !value || data_len == 0U || data_len > 8U) return false;
+
+    uint64_t result = 0U;
+    for(uint8_t i = 0; i < data_len; i++) {
+        result |= ((uint64_t)data[i]) << (8U * i);
+    }
+    *value = result;
+    return true;
+}
+
+static bool wmbus_packet_decode_bcd(const uint8_t* data, uint8_t data_len, uint64_t* value) {
+    if(!data || !value || data_len == 0U || data_len > 8U) return false;
+
+    uint64_t result = 0U;
+    uint64_t factor = 1U;
+    for(uint8_t i = 0; i < data_len; i++) {
+        uint8_t lo = data[i] & 0x0FU;
+        uint8_t hi = (data[i] >> 4) & 0x0FU;
+        if(lo > 9U || hi > 9U) return false;
+        result += (uint64_t)lo * factor;
+        factor *= 10U;
+        result += (uint64_t)hi * factor;
+        factor *= 10U;
+    }
+    *value = result;
+    return true;
+}
+
+static int wmbus_packet_data_len_from_dif(uint8_t dif, bool* is_bcd, bool* is_variable_text) {
+    if(is_bcd) *is_bcd = false;
+    if(is_variable_text) *is_variable_text = false;
+
+    switch(dif & 0x0FU) {
+    case 0x00:
+        return 0;
+    case 0x01:
+        return 1;
+    case 0x02:
+        return 2;
+    case 0x03:
+        return 3;
+    case 0x04:
+        return 4;
+    case 0x05:
+        return 4;
+    case 0x06:
+        return 6;
+    case 0x07:
+        return 8;
+    case 0x09:
+        if(is_bcd) *is_bcd = true;
+        return 1;
+    case 0x0A:
+        if(is_bcd) *is_bcd = true;
+        return 2;
+    case 0x0B:
+        if(is_bcd) *is_bcd = true;
+        return 3;
+    case 0x0C:
+        if(is_bcd) *is_bcd = true;
+        return 4;
+    case 0x0D:
+        if(is_variable_text) *is_variable_text = true;
+        return -2;
+    default:
+        return -1;
+    }
+}
+
+static void wmbus_packet_map_vif(WmBusApplicationRecord* record) {
+    if(!record) return;
+
+    snprintf(record->label, sizeof(record->label), "Data");
+    record->unit[0] = '\0';
+    record->quantity = WmBusApplicationQuantityUnknown;
+    record->scale10 = 0;
+
+    if((record->vif & 0xF8U) == 0x10U) {
+        record->quantity = WmBusApplicationQuantityVolume;
+        record->scale10 = (int8_t)(record->vif & 0x07U) - 6;
+        snprintf(record->label, sizeof(record->label), "Volume");
+        snprintf(record->unit, sizeof(record->unit), "m3");
+    } else if((record->vif & 0xF8U) == 0x00U) {
+        record->quantity = WmBusApplicationQuantityEnergy;
+        record->scale10 = (int8_t)(record->vif & 0x07U) - 3;
+        snprintf(record->label, sizeof(record->label), "Energy");
+        snprintf(record->unit, sizeof(record->unit), "Wh");
+    }
+}
+
+static void wmbus_packet_decode_record_value(
+    WmBusApplicationRecord* record,
+    const uint8_t* data,
+    uint8_t data_len,
+    bool is_bcd,
+    bool is_variable_text) {
+    if(!record) return;
+
+    record->value_type = WmBusApplicationValueNone;
+    record->value_text[0] = '\0';
+    record->value_unsigned = 0U;
+
+    if(data_len == 0U) {
+        snprintf(record->value_text, sizeof(record->value_text), "-");
+        return;
+    }
+
+    if(is_variable_text) {
+        record->value_type = WmBusApplicationValueText;
+        size_t write = 0U;
+        for(uint8_t i = 0; i < data_len && (write + 2U) < sizeof(record->value_text); i++) {
+            snprintf(
+                &record->value_text[write],
+                sizeof(record->value_text) - write,
+                "%02X",
+                data[i]);
+            write += 2U;
+        }
+        return;
+    }
+
+    bool decoded = false;
+    uint64_t value = 0U;
+    if(is_bcd) {
+        decoded = wmbus_packet_decode_bcd(data, data_len, &value);
+    } else if((data_len <= 8U) && ((record->dif & 0x0FU) != 0x05U)) {
+        decoded = wmbus_packet_decode_unsigned_le(data, data_len, &value);
+    }
+
+    if(!decoded) {
+        record->value_type = WmBusApplicationValueText;
+        size_t write = 0U;
+        for(uint8_t i = 0; i < data_len && (write + 2U) < sizeof(record->value_text); i++) {
+            snprintf(
+                &record->value_text[write],
+                sizeof(record->value_text) - write,
+                "%02X",
+                data[i]);
+            write += 2U;
+        }
+        return;
+    }
+
+    record->value_type = WmBusApplicationValueUnsigned;
+    record->value_unsigned = value;
+    wmbus_packet_format_scaled_unsigned(value, record->scale10, record->value_text, sizeof(record->value_text));
+    if(record->unit[0] != '\0') {
+        size_t len = strlen(record->value_text);
+        snprintf(
+            &record->value_text[len],
+            sizeof(record->value_text) - len,
+            " %s",
+            record->unit);
+    }
+}
+
+static bool wmbus_packet_total_volume_from_record(
+    const WmBusApplicationRecord* app_record,
+    uint32_t* total_m3_x1000) {
+    if(!app_record || !total_m3_x1000) return false;
+    if(app_record->quantity != WmBusApplicationQuantityVolume ||
+       app_record->value_type != WmBusApplicationValueUnsigned) {
+        return false;
+    }
+
+    if(app_record->scale10 >= -3) {
+        uint64_t scaled = app_record->value_unsigned;
+        if(app_record->scale10 >= 0) {
+            scaled *= wmbus_packet_pow10_u64((uint8_t)(app_record->scale10 + 3));
+        } else {
+            scaled *= wmbus_packet_pow10_u64((uint8_t)(app_record->scale10 + 3));
+        }
+        if(scaled > UINT32_MAX) return false;
+        *total_m3_x1000 = (uint32_t)scaled;
+        return true;
+    }
+
+    uint8_t divisor_power = (uint8_t)(-3 - app_record->scale10);
+    uint64_t divisor = wmbus_packet_pow10_u64(divisor_power);
+    if((app_record->value_unsigned % divisor) != 0U) return false;
+
+    uint64_t scaled = app_record->value_unsigned / divisor;
+    if(scaled > UINT32_MAX) return false;
+    *total_m3_x1000 = (uint32_t)scaled;
+    return true;
+}
+
+bool wmbus_packet_decode_application_records(
+    const uint8_t* payload,
+    size_t payload_len,
+    WmBusApplicationRecord* out,
+    uint8_t out_max,
+    uint8_t* out_count) {
+    if(out_count) *out_count = 0U;
+    if((payload_len > 0U) && (!payload || !out)) return false;
+    if(!payload && payload_len == 0U) return true;
+
+    size_t pos = 0U;
+    uint8_t count = 0U;
+
+    while(pos < payload_len) {
+        while(pos < payload_len && payload[pos] == 0x2FU) {
+            pos++;
+        }
+        if(pos >= payload_len) break;
+        if(payload[pos] == 0x0FU || payload[pos] == 0x1FU) {
+            break;
+        }
+
+        if(count >= out_max) break;
+
+        WmBusApplicationRecord* record = &out[count];
+        memset(record, 0, sizeof(*record));
+
+        size_t start = pos;
+        record->dif = payload[pos++];
+
+        uint16_t storage_no = (record->dif >> 6) & 0x01U;
+        uint8_t storage_shift = 1U;
+
+        for(record->dife_count = 0U; (record->dif & 0x80U) != 0U;) {
+            if(pos >= payload_len || record->dife_count >= WMBUS_PACKET_DIFE_MAX) return false;
+            uint8_t dife = payload[pos++];
+            record->difes[record->dife_count++] = dife;
+            storage_no |= (uint16_t)(dife & 0x0FU) << storage_shift;
+            storage_shift += 4U;
+            record->tariff |= (uint8_t)((dife >> 4) & 0x03U) << (2U * (record->dife_count - 1U));
+            record->subunit |= (uint8_t)((dife >> 6) & 0x01U) << (record->dife_count - 1U);
+            if((dife & 0x80U) == 0U) break;
+        }
+        record->storage_no = storage_no;
+
+        if(pos >= payload_len) return false;
+        record->vif = payload[pos++];
+        for(record->vife_count = 0U; (record->vif & 0x80U) != 0U;) {
+            if(pos >= payload_len || record->vife_count >= WMBUS_PACKET_VIFE_MAX) return false;
+            uint8_t vife = payload[pos++];
+            record->vifes[record->vife_count++] = vife;
+            if((vife & 0x80U) == 0U) break;
+        }
+
+        bool is_bcd = false;
+        bool is_variable_text = false;
+        int data_len = wmbus_packet_data_len_from_dif(record->dif, &is_bcd, &is_variable_text);
+        if(data_len == -1) return false;
+        if(data_len == -2) {
+            if(pos >= payload_len) return false;
+            data_len = payload[pos++];
+        }
+        if((size_t)data_len > (payload_len - pos)) return false;
+        record->data_len = (uint8_t)data_len;
+
+        wmbus_packet_map_vif(record);
+        wmbus_packet_decode_record_value(record, &payload[pos], record->data_len, is_bcd, is_variable_text);
+
+        pos += record->data_len;
+        record->record_len = (uint8_t)((pos - start > WMBUS_PACKET_RECORD_RAW_MAX) ?
+                                           WMBUS_PACKET_RECORD_RAW_MAX :
+                                           (pos - start));
+        memcpy(record->raw, &payload[start], record->record_len);
+        count++;
+    }
+
+    if(out_count) *out_count = count;
+    return true;
+}
+
 static void wmbus_packet_extract_frame_info(
     const uint8_t* frame,
     size_t frame_len,
     WmBusPacketRecord* record) {
     if(!frame || !record || frame_len < 11U) return;
 
-    record->data.l_field = frame[0];
-    record->data.c_field = frame[1];
-    record->data.m_field = (uint16_t)frame[2] | ((uint16_t)frame[3] << 8);
-    wmbus_frame_decode_mfg(record->data.m_field, record->data.mfg);
-    memcpy(record->data.id, &frame[4], sizeof(record->data.id));
-    wmbus_frame_format_id(record->data.id, record->data.id_str, &record->data.id_is_bcd);
-    record->data.version = frame[8];
-    record->data.dev_type = frame[9];
-    record->data.ci_field = frame[10];
+    record->frame.l_field = frame[0];
+    record->frame.c_field = frame[1];
+    record->frame.m_field = (uint16_t)frame[2] | ((uint16_t)frame[3] << 8);
+    wmbus_frame_decode_mfg(record->frame.m_field, record->frame.mfg);
+    memcpy(record->frame.id, &frame[4], sizeof(record->frame.id));
+    wmbus_frame_format_id(record->frame.id, record->frame.id_str, &record->frame.id_is_bcd);
+    record->frame.version = frame[8];
+    record->frame.dev_type = frame[9];
+    record->frame.ci_field = frame[10];
+    record->transport.header_len = 11U;
+
+    if(frame_len > sizeof(record->frame.normalized)) {
+        frame_len = sizeof(record->frame.normalized);
+    }
+    record->frame.normalized_len = (uint16_t)frame_len;
+    memcpy(record->frame.normalized, frame, frame_len);
 
     if(frame_len >= 15U && wmbus_ci_has_short_tpl(frame[10])) {
-        record->data.has_short_tpl = true;
-        record->data.acc = frame[11];
-        record->data.tpl_status = frame[12];
-        record->data.cfg = (uint16_t)frame[13] | ((uint16_t)frame[14] << 8);
-        record->data.security_mode = wmbus_parser_short_tpl_security_mode(record->data.cfg);
-        record->data.security_likely_encrypted =
-            wmbus_parser_short_tpl_security_likely_encrypted(record->data.cfg);
+        record->transport.has_short_tpl = true;
+        record->transport.header_len = 15U;
+        record->transport.acc = frame[11];
+        record->transport.tpl_status = frame[12];
+        record->transport.cfg = (uint16_t)frame[13] | ((uint16_t)frame[14] << 8);
+        record->transport.security_mode =
+            wmbus_parser_short_tpl_security_mode(record->transport.cfg);
+        record->transport.security_likely_encrypted =
+            wmbus_parser_short_tpl_security_likely_encrypted(record->transport.cfg);
     }
 }
 
+static void
+    wmbus_packet_set_raw_payload(WmBusPacketRecord* record, const uint8_t* frame, size_t frame_len) {
+    if(!record || !frame) return;
+
+    size_t offset = record->transport.header_len;
+    if(frame_len <= offset) {
+        record->payload.raw_len = 0U;
+        return;
+    }
+
+    size_t payload_len = frame_len - offset;
+    if(payload_len > sizeof(record->payload.raw_payload)) {
+        payload_len = sizeof(record->payload.raw_payload);
+    }
+
+    record->payload.raw_len = (uint16_t)payload_len;
+    memcpy(record->payload.raw_payload, &frame[offset], payload_len);
+}
+
+static void
+    wmbus_packet_set_app_payload(WmBusPacketRecord* record, const uint8_t* frame, size_t frame_len) {
+    if(!record) return;
+
+    record->payload.has_app_payload = false;
+    record->payload.app_len = 0U;
+    if(!frame) return;
+
+    size_t offset = record->transport.header_len;
+    if(frame_len <= offset) return;
+
+    size_t payload_len = frame_len - offset;
+    if(payload_len > sizeof(record->payload.app_payload)) {
+        payload_len = sizeof(record->payload.app_payload);
+    }
+
+    record->payload.has_app_payload = true;
+    record->payload.app_len = (uint16_t)payload_len;
+    memcpy(record->payload.app_payload, &frame[offset], payload_len);
+}
+
 static void wmbus_packet_add_short_tpl_fields(WmBusPacketRecord* record) {
-    if(!record || !record->data.has_short_tpl) return;
+    if(!record || !record->transport.has_short_tpl) return;
 
     char temp[WMBUS_PACKET_VALUE_MAX];
 
-    snprintf(temp, sizeof(temp), "%02X", record->data.acc);
+    snprintf(temp, sizeof(temp), "%02X", record->transport.acc);
     wmbus_packet_add_field(record, "ACC", temp);
 
-    snprintf(temp, sizeof(temp), "%02X", record->data.tpl_status);
+    snprintf(temp, sizeof(temp), "%02X", record->transport.tpl_status);
     wmbus_packet_add_field(record, "TPL", temp);
 
-    snprintf(temp, sizeof(temp), "%04X", record->data.cfg);
+    snprintf(temp, sizeof(temp), "%04X", record->transport.cfg);
     wmbus_packet_add_field(record, "CFG", temp);
 
-    snprintf(temp, sizeof(temp), "%02X", record->data.security_mode);
+    snprintf(temp, sizeof(temp), "%02X", record->transport.security_mode);
     wmbus_packet_add_field(record, "SEC", temp);
 
-    if(record->data.decrypted) {
-        if(record->data.key_index != 0U) {
-            snprintf(temp, sizeof(temp), "#%u", (unsigned int)record->data.key_index);
+    if(record->transport.decrypted) {
+        if(record->transport.key_index != 0U) {
+            snprintf(temp, sizeof(temp), "#%u", (unsigned int)record->transport.key_index);
         } else {
             snprintf(temp, sizeof(temp), "zero");
         }
         wmbus_packet_add_field(record, "Key", temp);
-    } else if(record->data.security_likely_encrypted) {
+    } else if(record->transport.security_likely_encrypted) {
         wmbus_packet_add_field(record, "Payload", "Encrypted");
     }
 }
 
-static bool wmbus_packet_try_parser_candidate(
-    const uint8_t* candidate_frame,
-    size_t frame_len,
-    WmBusPacketRecord* record) {
-    if(!candidate_frame || !record) {
-        return false;
+static void wmbus_packet_populate_application_from_records(WmBusPacketRecord* record) {
+    if(!record) return;
+
+    for(uint8_t i = 0; i < record->application.record_count; i++) {
+        const WmBusApplicationRecord* app_record = &record->application.records[i];
+        if(app_record->label[0] != '\0' && app_record->value_text[0] != '\0') {
+            wmbus_packet_add_field(record, app_record->label, app_record->value_text);
+        }
+
+        if(!record->application.has_total_volume_m3 && app_record->storage_no == 0U) {
+            uint32_t total_m3_x1000 = 0U;
+            if(wmbus_packet_total_volume_from_record(app_record, &total_m3_x1000)) {
+                record->application.has_total_volume_m3 = true;
+                record->application.total_volume_m3_x1000 = total_m3_x1000;
+            }
+        }
     }
-    if(!wmbus_device_parser_apply(candidate_frame, frame_len, record)) {
-        return false;
+}
+
+static bool wmbus_packet_try_parse_current_payload(WmBusPacketRecord* record) {
+    if(!record || !record->payload.has_app_payload) return false;
+
+    memset(&record->application, 0, sizeof(record->application));
+
+    uint8_t record_count = 0U;
+    bool decode_ok = wmbus_packet_decode_application_records(
+        record->payload.app_payload,
+        record->payload.app_len,
+        record->application.records,
+        COUNT_OF(record->application.records),
+        &record_count);
+    if(decode_ok) {
+        record->application.record_count = record_count;
+        wmbus_packet_populate_application_from_records(record);
     }
-    return true;
+
+    bool parsed = wmbus_device_parser_apply(record);
+    if(!parsed && record->application.record_count > 0U) {
+        snprintf(
+            record->application.parser_name,
+            sizeof(record->application.parser_name),
+            "DIF/VIF");
+    }
+
+    return parsed || record->application.record_count > 0U;
 }
 
 static bool wmbus_packet_try_key(
@@ -344,20 +728,19 @@ static bool wmbus_packet_try_key(
     }
 
     WmBusMode5DecryptInfo decrypt =
-        wmbus_parser_decrypt_mode5(frame, frame_len, record->data.cfg, key, decrypt_frame);
+        wmbus_parser_decrypt_mode5(frame, frame_len, record->transport.cfg, key, decrypt_frame);
     if(decrypt.result != WmBusDecryptResultOk) {
         wmbus_packet_log_decrypt_failure(record, key, decrypt.result);
         return false;
     }
 
-    if(wmbus_packet_try_parser_candidate(decrypt_frame, frame_len, record)) {
+    wmbus_packet_set_app_payload(record, decrypt_frame, frame_len);
+    bool parsed = wmbus_packet_try_parse_current_payload(record);
+    if(parsed || decrypt.has_check_bytes) {
         return true;
     }
 
-    if(!decrypt.has_check_bytes) {
-        wmbus_packet_log_decrypt_failure_reason(record, key, "missing 2F2F check bytes");
-    }
-
+    wmbus_packet_log_decrypt_failure_reason(record, key, "missing 2F2F check bytes");
     return false;
 }
 
@@ -372,32 +755,25 @@ static bool wmbus_packet_select_parse_frame(
         return false;
     }
 
-    record->data.decrypted = false;
-    record->data.key_index = 0U;
+    record->transport.decrypted = false;
+    record->transport.key_index = 0U;
+    memset(&record->application, 0, sizeof(record->application));
 
-    if(wmbus_packet_try_parser_candidate(frame, frame_len, record)) {
-        FURI_LOG_D(
-            TAG,
-            "decrypt skipped id=%s ci=%02X cfg=%04X no decryption needed",
-            wmbus_packet_log_id(record),
-            record->data.ci_field,
-            record->data.cfg);
+    wmbus_packet_set_raw_payload(record, frame, frame_len);
 
-        return true;
+    if(!record->transport.has_short_tpl || !record->transport.security_likely_encrypted) {
+        wmbus_packet_set_app_payload(record, frame, frame_len);
+        return wmbus_packet_try_parse_current_payload(record);
     }
 
-    if(!record->data.has_short_tpl || !record->data.security_likely_encrypted) {
-        return false;
-    }
-
-    if(record->data.security_mode != 0x05U) {
+    if(record->transport.security_mode != 0x05U) {
         FURI_LOG_D(
             TAG,
             "decrypt skipped id=%s ci=%02X cfg=%04X unsupported security mode=%02X",
             wmbus_packet_log_id(record),
-            record->data.ci_field,
-            record->data.cfg,
-            record->data.security_mode);
+            record->frame.ci_field,
+            record->transport.cfg,
+            record->transport.security_mode);
         return false;
     }
 
@@ -408,61 +784,65 @@ static bool wmbus_packet_select_parse_frame(
         if(!entry) continue;
 
         if(wmbus_packet_try_key(frame, frame_len, entry->key, record, decrypt_frame)) {
-            record->data.decrypted = true;
-            record->data.key_index = i + 1;
+            record->transport.decrypted = true;
+            record->transport.key_index = i + 1U;
             return true;
         }
     }
 
     if(wmbus_packet_try_key(frame, frame_len, wmbus_zero_key, record, decrypt_frame)) {
-        record->data.decrypted = true;
-        record->data.key_index = 0;
+        record->transport.decrypted = true;
+        record->transport.key_index = 0U;
         return true;
     }
 
+    memset(&record->application, 0, sizeof(record->application));
+    record->payload.has_app_payload = false;
+    record->payload.app_len = 0U;
     return false;
 }
 
 static void wmbus_packet_finalize_parser(bool parsed, WmBusPacketRecord* record) {
     if(!record) return;
 
-    if(!parsed) {
+    if(record->application.parser_name[0] == '\0') {
         snprintf(
-            record->data.parser_name,
-            sizeof(record->data.parser_name),
+            record->application.parser_name,
+            sizeof(record->application.parser_name),
             "%s",
-            record->data.has_short_tpl ? "Short TPL" : "Raw");
+            record->transport.has_short_tpl ? "Short TPL" :
+            (record->packet_is_frame ? "Header" : "Raw"));
+    }
 
+    if(!parsed || record->application.field_count == 0U) {
         wmbus_packet_add_short_tpl_fields(record);
     }
 
-    if(record->data.primary_a[0] == '\0') {
-        char primary_a[WMBUS_PACKET_VALUE_MAX] = {0};
-        char primary_b[WMBUS_PACKET_VALUE_MAX] = {0};
+    if(record->application.summary_a[0] == '\0') {
+        char summary_a[WMBUS_PACKET_VALUE_MAX] = {0};
+        char summary_b[WMBUS_PACKET_VALUE_MAX] = {0};
 
-        if(record->data.has_short_tpl) {
+        if(record->transport.has_short_tpl) {
             wmbus_packet_format_security_summary(
-                record->data.has_short_tpl,
-                record->data.security_mode,
-                record->data.security_likely_encrypted,
-                record->data.decrypted,
-                record->data.key_index,
-                primary_a,
-                sizeof(primary_a));
-            if(primary_a[0] == '\0') {
-                snprintf(primary_a, sizeof(primary_a), "CI:%02X", record->data.ci_field);
+                record->transport.has_short_tpl,
+                record->transport.security_mode,
+                record->transport.security_likely_encrypted,
+                record->transport.decrypted,
+                record->transport.key_index,
+                summary_a,
+                sizeof(summary_a));
+            if(summary_a[0] == '\0') {
+                snprintf(summary_a, sizeof(summary_a), "CI:%02X", record->frame.ci_field);
             }
-            if(record->data.ci_field != 0U) {
-                snprintf(primary_b, sizeof(primary_b), "CI:%02X", record->data.ci_field);
-            }
+            snprintf(summary_b, sizeof(summary_b), "CI:%02X", record->frame.ci_field);
         } else if(record->packet_is_frame) {
-            snprintf(primary_a, sizeof(primary_a), "CI:%02X", record->data.ci_field);
-            snprintf(primary_b, sizeof(primary_b), "R:%d", record->rssi);
+            snprintf(summary_a, sizeof(summary_a), "CI:%02X", record->frame.ci_field);
+            snprintf(summary_b, sizeof(summary_b), "R:%d", record->rssi);
         } else {
-            snprintf(
-                primary_a, sizeof(primary_a), "Len:%u bytes", (unsigned int)record->packet_len);
+            snprintf(summary_a, sizeof(summary_a), "Len:%u bytes", (unsigned int)record->packet_len);
         }
-        wmbus_packet_set_primary(record, primary_a, primary_b[0] ? primary_b : NULL);
+
+        wmbus_packet_set_summary(record, summary_a, summary_b[0] ? summary_b : NULL);
     }
 }
 
@@ -641,7 +1021,7 @@ bool wmbus_packet_process_capture(
                                             sizeof(record->packet_bytes) :
                                             capture->len);
         memcpy(record->packet_bytes, capture->data, record->packet_len);
-        snprintf(record->data.parser_name, sizeof(record->data.parser_name), "Raw");
+        snprintf(record->application.parser_name, sizeof(record->application.parser_name), "Raw");
     }
 
     if(used_3of6 && !decoded_ok) {
@@ -666,9 +1046,9 @@ void wmbus_packet_build_fields_text(const WmBusPacketRecord* record, char* out, 
     out[0] = '\0';
     if(!record) return;
 
-    size_t write = 0;
-    for(uint8_t i = 0; i < record->data.field_count; i++) {
-        const WmBusPacketField* field = &record->data.fields[i];
+    size_t write = 0U;
+    for(uint8_t i = 0; i < record->application.field_count; i++) {
+        const WmBusPacketField* field = &record->application.fields[i];
         int len = snprintf(
             &out[write],
             out_size - write,
@@ -698,30 +1078,32 @@ void wmbus_packet_build_detail_text(const WmBusPacketRecord* record, char* out, 
     char parser_line[40] = {0};
     char mode_line[32] = {0};
     const char* detail_tail = "-";
-    bool prefer_parser_primary = !wmbus_packet_parser_name_is_generic(record->data.parser_name);
+    bool prefer_parser_primary =
+        !wmbus_packet_parser_name_is_generic(record->application.parser_name);
+
     wmbus_packet_build_fields_text(record, fields, sizeof(fields));
-    if(record->data.has_total_m3) {
-        wmbus_packet_format_total_m3(record->data.total_m3_x1000, total, sizeof(total));
+    if(record->application.has_total_volume_m3) {
+        wmbus_packet_format_total_m3(record->application.total_volume_m3_x1000, total, sizeof(total));
     }
     wmbus_packet_format_security_text(
-        record->data.has_short_tpl,
-        record->data.security_mode,
-        record->data.security_likely_encrypted,
-        record->data.decrypted,
-        record->data.key_index,
+        record->transport.has_short_tpl,
+        record->transport.security_mode,
+        record->transport.security_likely_encrypted,
+        record->transport.decrypted,
+        record->transport.key_index,
         security,
         sizeof(security));
     if(total[0]) {
         snprintf(summary_a, sizeof(summary_a), "Total: %s\n", total);
-    } else if(record->data.primary_a[0] && prefer_parser_primary) {
-        snprintf(summary_a, sizeof(summary_a), "%s\n", record->data.primary_a);
+    } else if(record->application.summary_a[0] && prefer_parser_primary) {
+        snprintf(summary_a, sizeof(summary_a), "%s\n", record->application.summary_a);
     }
     if(security[0]) {
         snprintf(summary_b, sizeof(summary_b), "Security: %s\n", security);
-    } else if(record->data.primary_b[0] && prefer_parser_primary) {
-        snprintf(summary_b, sizeof(summary_b), "%s\n", record->data.primary_b);
+    } else if(record->application.summary_b[0] && prefer_parser_primary) {
+        snprintf(summary_b, sizeof(summary_b), "%s\n", record->application.summary_b);
     }
-    if(fields[0] && !record->data.has_total_m3 && security[0] == '\0') {
+    if(fields[0] && !record->application.has_total_volume_m3 && security[0] == '\0') {
         snprintf(detail_fields, sizeof(detail_fields), "Fields: %s", fields);
     }
     if(detail_fields[0]) {
@@ -737,7 +1119,7 @@ void wmbus_packet_build_detail_text(const WmBusPacketRecord* record, char* out, 
         record->mode == WmBusRxModeT ? 'T' : 'C',
         record->rssi);
     if(prefer_parser_primary) {
-        snprintf(parser_line, sizeof(parser_line), "Parser: %s\n", record->data.parser_name);
+        snprintf(parser_line, sizeof(parser_line), "Parser: %s\n", record->application.parser_name);
     }
 
     if(record->packet_is_frame) {
@@ -746,12 +1128,12 @@ void wmbus_packet_build_detail_text(const WmBusPacketRecord* record, char* out, 
             out_size,
             "Status: %s\nMF:%s  DT:%02X  ID:%s\n%s\nCI:%02X  V:%02X\n%s%s%s%s",
             wmbus_packet_status_str(record->status),
-            record->data.mfg,
-            record->data.dev_type,
-            record->data.id_str,
+            record->frame.mfg,
+            record->frame.dev_type,
+            record->frame.id_str,
             mode_line,
-            record->data.ci_field,
-            record->data.version,
+            record->frame.ci_field,
+            record->frame.version,
             parser_line,
             summary_a,
             summary_b,
@@ -764,7 +1146,7 @@ void wmbus_packet_build_detail_text(const WmBusPacketRecord* record, char* out, 
             wmbus_packet_status_str(record->status),
             record->mode == WmBusRxModeT ? 'T' : 'C',
             record->rssi,
-            record->data.parser_name,
+            record->application.parser_name,
             (unsigned int)record->packet_len);
     }
 }

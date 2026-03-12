@@ -5,32 +5,77 @@
 #include <stdint.h>
 
 #include "capture/wmbus_capture.h"
+#include "frame/wmbus_frame.h"
 #include "../core/wmbus_types.h"
 #include "../storage/wmbus_keyring.h"
 
+#define WMBUS_PACKET_PAYLOAD_MAX     256U
+#define WMBUS_PACKET_RECORD_MAX      12U
 #define WMBUS_PACKET_FIELD_MAX       12U
 #define WMBUS_PACKET_LABEL_MAX       16U
 #define WMBUS_PACKET_VALUE_MAX       32U
 #define WMBUS_PACKET_PARSER_NAME_MAX 16U
+#define WMBUS_PACKET_RECORD_RAW_MAX  24U
+#define WMBUS_PACKET_DIFE_MAX        4U
+#define WMBUS_PACKET_VIFE_MAX        4U
 
 typedef struct {
     char label[WMBUS_PACKET_LABEL_MAX];
     char value[WMBUS_PACKET_VALUE_MAX];
 } WmBusPacketField;
 
+typedef enum {
+    WmBusApplicationValueNone = 0,
+    WmBusApplicationValueUnsigned,
+    WmBusApplicationValueText,
+} WmBusApplicationValueType;
+
+typedef enum {
+    WmBusApplicationQuantityUnknown = 0,
+    WmBusApplicationQuantityVolume,
+    WmBusApplicationQuantityEnergy,
+} WmBusApplicationQuantity;
+
+typedef struct {
+    uint8_t dif;
+    uint8_t dife_count;
+    uint8_t difes[WMBUS_PACKET_DIFE_MAX];
+    uint8_t vif;
+    uint8_t vife_count;
+    uint8_t vifes[WMBUS_PACKET_VIFE_MAX];
+    uint16_t storage_no;
+    uint8_t tariff;
+    uint8_t subunit;
+    uint8_t data_len;
+    uint8_t record_len;
+    uint8_t raw[WMBUS_PACKET_RECORD_RAW_MAX];
+    WmBusApplicationValueType value_type;
+    WmBusApplicationQuantity quantity;
+    int8_t scale10;
+    char unit[8];
+    char label[WMBUS_PACKET_LABEL_MAX];
+    char value_text[WMBUS_PACKET_VALUE_MAX];
+    uint64_t value_unsigned;
+} WmBusApplicationRecord;
+
 typedef struct {
     uint8_t l_field;
     uint8_t c_field;
     uint16_t m_field;
-    char mfg[4];
+    char mfg[WMBUS_MFG_STR_LEN];
     uint8_t id[4];
-    char id_str[9];
+    char id_str[WMBUS_ID_STR_LEN];
     bool id_is_bcd;
     uint8_t version;
     uint8_t dev_type;
     uint8_t ci_field;
+    uint16_t normalized_len;
+    uint8_t normalized[WMBUS_PACKET_PAYLOAD_MAX];
+} WmBusPacketFrameData;
 
+typedef struct {
     bool has_short_tpl;
+    uint8_t header_len;
     uint8_t acc;
     uint8_t tpl_status;
     uint16_t cfg;
@@ -38,15 +83,27 @@ typedef struct {
     bool security_likely_encrypted;
     bool decrypted;
     uint8_t key_index;
+} WmBusPacketTransportData;
 
+typedef struct {
+    uint16_t raw_len;
+    uint8_t raw_payload[WMBUS_PACKET_PAYLOAD_MAX];
+    bool has_app_payload;
+    uint16_t app_len;
+    uint8_t app_payload[WMBUS_PACKET_PAYLOAD_MAX];
+} WmBusPacketPayloadData;
+
+typedef struct {
     char parser_name[WMBUS_PACKET_PARSER_NAME_MAX];
-    char primary_a[WMBUS_PACKET_VALUE_MAX];
-    char primary_b[WMBUS_PACKET_VALUE_MAX];
-    bool has_total_m3;
-    uint32_t total_m3_x1000;
+    char summary_a[WMBUS_PACKET_VALUE_MAX];
+    char summary_b[WMBUS_PACKET_VALUE_MAX];
+    bool has_total_volume_m3;
+    uint32_t total_volume_m3_x1000;
     uint8_t field_count;
     WmBusPacketField fields[WMBUS_PACKET_FIELD_MAX];
-} WmBusPacketData;
+    uint8_t record_count;
+    WmBusApplicationRecord records[WMBUS_PACKET_RECORD_MAX];
+} WmBusPacketApplicationData;
 
 typedef struct {
     WmBusStatus status;
@@ -64,13 +121,23 @@ typedef struct {
     int rssi;
     uint32_t rx_tick;
     uint8_t packet_bytes[256];
-    WmBusPacketData data;
+    WmBusPacketFrameData frame;
+    WmBusPacketTransportData transport;
+    WmBusPacketPayloadData payload;
+    WmBusPacketApplicationData application;
 } WmBusPacketRecord;
 
 bool wmbus_packet_process_capture(
     const WmBusCaptureFrame* capture,
     const WmBusKeyring* keyring,
     WmBusPacketRecord* record);
+
+bool wmbus_packet_decode_application_records(
+    const uint8_t* payload,
+    size_t payload_len,
+    WmBusApplicationRecord* out,
+    uint8_t out_max,
+    uint8_t* out_count);
 
 const char* wmbus_packet_status_str(WmBusStatus status);
 const char* wmbus_packet_status_short_label(WmBusStatus status);

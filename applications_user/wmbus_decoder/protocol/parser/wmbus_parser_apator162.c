@@ -238,29 +238,26 @@ static bool wmbus_parser_apator162_identity_matches(const WmBusPacketRecord* rec
         return false;
     }
 
-    if(record->data.version != 0x05U || record->data.dev_type != 0x07U) {
+    if(record->frame.version != 0x05U || record->frame.dev_type != 0x07U) {
         return false;
     }
 
-    return strcmp(record->data.mfg, "APA") == 0 || record->data.m_field == WMBUS_APATOR162_MFG_OLD;
+    return strcmp(record->frame.mfg, "APA") == 0 || record->frame.m_field == WMBUS_APATOR162_MFG_OLD;
 }
 
-bool wmbus_parser_apator162_probe(
-    const uint8_t* frame,
-    size_t frame_len,
-    const WmBusPacketRecord* record) {
-    if(!frame || !record || frame_len <= WMBUS_SHORT_TPL_POS) {
+bool wmbus_parser_apator162_probe(const WmBusPacketRecord* record) {
+    if(!record || !record->payload.has_app_payload || record->payload.app_len == 0U) {
         return false;
     }
-    if(!record->data.has_short_tpl || record->data.ci_field != 0x7AU) {
+    if(!record->transport.has_short_tpl || record->frame.ci_field != 0x7AU) {
         return false;
     }
     if(!wmbus_parser_apator162_identity_matches(record)) {
         return false;
     }
 
-    const uint8_t* payload = &frame[WMBUS_SHORT_TPL_POS];
-    size_t payload_len = frame_len - WMBUS_SHORT_TPL_POS;
+    const uint8_t* payload = record->payload.app_payload;
+    size_t payload_len = record->payload.app_len;
     if(wmbus_parser_validate_apator162_payload(payload, payload_len)) {
         return true;
     }
@@ -269,21 +266,27 @@ bool wmbus_parser_apator162_probe(
     return wmbus_parser_parse_apator162_payload_total(payload, payload_len, &total_m3_x1000);
 }
 
-bool wmbus_parser_apator162_parse(
-    const uint8_t* frame,
-    size_t frame_len,
-    WmBusPacketRecord* record) {
-    if(!wmbus_parser_apator162_probe(frame, frame_len, record)) {
+bool wmbus_parser_apator162_parse(WmBusPacketRecord* record) {
+    if(!wmbus_parser_apator162_probe(record)) {
         return false;
     }
 
-    snprintf(record->data.parser_name, sizeof(record->data.parser_name), "Apator162");
+    snprintf(
+        record->application.parser_name, sizeof(record->application.parser_name), "Apator162");
 
     uint32_t total_m3_x1000 = 0U;
     if(wmbus_parser_parse_apator162_payload_total(
-           &frame[WMBUS_SHORT_TPL_POS], frame_len - WMBUS_SHORT_TPL_POS, &total_m3_x1000)) {
-        record->data.has_total_m3 = true;
-        record->data.total_m3_x1000 = total_m3_x1000;
+           record->payload.app_payload, record->payload.app_len, &total_m3_x1000)) {
+        record->application.has_total_volume_m3 = true;
+        record->application.total_volume_m3_x1000 = total_m3_x1000;
+        snprintf(
+            record->application.summary_a,
+            sizeof(record->application.summary_a),
+            "Total volume");
+        wmbus_packet_format_total_m3(
+            total_m3_x1000,
+            record->application.summary_b,
+            sizeof(record->application.summary_b));
     }
 
     return true;

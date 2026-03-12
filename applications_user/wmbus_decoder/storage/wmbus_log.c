@@ -14,8 +14,8 @@ static const char* wmbus_log_path(WmBusCsvLogging logging) {
 static const char* wmbus_log_header(WmBusCsvLogging logging) {
     return (logging == WmBusCsvLoggingFull) ?
                "tick,mode,status,plausible,crc_ok,mfg,id,version,device_type,ci,rssi,parser,"
-               "primary_a,primary_b,security_mode,decrypted,key_index,fields,packet_hex\n" :
-               "tick,mode,status,mfg,id,version,device_type,ci,rssi,parser,primary_a,primary_b\n";
+               "summary_a,summary_b,security_mode,decrypted,key_index,fields,packet_hex\n" :
+               "tick,mode,status,mfg,id,version,device_type,ci,rssi,parser,summary_a,summary_b\n";
 }
 
 static bool wmbus_log_write_line(File* file, const char* format, ...) {
@@ -94,18 +94,18 @@ bool wmbus_log_append(
                 wmbus_packet_status_str(record->status),
                 record->plausible ? "yes" : "no",
                 record->crc_known ? (record->crc_ok ? "yes" : "no") : "",
-                record->packet_is_frame ? record->data.mfg : "",
-                record->packet_is_frame ? record->data.id_str : "",
-                record->packet_is_frame ? record->data.version : 0U,
-                record->packet_is_frame ? record->data.dev_type : 0U,
-                record->packet_is_frame ? record->data.ci_field : 0U,
+                record->packet_is_frame ? record->frame.mfg : "",
+                record->packet_is_frame ? record->frame.id_str : "",
+                record->packet_is_frame ? record->frame.version : 0U,
+                record->packet_is_frame ? record->frame.dev_type : 0U,
+                record->packet_is_frame ? record->frame.ci_field : 0U,
                 record->rssi,
-                record->data.parser_name,
-                record->data.primary_a,
-                record->data.primary_b,
-                record->data.has_short_tpl ? record->data.security_mode : 0U,
-                record->data.decrypted ? "yes" : "no",
-                record->data.key_index,
+                record->application.parser_name,
+                record->application.summary_a,
+                record->application.summary_b,
+                record->transport.has_short_tpl ? record->transport.security_mode : 0U,
+                record->transport.decrypted ? "yes" : "no",
+                record->transport.key_index,
                 fields,
                 packet_hex);
         } else {
@@ -115,15 +115,15 @@ bool wmbus_log_append(
                 (unsigned long)record->rx_tick,
                 record->mode == WmBusRxModeT ? 'T' : 'C',
                 wmbus_packet_status_str(record->status),
-                record->packet_is_frame ? record->data.mfg : "",
-                record->packet_is_frame ? record->data.id_str : "",
-                record->packet_is_frame ? record->data.version : 0U,
-                record->packet_is_frame ? record->data.dev_type : 0U,
-                record->packet_is_frame ? record->data.ci_field : 0U,
+                record->packet_is_frame ? record->frame.mfg : "",
+                record->packet_is_frame ? record->frame.id_str : "",
+                record->packet_is_frame ? record->frame.version : 0U,
+                record->packet_is_frame ? record->frame.dev_type : 0U,
+                record->packet_is_frame ? record->frame.ci_field : 0U,
                 record->rssi,
-                record->data.parser_name,
-                record->data.primary_a,
-                record->data.primary_b);
+                record->application.parser_name,
+                record->application.summary_a,
+                record->application.summary_b);
         }
 
         storage_file_sync(file);

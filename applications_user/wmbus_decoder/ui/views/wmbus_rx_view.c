@@ -165,7 +165,7 @@ static bool wmbus_rx_parser_name_is_generic(const char* parser_name) {
     if(!parser_name || parser_name[0] == '\0') return true;
 
     return strcmp(parser_name, "Short TPL") == 0 || strcmp(parser_name, "Header") == 0 ||
-           strcmp(parser_name, "Raw") == 0;
+           strcmp(parser_name, "Raw") == 0 || strcmp(parser_name, "DIF/VIF") == 0;
 }
 
 static void
@@ -537,43 +537,43 @@ void wmbus_rx_view_push_packet(
                 WmBusRxHistoryEntry* entry = &model->hist[model->hist_head];
                 memset(entry, 0, sizeof(*entry));
                 entry->packet_is_frame = record->packet_is_frame;
-                entry->l_field = record->data.l_field;
-                entry->c_field = record->data.c_field;
-                snprintf(entry->mfg, sizeof(entry->mfg), "%s", record->data.mfg);
-                snprintf(entry->id_str, sizeof(entry->id_str), "%s", record->data.id_str);
-                entry->version = record->data.version;
-                entry->dev_type = record->data.dev_type;
-                entry->ci_field = record->data.ci_field;
+                entry->l_field = record->frame.l_field;
+                entry->c_field = record->frame.c_field;
+                snprintf(entry->mfg, sizeof(entry->mfg), "%s", record->frame.mfg);
+                snprintf(entry->id_str, sizeof(entry->id_str), "%s", record->frame.id_str);
+                entry->version = record->frame.version;
+                entry->dev_type = record->frame.dev_type;
+                entry->ci_field = record->frame.ci_field;
                 entry->rssi = (int8_t)record->rssi;
                 entry->rx_tick = record->rx_tick;
                 entry->status = record->status;
                 entry->crc_ok = record->crc_ok;
                 entry->used_3of6 = (record->mode == WmBusRxModeT);
-                entry->has_short_tpl = record->data.has_short_tpl;
-                entry->security_mode = record->data.security_mode;
-                entry->security_likely_encrypted = record->data.security_likely_encrypted;
-                entry->decrypted = record->data.decrypted;
-                entry->key_index = record->data.key_index;
+                entry->has_short_tpl = record->transport.has_short_tpl;
+                entry->security_mode = record->transport.security_mode;
+                entry->security_likely_encrypted = record->transport.security_likely_encrypted;
+                entry->decrypted = record->transport.decrypted;
+                entry->key_index = record->transport.key_index;
                 snprintf(
                     entry->parser_name,
                     sizeof(entry->parser_name),
                     "%.*s",
                     (int)(sizeof(entry->parser_name) - 1U),
-                    record->data.parser_name);
+                    record->application.parser_name);
                 snprintf(
                     entry->primary_a,
                     sizeof(entry->primary_a),
                     "%.*s",
                     (int)(sizeof(entry->primary_a) - 1U),
-                    record->data.primary_a);
+                    record->application.summary_a);
                 snprintf(
                     entry->primary_b,
                     sizeof(entry->primary_b),
                     "%.*s",
                     (int)(sizeof(entry->primary_b) - 1U),
-                    record->data.primary_b);
-                entry->has_total_m3 = record->data.has_total_m3;
-                entry->total_m3_x1000 = record->data.total_m3_x1000;
+                    record->application.summary_b);
+                entry->has_total_m3 = record->application.has_total_volume_m3;
+                entry->total_m3_x1000 = record->application.total_volume_m3_x1000;
                 wmbus_packet_build_fields_text(
                     record, entry->field_text, sizeof(entry->field_text));
                 entry->packet_len = (uint8_t)((record->packet_len > WMBUS_RX_PREVIEW_MAX) ?
