@@ -1,12 +1,19 @@
 #include "wmbus_device_parser.h"
 
 #include "wmbus_parser_apator162.h"
+#include "wmbus_parser_dif_vif.h"
 
 static const WmBusDeviceParser wmbus_device_parsers[] = {
     {
         .name = "Apator162",
         .probe = wmbus_parser_apator162_probe,
         .parse = wmbus_parser_apator162_parse,
+    },
+    {
+        // Generic parser, should be last one
+        .name = "DifVif",
+        .probe = wmbus_parser_dif_vif_probe,
+        .parse = wmbus_parser_dif_vif_parse,
     },
 };
 

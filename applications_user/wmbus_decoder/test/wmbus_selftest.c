@@ -4,6 +4,7 @@
 #include "../protocol/wmbus_packet.h"
 #include "../protocol/parser/wmbus_parser.h"
 #include "../protocol/parser/wmbus_parser_apator162.h"
+#include "../protocol/parser/wmbus_parser_dif_vif.h"
 
 #include <furi.h>
 #include <storage/storage.h>

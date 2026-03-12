@@ -140,13 +140,6 @@ bool wmbus_packet_process_capture(
     const WmBusKeyring* keyring,
     WmBusPacketRecord* record);
 
-bool wmbus_packet_decode_application_records(
-    const uint8_t* payload,
-    size_t payload_len,
-    WmBusApplicationRecord* out,
-    uint8_t out_max,
-    uint8_t* out_count);
-
 const char* wmbus_packet_status_str(WmBusStatus status);
 const char* wmbus_packet_status_short_label(WmBusStatus status);
 const char* wmbus_packet_csv_logging_str(WmBusCsvLogging logging);

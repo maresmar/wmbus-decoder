@@ -646,7 +646,7 @@ bool wmbus_rx_view_build_selected_detail_text(WmBusRxView* rx_view, char* out, s
                 } else if(entry->primary_b[0] && prefer_parser_primary) {
                     snprintf(summary_b, sizeof(summary_b), "%s\n", entry->primary_b);
                 }
-                if(entry->field_text[0] && !entry->has_total_m3 && security[0] == '\0') {
+                if(entry->field_text[0]) {
                     snprintf(
                         detail_fields, sizeof(detail_fields), "Fields: %s", entry->field_text);
                 }
