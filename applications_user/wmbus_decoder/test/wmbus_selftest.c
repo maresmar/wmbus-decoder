@@ -1559,17 +1559,16 @@ static bool
         }
         if(strcmp(record.data.parser_name, "Apator162") != 0 || !record.data.has_total_m3 ||
            record.data.total_m3_x1000 != vectors[i].total_m3_x1000 || !record.data.decrypted ||
-           record.data.key_applied || record.data.key_index != 0U ||
+           record.data.key_index != 0U ||
            strcmp(record.data.id_str, vectors[i].id) != 0) {
             wmbus_selftest_set_detail(
                 detail,
                 detail_len,
-                "vector %s parser=%s total=%lu dec=%s key=%s idx=%u id=%s",
+                "vector %s parser=%s total=%lu dec=%s idx=%u id=%s",
                 vectors[i].id,
                 record.data.parser_name,
                 (unsigned long)record.data.total_m3_x1000,
                 record.data.decrypted ? "YES" : "NO",
-                record.data.key_applied ? "YES" : "NO",
                 (unsigned int)record.data.key_index,
                 record.data.id_str);
             return false;
@@ -1611,16 +1610,15 @@ static bool wmbus_selftest_check_packet_process_mode5_zero_key_fallback_vector(
     }
 
     if(strcmp(record.data.parser_name, "Apator162") != 0 || !record.data.has_total_m3 ||
-       record.data.total_m3_x1000 != 4848U || !record.data.decrypted || record.data.key_applied ||
+       record.data.total_m3_x1000 != 4848U || !record.data.decrypted ||
        record.data.key_index != 0U || strcmp(record.data.id_str, "88888888") != 0) {
         wmbus_selftest_set_detail(
             detail,
             detail_len,
-            "parser=%s total=%lu dec=%s key=%s idx=%u id=%s",
+            "parser=%s total=%lu dec=%s idx=%u id=%s",
             record.data.parser_name,
             (unsigned long)record.data.total_m3_x1000,
             record.data.decrypted ? "YES" : "NO",
-            record.data.key_applied ? "YES" : "NO",
             (unsigned int)record.data.key_index,
             record.data.id_str);
         return false;
@@ -1672,17 +1670,16 @@ static bool wmbus_selftest_check_packet_process_mode5_parser_zero_key_fallback(
 
         if(strcmp(record.data.parser_name, "Apator162") != 0 || !record.data.has_total_m3 ||
            record.data.total_m3_x1000 != vector->total_m3_x1000 || !record.data.decrypted ||
-           record.data.key_applied || record.data.key_index != 0U ||
+           record.data.key_index != 0U ||
            strcmp(record.data.id_str, vector->id) != 0) {
             wmbus_selftest_set_detail(
                 detail,
                 detail_len,
-                "vector %s parser=%s total=%lu dec=%s key=%s idx=%u id=%s",
+                "vector %s parser=%s total=%lu dec=%s idx=%u id=%s",
                 vector->id,
                 record.data.parser_name,
                 (unsigned long)record.data.total_m3_x1000,
                 record.data.decrypted ? "YES" : "NO",
-                record.data.key_applied ? "YES" : "NO",
                 (unsigned int)record.data.key_index,
                 record.data.id_str);
             return false;
@@ -1734,17 +1731,16 @@ static bool wmbus_selftest_check_packet_process_mode5_configured_zero_key_slot(
 
         if(strcmp(record.data.parser_name, "Apator162") != 0 || !record.data.has_total_m3 ||
            record.data.total_m3_x1000 != vector->total_m3_x1000 || !record.data.decrypted ||
-           !record.data.key_applied || record.data.key_index != 1U ||
+           record.data.key_index != 1U ||
            strcmp(record.data.id_str, vector->id) != 0) {
             wmbus_selftest_set_detail(
                 detail,
                 detail_len,
-                "vector %s parser=%s total=%lu dec=%s key=%s idx=%u id=%s",
+                "vector %s parser=%s total=%lu dec=%s idx=%u id=%s",
                 vector->id,
                 record.data.parser_name,
                 (unsigned long)record.data.total_m3_x1000,
                 record.data.decrypted ? "YES" : "NO",
-                record.data.key_applied ? "YES" : "NO",
                 (unsigned int)record.data.key_index,
                 record.data.id_str);
             return false;
@@ -1800,17 +1796,16 @@ static bool wmbus_selftest_check_packet_process_mode5_wrong_key_falls_back_to_ze
 
         if(strcmp(record.data.parser_name, "Apator162") != 0 || !record.data.has_total_m3 ||
            record.data.total_m3_x1000 != vector->total_m3_x1000 || !record.data.decrypted ||
-           record.data.key_applied || record.data.key_index != 0U ||
+           record.data.key_index != 0U ||
            strcmp(record.data.id_str, vector->id) != 0) {
             wmbus_selftest_set_detail(
                 detail,
                 detail_len,
-                "vector %s parser=%s total=%lu dec=%s key=%s idx=%u id=%s",
+                "vector %s parser=%s total=%lu dec=%s idx=%u id=%s",
                 vector->id,
                 record.data.parser_name,
                 (unsigned long)record.data.total_m3_x1000,
                 record.data.decrypted ? "YES" : "NO",
-                record.data.key_applied ? "YES" : "NO",
                 (unsigned int)record.data.key_index,
                 record.data.id_str);
             return false;

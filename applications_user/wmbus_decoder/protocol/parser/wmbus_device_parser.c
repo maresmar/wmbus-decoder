@@ -10,10 +10,7 @@ static const WmBusDeviceParser wmbus_device_parsers[] = {
     },
 };
 
-bool wmbus_device_parser_apply(
-    const uint8_t* frame,
-    size_t frame_len,
-    WmBusPacketRecord* record) {
+bool wmbus_device_parser_apply(const uint8_t* frame, size_t frame_len, WmBusPacketRecord* record) {
     if(!frame || !record) {
         return false;
     }

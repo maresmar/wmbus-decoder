@@ -37,7 +37,6 @@ typedef struct {
     uint8_t security_mode;
     bool security_likely_encrypted;
     bool decrypted;
-    bool key_applied;
     uint8_t key_index;
 
     char parser_name[WMBUS_PACKET_PARSER_NAME_MAX];
@@ -82,7 +81,6 @@ void wmbus_packet_format_security_summary(
     uint8_t security_mode,
     bool security_likely_encrypted,
     bool decrypted,
-    bool key_applied,
     uint8_t key_index,
     char* out,
     size_t out_size);
@@ -91,7 +89,6 @@ void wmbus_packet_format_security_text(
     uint8_t security_mode,
     bool security_likely_encrypted,
     bool decrypted,
-    bool key_applied,
     uint8_t key_index,
     char* out,
     size_t out_size);

@@ -105,7 +105,7 @@ bool wmbus_log_append(
                 record->data.primary_b,
                 record->data.has_short_tpl ? record->data.security_mode : 0U,
                 record->data.decrypted ? "yes" : "no",
-                record->data.key_applied ? record->data.key_index : 0U,
+                record->data.key_index,
                 fields,
                 packet_hex);
         } else {

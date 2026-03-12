@@ -23,13 +23,6 @@ typedef struct {
     uint8_t frame[WMBUS_DECODE_MAX];
 } WmBusTDecodeResult;
 
-typedef struct {
-    bool decrypted;
-    bool key_applied;
-    uint8_t key_index;
-    bool parser_applied;
-} WmBusPacketParseSelection;
-
 static const char* wmbus_packet_decrypt_result_str(WmBusDecryptResult result) {
     switch(result) {
     case WmBusDecryptResultOk:
@@ -52,28 +45,28 @@ static const char* wmbus_packet_log_id(const WmBusPacketRecord* record) {
 
 static void wmbus_packet_log_decrypt_failure_reason(
     const WmBusPacketRecord* record,
-    const char* key_label,
+    const uint8_t key[WMBUS_MODE5_KEY_LEN],
     const char* reason) {
-    if(!record || !key_label || !reason || reason[0] == '\0') return;
+    if(!record || !key || !reason || reason[0] == '\0') return;
 
     FURI_LOG_D(
         TAG,
-        "decrypt failed id=%s ci=%02X cfg=%04X key=%s reason=%s",
+        "decrypt failed id=%s ci=%02X cfg=%04X key=%02X%02X.. reason=%s",
         wmbus_packet_log_id(record),
         record->data.ci_field,
         record->data.cfg,
-        key_label,
+        key[0],
+        key[1],
         reason);
 }
 
 static void wmbus_packet_log_decrypt_failure(
     const WmBusPacketRecord* record,
-    const char* key_label,
+    const uint8_t key[WMBUS_MODE5_KEY_LEN],
     WmBusDecryptResult result) {
-    if(!record || !key_label || result == WmBusDecryptResultOk) return;
+    if(!record || !key || result == WmBusDecryptResultOk) return;
 
-    wmbus_packet_log_decrypt_failure_reason(
-        record, key_label, wmbus_packet_decrypt_result_str(result));
+    wmbus_packet_log_decrypt_failure_reason(record, key, wmbus_packet_decrypt_result_str(result));
 }
 
 static void
@@ -186,7 +179,6 @@ void wmbus_packet_format_security_summary(
     uint8_t security_mode,
     bool security_likely_encrypted,
     bool decrypted,
-    bool key_applied,
     uint8_t key_index,
     char* out,
     size_t out_size) {
@@ -195,7 +187,7 @@ void wmbus_packet_format_security_summary(
     if(!has_short_tpl) return;
 
     if(decrypted) {
-        if(key_applied) {
+        if(key_index != 0U) {
             snprintf(out, out_size, "Dec #%u", (unsigned int)key_index);
         } else {
             snprintf(out, out_size, "Dec zero");
@@ -225,7 +217,6 @@ void wmbus_packet_format_security_text(
     uint8_t security_mode,
     bool security_likely_encrypted,
     bool decrypted,
-    bool key_applied,
     uint8_t key_index,
     char* out,
     size_t out_size) {
@@ -242,7 +233,7 @@ void wmbus_packet_format_security_text(
     }
 
     if(decrypted) {
-        if(key_applied) {
+        if(key_index != 0U) {
             snprintf(out, out_size, "%s, decrypted key #%u", mode, (unsigned int)key_index);
         } else {
             snprintf(out, out_size, "%s, decrypted zero key", mode);
@@ -318,7 +309,7 @@ static void wmbus_packet_add_short_tpl_fields(WmBusPacketRecord* record) {
     wmbus_packet_add_field(record, "SEC", temp);
 
     if(record->data.decrypted) {
-        if(record->data.key_applied) {
+        if(record->data.key_index != 0U) {
             snprintf(temp, sizeof(temp), "#%u", (unsigned int)record->data.key_index);
         } else {
             snprintf(temp, sizeof(temp), "zero");
@@ -332,56 +323,71 @@ static void wmbus_packet_add_short_tpl_fields(WmBusPacketRecord* record) {
 static bool wmbus_packet_try_parser_candidate(
     const uint8_t* candidate_frame,
     size_t frame_len,
-    bool decrypted,
-    bool key_applied,
-    uint8_t key_index,
-    WmBusPacketRecord* record,
-    WmBusPacketParseSelection* selection) {
-    if(!candidate_frame || !record || !selection) {
+    WmBusPacketRecord* record) {
+    if(!candidate_frame || !record) {
         return false;
     }
     if(!wmbus_device_parser_apply(candidate_frame, frame_len, record)) {
         return false;
     }
-
-    selection->decrypted = decrypted;
-    selection->key_applied = key_applied;
-    selection->key_index = key_index;
-    selection->parser_applied = true;
     return true;
 }
 
-static void wmbus_packet_select_parse_frame(
+static bool wmbus_packet_try_key(
+    const uint8_t* frame,
+    size_t frame_len,
+    const uint8_t key[WMBUS_MODE5_KEY_LEN],
+    WmBusPacketRecord* record,
+    uint8_t decrypt_frame[WMBUS_DECODE_MAX]) {
+    if(!frame || !key || !record || !decrypt_frame) {
+        return false;
+    }
+
+    WmBusMode5DecryptInfo decrypt =
+        wmbus_parser_decrypt_mode5(frame, frame_len, record->data.cfg, key, decrypt_frame);
+    if(decrypt.result != WmBusDecryptResultOk) {
+        wmbus_packet_log_decrypt_failure(record, key, decrypt.result);
+        return false;
+    }
+
+    if(wmbus_packet_try_parser_candidate(decrypt_frame, frame_len, record)) {
+        return true;
+    }
+
+    if(!decrypt.has_check_bytes) {
+        wmbus_packet_log_decrypt_failure_reason(record, key, "missing 2F2F check bytes");
+    }
+
+    return false;
+}
+
+static bool wmbus_packet_select_parse_frame(
     const uint8_t* frame,
     size_t frame_len,
     WmBusPacketRecord* record,
-    const WmBusKeyring* keyring,
-    WmBusPacketParseSelection* selection) {
+    const WmBusKeyring* keyring) {
     static const uint8_t wmbus_zero_key[WMBUS_MODE5_KEY_LEN] = {0};
 
-    if(!frame || !record || !selection) {
-        return;
+    if(!frame || !record) {
+        return false;
     }
 
-    *selection = (WmBusPacketParseSelection){
-        .decrypted = false,
-        .key_applied = false,
-        .key_index = 0U,
-        .parser_applied = false,
-    };
+    record->data.decrypted = false;
+    record->data.key_index = 0U;
 
-    bool have_fallback = false;
-    WmBusPacketParseSelection fallback = *selection;
-    if(wmbus_parser_short_tpl_payload_has_check_bytes(frame, frame_len)) {
-        have_fallback = true;
-    }
+    if(wmbus_packet_try_parser_candidate(frame, frame_len, record)) {
+        FURI_LOG_D(
+            TAG,
+            "decrypt skipped id=%s ci=%02X cfg=%04X no decryption needed",
+            wmbus_packet_log_id(record),
+            record->data.ci_field,
+            record->data.cfg);
 
-    if(wmbus_packet_try_parser_candidate(frame, frame_len, false, false, 0U, record, selection)) {
-        return;
+        return true;
     }
 
     if(!record->data.has_short_tpl || !record->data.security_likely_encrypted) {
-        return;
+        return false;
     }
 
     if(record->data.security_mode != 0x05U) {
@@ -392,11 +398,7 @@ static void wmbus_packet_select_parse_frame(
             record->data.ci_field,
             record->data.cfg,
             record->data.security_mode);
-        return;
-    }
-
-    if(have_fallback) {
-        return;
+        return false;
     }
 
     uint8_t decrypt_frame[WMBUS_DECODE_MAX] = {0};
@@ -405,68 +407,20 @@ static void wmbus_packet_select_parse_frame(
         const WmBusKeyEntry* entry = wmbus_keyring_get(keyring, i);
         if(!entry) continue;
 
-        char key_label[8] = {0};
-        snprintf(key_label, sizeof(key_label), "#%u", (unsigned int)(i + 1U));
-
-        WmBusMode5DecryptInfo decrypt =
-            wmbus_parser_decrypt_mode5(frame, frame_len, record->data.cfg, entry->key, decrypt_frame);
-        if(decrypt.result != WmBusDecryptResultOk) {
-            wmbus_packet_log_decrypt_failure(record, key_label, decrypt.result);
-            continue;
-        }
-
-        if(wmbus_packet_try_parser_candidate(
-               decrypt_frame,
-               frame_len,
-               true,
-               true,
-               (uint8_t)(i + 1U),
-               record,
-               selection)) {
-            return;
-        }
-
-        if(decrypt.has_check_bytes && !have_fallback) {
-            fallback = (WmBusPacketParseSelection){
-                .decrypted = true,
-                .key_applied = true,
-                .key_index = (uint8_t)(i + 1U),
-                .parser_applied = false,
-            };
-            have_fallback = true;
-        } else if(!decrypt.has_check_bytes) {
-            wmbus_packet_log_decrypt_failure_reason(record, key_label, "missing 2F2F check bytes");
+        if(wmbus_packet_try_key(frame, frame_len, entry->key, record, decrypt_frame)) {
+            record->data.decrypted = true;
+            record->data.key_index = i + 1;
+            return true;
         }
     }
 
-    WmBusMode5DecryptInfo zero_decrypt =
-        wmbus_parser_decrypt_mode5(frame, frame_len, record->data.cfg, wmbus_zero_key, decrypt_frame);
-    if(zero_decrypt.result != WmBusDecryptResultOk) {
-        wmbus_packet_log_decrypt_failure(record, "zero", zero_decrypt.result);
-    } else if(wmbus_packet_try_parser_candidate(
-                  decrypt_frame,
-                  frame_len,
-                  true,
-                  false,
-                  0U,
-                  record,
-                  selection)) {
-        return;
-    } else if(zero_decrypt.has_check_bytes && !have_fallback) {
-        fallback = (WmBusPacketParseSelection){
-            .decrypted = true,
-            .key_applied = false,
-            .key_index = 0U,
-            .parser_applied = false,
-        };
-        have_fallback = true;
-    } else if(!zero_decrypt.has_check_bytes) {
-        wmbus_packet_log_decrypt_failure_reason(record, "zero", "missing 2F2F check bytes");
+    if(wmbus_packet_try_key(frame, frame_len, wmbus_zero_key, record, decrypt_frame)) {
+        record->data.decrypted = true;
+        record->data.key_index = 0;
+        return true;
     }
 
-    if(have_fallback) {
-        *selection = fallback;
-    }
+    return false;
 }
 
 static void wmbus_packet_finalize_parser(bool parsed, WmBusPacketRecord* record) {
@@ -492,7 +446,6 @@ static void wmbus_packet_finalize_parser(bool parsed, WmBusPacketRecord* record)
                 record->data.security_mode,
                 record->data.security_likely_encrypted,
                 record->data.decrypted,
-                record->data.key_applied,
                 record->data.key_index,
                 primary_a,
                 sizeof(primary_a));
@@ -680,12 +633,8 @@ bool wmbus_packet_process_capture(
         memcpy(record->packet_bytes, frame, record->packet_len);
         wmbus_packet_extract_frame_info(frame, frame_len, record);
 
-        WmBusPacketParseSelection selection = {0};
-        wmbus_packet_select_parse_frame(frame, frame_len, record, keyring, &selection);
-        record->data.decrypted = selection.decrypted;
-        record->data.key_applied = selection.key_applied;
-        record->data.key_index = selection.key_index;
-        wmbus_packet_finalize_parser(selection.parser_applied, record);
+        bool parsed = wmbus_packet_select_parse_frame(frame, frame_len, record, keyring);
+        wmbus_packet_finalize_parser(parsed, record);
     } else {
         record->packet_is_frame = false;
         record->packet_len = (uint16_t)((capture->len > sizeof(record->packet_bytes)) ?
@@ -729,7 +678,6 @@ void wmbus_packet_build_fields_text(const WmBusPacketRecord* record, char* out, 
             field->value);
         if(len < 0) break;
         if((size_t)len >= (out_size - write)) {
-            write = out_size - 1U;
             break;
         }
         write += (size_t)len;
@@ -760,7 +708,6 @@ void wmbus_packet_build_detail_text(const WmBusPacketRecord* record, char* out, 
         record->data.security_mode,
         record->data.security_likely_encrypted,
         record->data.decrypted,
-        record->data.key_applied,
         record->data.key_index,
         security,
         sizeof(security));

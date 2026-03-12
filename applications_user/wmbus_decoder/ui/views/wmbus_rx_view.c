@@ -30,7 +30,6 @@ typedef struct {
     uint8_t security_mode;
     bool security_likely_encrypted;
     bool decrypted;
-    bool key_applied;
     uint8_t key_index;
     char parser_name[WMBUS_PACKET_PARSER_NAME_MAX];
     char primary_a[WMBUS_RX_PRIMARY_MAX];
@@ -146,7 +145,7 @@ static void
     if(!entry || !entry->has_short_tpl) return;
 
     if(entry->decrypted) {
-        if(entry->key_applied) {
+        if(entry->key_index != 0U) {
             snprintf(out, out_size, "DEC#%u", (unsigned int)entry->key_index);
         } else {
             snprintf(out, out_size, "DEC0");
@@ -554,7 +553,6 @@ void wmbus_rx_view_push_packet(
                 entry->security_mode = record->data.security_mode;
                 entry->security_likely_encrypted = record->data.security_likely_encrypted;
                 entry->decrypted = record->data.decrypted;
-                entry->key_applied = record->data.key_applied;
                 entry->key_index = record->data.key_index;
                 snprintf(
                     entry->parser_name,
@@ -635,7 +633,6 @@ bool wmbus_rx_view_build_selected_detail_text(WmBusRxView* rx_view, char* out, s
                     entry->security_mode,
                     entry->security_likely_encrypted,
                     entry->decrypted,
-                    entry->key_applied,
                     entry->key_index,
                     security,
                     sizeof(security));
