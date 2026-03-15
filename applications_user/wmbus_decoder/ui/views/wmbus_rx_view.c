@@ -1,5 +1,7 @@
 #include "wmbus_rx_view.h"
 
+#include "../../app/wmbus_format.h"
+
 #include <furi.h>
 #include <gui/canvas.h>
 #include <input/input.h>
@@ -32,8 +34,6 @@ typedef struct {
     bool decrypted;
     uint8_t key_index;
     char parser_name[WMBUS_PACKET_PARSER_NAME_MAX];
-    char primary_a[WMBUS_RX_PRIMARY_MAX];
-    char primary_b[WMBUS_RX_PRIMARY_MAX];
     bool has_total_m3;
     uint32_t total_m3_x1000;
     char field_text[WMBUS_RX_FIELD_TEXT_MAX];
@@ -560,22 +560,9 @@ void wmbus_rx_view_push_packet(
                     "%.*s",
                     (int)(sizeof(entry->parser_name) - 1U),
                     record->application.parser_name);
-                snprintf(
-                    entry->primary_a,
-                    sizeof(entry->primary_a),
-                    "%.*s",
-                    (int)(sizeof(entry->primary_a) - 1U),
-                    record->application.summary_a);
-                snprintf(
-                    entry->primary_b,
-                    sizeof(entry->primary_b),
-                    "%.*s",
-                    (int)(sizeof(entry->primary_b) - 1U),
-                    record->application.summary_b);
-                entry->has_total_m3 = record->application.has_total_volume_m3;
-                entry->total_m3_x1000 = record->application.total_volume_m3_x1000;
-                wmbus_packet_build_fields_text(
-                    record, entry->field_text, sizeof(entry->field_text));
+                entry->has_total_m3 =
+                    wmbus_format_find_total_volume(record, &entry->total_m3_x1000);
+                wmbus_format_fields_text(record, entry->field_text, sizeof(entry->field_text));
                 entry->packet_len = (uint8_t)((record->packet_len > WMBUS_RX_PREVIEW_MAX) ?
                                                   WMBUS_RX_PREVIEW_MAX :
                                                   record->packet_len);
@@ -618,15 +605,15 @@ bool wmbus_rx_view_build_selected_detail_text(WmBusRxView* rx_view, char* out, s
             if(entry) {
                 char total[WMBUS_PACKET_VALUE_MAX] = {0};
                 char security[48] = {0};
-                char summary_a[48] = {0};
-                char summary_b[64] = {0};
+                char total_line[48] = {0};
+                char security_line[64] = {0};
                 char detail_fields[160] = {0};
                 char parser_line[40] = {0};
                 char mode_line[32] = {0};
                 const char* detail_tail = "-";
-                bool prefer_parser_primary = !wmbus_rx_parser_name_is_generic(entry->parser_name);
                 if(entry->has_total_m3) {
                     wmbus_packet_format_total_m3(entry->total_m3_x1000, total, sizeof(total));
+                    snprintf(total_line, sizeof(total_line), "Total: %s\n", total);
                 }
                 wmbus_packet_format_security_text(
                     entry->has_short_tpl,
@@ -636,15 +623,8 @@ bool wmbus_rx_view_build_selected_detail_text(WmBusRxView* rx_view, char* out, s
                     entry->key_index,
                     security,
                     sizeof(security));
-                if(total[0]) {
-                    snprintf(summary_a, sizeof(summary_a), "Total: %s\n", total);
-                } else if(entry->primary_a[0] && prefer_parser_primary) {
-                    snprintf(summary_a, sizeof(summary_a), "%s\n", entry->primary_a);
-                }
                 if(security[0]) {
-                    snprintf(summary_b, sizeof(summary_b), "Security: %s\n", security);
-                } else if(entry->primary_b[0] && prefer_parser_primary) {
-                    snprintf(summary_b, sizeof(summary_b), "%s\n", entry->primary_b);
+                    snprintf(security_line, sizeof(security_line), "Security: %s\n", security);
                 }
                 if(entry->field_text[0]) {
                     snprintf(
@@ -652,7 +632,7 @@ bool wmbus_rx_view_build_selected_detail_text(WmBusRxView* rx_view, char* out, s
                 }
                 if(detail_fields[0]) {
                     detail_tail = detail_fields;
-                } else if(summary_a[0] || summary_b[0]) {
+                } else if(total_line[0] || security_line[0]) {
                     detail_tail = "";
                 }
 
@@ -662,7 +642,7 @@ bool wmbus_rx_view_build_selected_detail_text(WmBusRxView* rx_view, char* out, s
                     "M:%c  R:%d",
                     entry->used_3of6 ? 'T' : 'C',
                     entry->rssi);
-                if(prefer_parser_primary) {
+                if(!wmbus_rx_parser_name_is_generic(entry->parser_name)) {
                     snprintf(parser_line, sizeof(parser_line), "Parser: %s\n", entry->parser_name);
                 }
 
@@ -679,8 +659,8 @@ bool wmbus_rx_view_build_selected_detail_text(WmBusRxView* rx_view, char* out, s
                         entry->ci_field,
                         entry->version,
                         parser_line,
-                        summary_a,
-                        summary_b,
+                        total_line,
+                        security_line,
                         detail_tail);
                 } else {
                     snprintf(

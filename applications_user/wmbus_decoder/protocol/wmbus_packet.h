@@ -11,59 +11,55 @@
 
 #define WMBUS_PACKET_PAYLOAD_MAX     256U
 #define WMBUS_PACKET_RECORD_MAX      12U
-#define WMBUS_PACKET_FIELD_MAX       12U
 #define WMBUS_PACKET_LABEL_MAX       16U
 #define WMBUS_PACKET_VALUE_MAX       32U
 #define WMBUS_PACKET_PARSER_NAME_MAX 16U
 #define WMBUS_PACKET_RECORD_RAW_MAX  24U
-#define WMBUS_PACKET_DIFE_MAX        4U
-#define WMBUS_PACKET_VIFE_MAX        4U
-
-typedef struct {
-    char label[WMBUS_PACKET_LABEL_MAX];
-    char value[WMBUS_PACKET_VALUE_MAX];
-} WmBusPacketField;
 
 typedef enum {
     WmBusApplicationValueNone = 0,
     WmBusApplicationValueUnsigned,
-    WmBusApplicationValueText,
+    WmBusApplicationValueDateTime,
+    WmBusApplicationValueRaw,
 } WmBusApplicationValueType;
 
 typedef enum {
-    WmBusApplicationQuantityUnknown = 0,
-    WmBusApplicationQuantityVolume,
-    WmBusApplicationQuantityEnergy,
-    WmBusApplicationQuantityPower,
-    WmBusApplicationQuantityVolumeFlow,
-    WmBusApplicationQuantityFlowTemperature,
-    WmBusApplicationQuantityReturnTemperature,
-    WmBusApplicationQuantityTemperatureDifference,
-    WmBusApplicationQuantityDate,
-    WmBusApplicationQuantityDateTime,
-    WmBusApplicationQuantityStatus,
+    WmBusApplicationQuantityUnknown = 0, /**< No semantic decode; formatter may render raw bytes. */
+    WmBusApplicationQuantityVolume, /**< Unsigned cubic meters, scaled by `scale10`. */
+    WmBusApplicationQuantityEnergy, /**< Unsigned watt-hours, scaled by `scale10`. */
+    WmBusApplicationQuantityPower, /**< Unsigned watts, scaled by `scale10`. */
+    WmBusApplicationQuantityVolumeFlow, /**< Unsigned cubic meters per hour, scaled by `scale10`. */
+    WmBusApplicationQuantityFlowTemperature, /**< Unsigned degrees C, scaled by `scale10`. */
+    WmBusApplicationQuantityReturnTemperature, /**< Unsigned degrees C, scaled by `scale10`. */
+    WmBusApplicationQuantityTemperatureDifference, /**< Unsigned kelvin, scaled by `scale10`. */
+    WmBusApplicationQuantityDate, /**< Structured date in `value_datetime`, `has_time = false`. */
+    WmBusApplicationQuantityDateTime, /**< Structured date-time in `value_datetime`, `has_time = true`. */
+    WmBusApplicationQuantityStatus, /**< Raw status payload; formatter normally renders hex bytes. */
 } WmBusApplicationQuantity;
 
 typedef struct {
+    uint16_t year;
+    uint8_t month;
+    uint8_t day;
+    uint8_t hour;
+    uint8_t minute;
+    bool has_time;
+} WmBusApplicationDateTime;
+
+typedef struct {
     uint8_t dif;
-    uint8_t dife_count;
-    uint8_t difes[WMBUS_PACKET_DIFE_MAX];
     uint8_t vif;
-    uint8_t vife_count;
-    uint8_t vifes[WMBUS_PACKET_VIFE_MAX];
     uint16_t storage_no;
     uint8_t tariff;
     uint8_t subunit;
     uint8_t data_len;
-    uint8_t record_len;
+    uint8_t raw_len;
     uint8_t raw[WMBUS_PACKET_RECORD_RAW_MAX];
     WmBusApplicationValueType value_type;
     WmBusApplicationQuantity quantity;
     int8_t scale10;
-    char unit[8];
-    char label[WMBUS_PACKET_LABEL_MAX];
-    char value_text[WMBUS_PACKET_VALUE_MAX];
     uint64_t value_unsigned;
+    WmBusApplicationDateTime value_datetime;
 } WmBusApplicationRecord;
 
 typedef struct {
@@ -103,12 +99,6 @@ typedef struct {
 
 typedef struct {
     char parser_name[WMBUS_PACKET_PARSER_NAME_MAX];
-    char summary_a[WMBUS_PACKET_VALUE_MAX];
-    char summary_b[WMBUS_PACKET_VALUE_MAX];
-    bool has_total_volume_m3;
-    uint32_t total_volume_m3_x1000;
-    uint8_t field_count;
-    WmBusPacketField fields[WMBUS_PACKET_FIELD_MAX];
     uint8_t record_count;
     WmBusApplicationRecord records[WMBUS_PACKET_RECORD_MAX];
 } WmBusPacketApplicationData;
@@ -160,5 +150,3 @@ void wmbus_packet_format_security_text(
     uint8_t key_index,
     char* out,
     size_t out_size);
-void wmbus_packet_build_fields_text(const WmBusPacketRecord* record, char* out, size_t out_size);
-void wmbus_packet_build_detail_text(const WmBusPacketRecord* record, char* out, size_t out_size);

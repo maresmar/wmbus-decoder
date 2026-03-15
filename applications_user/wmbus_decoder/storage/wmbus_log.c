@@ -1,6 +1,8 @@
 #include "wmbus_log.h"
 #include "wmbus_paths.h"
 
+#include "../app/wmbus_format.h"
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -14,8 +16,8 @@ static const char* wmbus_log_path(WmBusCsvLogging logging) {
 static const char* wmbus_log_header(WmBusCsvLogging logging) {
     return (logging == WmBusCsvLoggingFull) ?
                "tick,mode,status,plausible,crc_ok,mfg,id,version,device_type,ci,rssi,parser,"
-               "summary_a,summary_b,security_mode,decrypted,key_index,fields,packet_hex\n" :
-               "tick,mode,status,mfg,id,version,device_type,ci,rssi,parser,summary_a,summary_b\n";
+               "security_mode,decrypted,key_index,fields,packet_hex\n" :
+               "tick,mode,status,mfg,id,version,device_type,ci,rssi,parser\n";
 }
 
 static bool wmbus_log_write_line(File* file, const char* format, ...) {
@@ -82,13 +84,13 @@ bool wmbus_log_append(
 
         char fields[384] = {0};
         char packet_hex[513] = {0};
-        wmbus_packet_build_fields_text(record, fields, sizeof(fields));
+        wmbus_format_fields_text(record, fields, sizeof(fields));
         wmbus_log_format_hex(record->packet_bytes, record->packet_len, packet_hex, sizeof(packet_hex));
 
         if(logging == WmBusCsvLoggingFull) {
             written = wmbus_log_write_line(
                 file,
-                "%lu,%c,%s,%s,%s,%s,%s,%02X,%02X,%02X,%d,%s,%s,%s,%02X,%s,%u,%s,%s\n",
+                "%lu,%c,%s,%s,%s,%s,%s,%02X,%02X,%02X,%d,%s,%02X,%s,%u,%s,%s\n",
                 (unsigned long)record->rx_tick,
                 record->mode == WmBusRxModeT ? 'T' : 'C',
                 wmbus_packet_status_str(record->status),
@@ -101,8 +103,6 @@ bool wmbus_log_append(
                 record->packet_is_frame ? record->frame.ci_field : 0U,
                 record->rssi,
                 record->application.parser_name,
-                record->application.summary_a,
-                record->application.summary_b,
                 record->transport.has_short_tpl ? record->transport.security_mode : 0U,
                 record->transport.decrypted ? "yes" : "no",
                 record->transport.key_index,
@@ -111,7 +111,7 @@ bool wmbus_log_append(
         } else {
             written = wmbus_log_write_line(
                 file,
-                "%lu,%c,%s,%s,%s,%02X,%02X,%02X,%d,%s,%s,%s\n",
+                "%lu,%c,%s,%s,%s,%02X,%02X,%02X,%d,%s\n",
                 (unsigned long)record->rx_tick,
                 record->mode == WmBusRxModeT ? 'T' : 'C',
                 wmbus_packet_status_str(record->status),
@@ -121,9 +121,7 @@ bool wmbus_log_append(
                 record->packet_is_frame ? record->frame.dev_type : 0U,
                 record->packet_is_frame ? record->frame.ci_field : 0U,
                 record->rssi,
-                record->application.parser_name,
-                record->application.summary_a,
-                record->application.summary_b);
+                record->application.parser_name);
         }
 
         storage_file_sync(file);

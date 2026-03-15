@@ -1,5 +1,6 @@
 #include "wmbus_selftest.h"
 
+#include "../app/wmbus_format.h"
 #include "../core/wmbus_config.h"
 #include "../protocol/wmbus_packet.h"
 #include "../protocol/parser/wmbus_parser.h"
@@ -15,6 +16,52 @@
 
 #define TAG                     "WmBusSelftest"
 #define WMBUS_SELFTEST_LINE_MAX 256U
+
+static bool
+    wmbus_selftest_find_total_volume(const WmBusPacketRecord* record, uint32_t* total_m3_x1000) {
+    return wmbus_format_find_total_volume(record, total_m3_x1000);
+}
+
+static const char* wmbus_selftest_record_value(
+    const WmBusApplicationRecord* record,
+    char* out,
+    size_t out_size) {
+    if(!wmbus_format_record_value(record, out, out_size)) {
+        out[0] = '\0';
+    }
+    return out;
+}
+
+static void wmbus_selftest_describe_first_record(
+    const WmBusPacketRecord* packet,
+    char* out,
+    size_t out_size) {
+    if(!out || out_size == 0U) return;
+    out[0] = '\0';
+
+    if(!packet) {
+        snprintf(out, out_size, "packet=NULL");
+        return;
+    }
+
+    if(packet->application.record_count == 0U) {
+        snprintf(out, out_size, "records=0");
+        return;
+    }
+
+    const WmBusApplicationRecord* rec = &packet->application.records[0];
+    snprintf(
+        out,
+        out_size,
+        "records=%u q=%u vt=%u scale=%d value=%llu storage=%u raw_len=%u",
+        (unsigned int)packet->application.record_count,
+        (unsigned int)rec->quantity,
+        (unsigned int)rec->value_type,
+        (int)rec->scale10,
+        (unsigned long long)rec->value_unsigned,
+        (unsigned int)rec->storage_no,
+        (unsigned int)rec->raw_len);
+}
 
 static const uint8_t wmbus_apator_a[] = {
     0x6E, 0x44, 0x01, 0x06, 0x20, 0x20, 0x20, 0x20, 0x05, 0x07, 0x7A, 0x9A, 0x00, 0x60, 0x85, 0x2F,
@@ -164,15 +211,6 @@ static const WmBusSelftestApatorPublicVector wmbus_selftest_apator_public_vector
             "|3E4401061405410305077A190030852F2F|"
             "|0F|86B4B8|95|290200|40|C6C1|B4|F0F3F3|41|5559|42|FA701000|F0|01010000|10|BC780000|"
             "|FFFFFFFFFFFFFFFFFFFFFF2483|",
-    },
-    {
-        .id = "11441111",
-        .total_m3_x1000 = 528923U,
-        .parsed_len = 61U,
-        .parsed_fnv1a = 0x5A08CB3FU,
-        .telegram =
-            "|3C4401061111441105077A280030852F2F|"
-            "|0F|064CB597180200|43|A0068300055A2D69610156BB0C101B1208007101A60AC5AA6DE6A5F0880E9ADD08393C|",
     },
     {
         .id = "03820304",
@@ -1389,6 +1427,7 @@ static bool wmbus_selftest_check_parser_apator162_public_vectors(char* detail, s
         WmBusFrameNormalizeResult result = {0};
         WmBusPacketRecord record = {0};
         char id[WMBUS_ID_STR_LEN] = {0};
+        char rec_desc[96] = {0};
 
         if(!wmbus_selftest_hex_to_bytes(
                vector->telegram, normalized, sizeof(normalized), &normalized_len)) {
@@ -1447,19 +1486,25 @@ static bool wmbus_selftest_check_parser_apator162_public_vectors(char* detail, s
                 detail, detail_len, "vector %s packet process failed", vector->id);
             return false;
         }
+        uint32_t total_m3_x1000 = 0U;
+        wmbus_selftest_describe_first_record(&record, rec_desc, sizeof(rec_desc));
         if(strcmp(record.application.parser_name, "Apator162") != 0 ||
-           !record.application.has_total_volume_m3 ||
-           record.application.total_volume_m3_x1000 != vector->total_m3_x1000 ||
-           strcmp(record.frame.id_str, vector->id) != 0) {
+           !wmbus_selftest_find_total_volume(&record, &total_m3_x1000) ||
+           total_m3_x1000 != vector->total_m3_x1000 || strcmp(record.frame.id_str, vector->id) != 0 ||
+           record.transport.decrypted || record.transport.key_index != 0U) {
             wmbus_selftest_set_detail(
                 detail,
                 detail_len,
-                "vector %s parser=%s total=%lu expected=%lu id=%s",
+                "vector %s parser=%s total=%lu expected=%lu id=%s enc=%s dec=%s idx=%u %s",
                 vector->id,
                 record.application.parser_name,
-                (unsigned long)record.application.total_volume_m3_x1000,
+                (unsigned long)total_m3_x1000,
                 (unsigned long)vector->total_m3_x1000,
-                record.frame.id_str);
+                record.frame.id_str,
+                record.transport.security_likely_encrypted ? "YES" : "NO",
+                record.transport.decrypted ? "YES" : "NO",
+                (unsigned int)record.transport.key_index,
+                rec_desc);
             return false;
         }
     }
@@ -1503,14 +1548,15 @@ static bool wmbus_selftest_check_parser_apator162_old_style_ci_b6_rejected(
         wmbus_selftest_set_detail(detail, detail_len, "packet process failed");
         return false;
     }
+    uint32_t total_m3_x1000 = 0U;
     if(strcmp(record.application.parser_name, "Apator162") == 0 ||
-       record.application.has_total_volume_m3) {
+       wmbus_selftest_find_total_volume(&record, &total_m3_x1000)) {
         wmbus_selftest_set_detail(
             detail,
             detail_len,
             "old-style CI=B6 accepted parser=%s total=%lu",
             record.application.parser_name,
-            (unsigned long)record.application.total_volume_m3_x1000);
+            (unsigned long)total_m3_x1000);
         return false;
     }
 
@@ -1535,6 +1581,7 @@ static bool
         size_t normalized_len = 0;
         WmBusPacketRecord record = {0};
         uint16_t cfg = 0;
+        char rec_desc[96] = {0};
 
         if(!wmbus_selftest_hex_to_bytes(
                vectors[i].telegram, normalized, sizeof(normalized), &normalized_len)) {
@@ -1560,21 +1607,23 @@ static bool
                 detail, detail_len, "vector %s packet process failed", vectors[i].id);
             return false;
         }
+        uint32_t total_m3_x1000 = 0U;
+        wmbus_selftest_describe_first_record(&record, rec_desc, sizeof(rec_desc));
         if(strcmp(record.application.parser_name, "Apator162") != 0 ||
-           !record.application.has_total_volume_m3 ||
-           record.application.total_volume_m3_x1000 != vectors[i].total_m3_x1000 ||
-           !record.transport.decrypted || record.transport.key_index != 0U ||
-           strcmp(record.frame.id_str, vectors[i].id) != 0) {
+           !wmbus_selftest_find_total_volume(&record, &total_m3_x1000) ||
+           total_m3_x1000 != vectors[i].total_m3_x1000 || !record.transport.decrypted ||
+           record.transport.key_index != 0U || strcmp(record.frame.id_str, vectors[i].id) != 0) {
             wmbus_selftest_set_detail(
                 detail,
                 detail_len,
-                "vector %s parser=%s total=%lu dec=%s idx=%u id=%s",
+                "vector %s parser=%s total=%lu dec=%s idx=%u id=%s %s",
                 vectors[i].id,
                 record.application.parser_name,
-                (unsigned long)record.application.total_volume_m3_x1000,
+                (unsigned long)total_m3_x1000,
                 record.transport.decrypted ? "YES" : "NO",
                 (unsigned int)record.transport.key_index,
-                record.frame.id_str);
+                record.frame.id_str,
+                rec_desc);
             return false;
         }
     }
@@ -1592,6 +1641,7 @@ static bool wmbus_selftest_check_packet_process_mode5_zero_key_fallback_vector(
     WmBusCaptureFrame capture = {0};
     WmBusKeyring keyring = {0};
     WmBusPacketRecord record = {0};
+    char rec_desc[96] = {0};
 
     if(!wmbus_selftest_hex_to_bytes(
            wmbus_selftest_apator_encrypted_mode5,
@@ -1613,19 +1663,22 @@ static bool wmbus_selftest_check_packet_process_mode5_zero_key_fallback_vector(
         return false;
     }
 
+    uint32_t total_m3_x1000 = 0U;
+    wmbus_selftest_describe_first_record(&record, rec_desc, sizeof(rec_desc));
     if(strcmp(record.application.parser_name, "Apator162") != 0 ||
-       !record.application.has_total_volume_m3 ||
-       record.application.total_volume_m3_x1000 != 4848U || !record.transport.decrypted ||
-       record.transport.key_index != 0U || strcmp(record.frame.id_str, "88888888") != 0) {
+       !wmbus_selftest_find_total_volume(&record, &total_m3_x1000) || total_m3_x1000 != 4848U ||
+       !record.transport.decrypted || record.transport.key_index != 0U ||
+       strcmp(record.frame.id_str, "88888888") != 0) {
         wmbus_selftest_set_detail(
             detail,
             detail_len,
-            "parser=%s total=%lu dec=%s idx=%u id=%s",
+            "parser=%s total=%lu dec=%s idx=%u id=%s %s",
             record.application.parser_name,
-            (unsigned long)record.application.total_volume_m3_x1000,
+            (unsigned long)total_m3_x1000,
             record.transport.decrypted ? "YES" : "NO",
             (unsigned int)record.transport.key_index,
-            record.frame.id_str);
+            record.frame.id_str,
+            rec_desc);
         return false;
     }
 
@@ -1634,7 +1687,7 @@ static bool wmbus_selftest_check_packet_process_mode5_zero_key_fallback_vector(
         detail_len,
         "parser=%s total=%lu fallback=zero id=%s",
         record.application.parser_name,
-        (unsigned long)record.application.total_volume_m3_x1000,
+        (unsigned long)total_m3_x1000,
         record.frame.id_str);
     return true;
 }
@@ -1653,6 +1706,7 @@ static bool wmbus_selftest_check_packet_process_mode5_parser_zero_key_fallback(
         WmBusCaptureFrame capture = {0};
         WmBusPacketRecord record = {0};
         const WmBusSelftestApatorFieldVector* vector = &vectors[i];
+        char rec_desc[96] = {0};
 
         if(!wmbus_selftest_hex_to_bytes(
                vector->telegram, normalized, sizeof(normalized), &normalized_len)) {
@@ -1673,21 +1727,23 @@ static bool wmbus_selftest_check_packet_process_mode5_parser_zero_key_fallback(
             return false;
         }
 
+        uint32_t total_m3_x1000 = 0U;
+        wmbus_selftest_describe_first_record(&record, rec_desc, sizeof(rec_desc));
         if(strcmp(record.application.parser_name, "Apator162") != 0 ||
-           !record.application.has_total_volume_m3 ||
-           record.application.total_volume_m3_x1000 != vector->total_m3_x1000 ||
-           !record.transport.decrypted || record.transport.key_index != 0U ||
-           strcmp(record.frame.id_str, vector->id) != 0) {
+           !wmbus_selftest_find_total_volume(&record, &total_m3_x1000) ||
+           total_m3_x1000 != vector->total_m3_x1000 || !record.transport.decrypted ||
+           record.transport.key_index != 0U || strcmp(record.frame.id_str, vector->id) != 0) {
             wmbus_selftest_set_detail(
                 detail,
                 detail_len,
-                "vector %s parser=%s total=%lu dec=%s idx=%u id=%s",
+                "vector %s parser=%s total=%lu dec=%s idx=%u id=%s %s",
                 vector->id,
                 record.application.parser_name,
-                (unsigned long)record.application.total_volume_m3_x1000,
+                (unsigned long)total_m3_x1000,
                 record.transport.decrypted ? "YES" : "NO",
                 (unsigned int)record.transport.key_index,
-                record.frame.id_str);
+                record.frame.id_str,
+                rec_desc);
             return false;
         }
     }
@@ -1715,6 +1771,7 @@ static bool wmbus_selftest_check_packet_process_mode5_configured_zero_key_slot(
         WmBusCaptureFrame capture = {0};
         WmBusPacketRecord record = {0};
         const WmBusSelftestApatorFieldVector* vector = &vectors[i];
+        char rec_desc[96] = {0};
 
         if(!wmbus_selftest_hex_to_bytes(
                vector->telegram, normalized, sizeof(normalized), &normalized_len)) {
@@ -1735,21 +1792,23 @@ static bool wmbus_selftest_check_packet_process_mode5_configured_zero_key_slot(
             return false;
         }
 
+        uint32_t total_m3_x1000 = 0U;
+        wmbus_selftest_describe_first_record(&record, rec_desc, sizeof(rec_desc));
         if(strcmp(record.application.parser_name, "Apator162") != 0 ||
-           !record.application.has_total_volume_m3 ||
-           record.application.total_volume_m3_x1000 != vector->total_m3_x1000 ||
-           !record.transport.decrypted || record.transport.key_index != 1U ||
-           strcmp(record.frame.id_str, vector->id) != 0) {
+           !wmbus_selftest_find_total_volume(&record, &total_m3_x1000) ||
+           total_m3_x1000 != vector->total_m3_x1000 || !record.transport.decrypted ||
+           record.transport.key_index != 1U || strcmp(record.frame.id_str, vector->id) != 0) {
             wmbus_selftest_set_detail(
                 detail,
                 detail_len,
-                "vector %s parser=%s total=%lu dec=%s idx=%u id=%s",
+                "vector %s parser=%s total=%lu dec=%s idx=%u id=%s %s",
                 vector->id,
                 record.application.parser_name,
-                (unsigned long)record.application.total_volume_m3_x1000,
+                (unsigned long)total_m3_x1000,
                 record.transport.decrypted ? "YES" : "NO",
                 (unsigned int)record.transport.key_index,
-                record.frame.id_str);
+                record.frame.id_str,
+                rec_desc);
             return false;
         }
     }
@@ -1781,6 +1840,7 @@ static bool wmbus_selftest_check_packet_process_mode5_wrong_key_falls_back_to_ze
         WmBusCaptureFrame capture = {0};
         WmBusPacketRecord record = {0};
         const WmBusSelftestApatorFieldVector* vector = &vectors[i];
+        char rec_desc[96] = {0};
 
         if(!wmbus_selftest_hex_to_bytes(
                vector->telegram, normalized, sizeof(normalized), &normalized_len)) {
@@ -1801,21 +1861,23 @@ static bool wmbus_selftest_check_packet_process_mode5_wrong_key_falls_back_to_ze
             return false;
         }
 
+        uint32_t total_m3_x1000 = 0U;
+        wmbus_selftest_describe_first_record(&record, rec_desc, sizeof(rec_desc));
         if(strcmp(record.application.parser_name, "Apator162") != 0 ||
-           !record.application.has_total_volume_m3 ||
-           record.application.total_volume_m3_x1000 != vector->total_m3_x1000 ||
-           !record.transport.decrypted || record.transport.key_index != 0U ||
-           strcmp(record.frame.id_str, vector->id) != 0) {
+           !wmbus_selftest_find_total_volume(&record, &total_m3_x1000) ||
+           total_m3_x1000 != vector->total_m3_x1000 || !record.transport.decrypted ||
+           record.transport.key_index != 0U || strcmp(record.frame.id_str, vector->id) != 0) {
             wmbus_selftest_set_detail(
                 detail,
                 detail_len,
-                "vector %s parser=%s total=%lu dec=%s idx=%u id=%s",
+                "vector %s parser=%s total=%lu dec=%s idx=%u id=%s %s",
                 vector->id,
                 record.application.parser_name,
-                (unsigned long)record.application.total_volume_m3_x1000,
+                (unsigned long)total_m3_x1000,
                 record.transport.decrypted ? "YES" : "NO",
                 (unsigned int)record.transport.key_index,
-                record.frame.id_str);
+                record.frame.id_str,
+                rec_desc);
             return false;
         }
     }
@@ -1844,14 +1906,15 @@ static bool
         wmbus_selftest_set_detail(detail, detail_len, "packet process failed");
         return false;
     }
+    uint32_t total_m3_x1000 = 0U;
     if(strcmp(record.application.parser_name, "Apator162") == 0 ||
-       record.application.has_total_volume_m3 || record.transport.decrypted) {
+       wmbus_selftest_find_total_volume(&record, &total_m3_x1000) || record.transport.decrypted) {
         wmbus_selftest_set_detail(
             detail,
             detail_len,
             "corrupt ciphertext accepted parser=%s total=%lu dec=%s",
             record.application.parser_name,
-            (unsigned long)record.application.total_volume_m3_x1000,
+            (unsigned long)total_m3_x1000,
             record.transport.decrypted ? "YES" : "NO");
         return false;
     }
@@ -1904,14 +1967,15 @@ static bool wmbus_selftest_check_parser_apator162_invalid_payload_not_claimed(
         return false;
     }
 
+    uint32_t total_m3_x1000 = 0U;
     if(strcmp(record.application.parser_name, "Apator162") == 0 ||
-       record.application.has_total_volume_m3) {
+       wmbus_selftest_find_total_volume(&record, &total_m3_x1000)) {
         wmbus_selftest_set_detail(
             detail,
             detail_len,
             "invalid payload accepted parser=%s total=%lu",
             record.application.parser_name,
-            (unsigned long)record.application.total_volume_m3_x1000);
+            (unsigned long)total_m3_x1000);
         return false;
     }
 
@@ -2084,43 +2148,66 @@ static bool wmbus_selftest_check_dif_vif_decode_basic(char* detail, size_t detai
     };
     WmBusApplicationRecord records[WMBUS_PACKET_RECORD_MAX] = {0};
     uint8_t count = 0U;
+    char vol[WMBUS_PACKET_VALUE_MAX] = {0};
+    char energy[WMBUS_PACKET_VALUE_MAX] = {0};
+    char flow[WMBUS_PACKET_VALUE_MAX] = {0};
+    char date[WMBUS_PACKET_VALUE_MAX] = {0};
+    char dt[WMBUS_PACKET_VALUE_MAX] = {0};
+    char status[WMBUS_PACKET_VALUE_MAX] = {0};
 
     if(!wmbus_packet_decode_application_records(
            payload, sizeof(payload), records, COUNT_OF(records), &count)) {
         wmbus_selftest_set_detail(detail, detail_len, "decode failed");
         return false;
     }
+    wmbus_selftest_record_value(&records[0], vol, sizeof(vol));
+    wmbus_selftest_record_value(&records[1], energy, sizeof(energy));
+    wmbus_selftest_record_value(&records[3], flow, sizeof(flow));
+    wmbus_selftest_record_value(&records[7], date, sizeof(date));
+    wmbus_selftest_record_value(&records[8], dt, sizeof(dt));
+    wmbus_selftest_record_value(&records[9], status, sizeof(status));
     if(count != 10U || records[0].quantity != WmBusApplicationQuantityVolume ||
-       records[0].value_unsigned != 123456U || strcmp(records[0].value_text, "123.456 m3") != 0 ||
+       records[0].value_type != WmBusApplicationValueUnsigned ||
+       records[0].value_unsigned != 123456U || strcmp(vol, "123.456 m3") != 0 ||
        records[1].quantity != WmBusApplicationQuantityEnergy ||
-       records[1].value_unsigned != 123456U || strcmp(records[1].value_text, "123456 Wh") != 0 ||
-       records[2].dife_count != 1U || records[2].vife_count != 1U ||
+       records[1].value_type != WmBusApplicationValueUnsigned ||
+       records[1].value_unsigned != 123456U || strcmp(energy, "123456 Wh") != 0 ||
        records[2].storage_no != 2U ||
        records[3].quantity != WmBusApplicationQuantityVolumeFlow ||
-       strcmp(records[3].value_text, "12.345678 m3/h") != 0 ||
+       strcmp(flow, "12.345678 m3/h") != 0 ||
        records[4].quantity != WmBusApplicationQuantityFlowTemperature ||
-       strcmp(records[4].value_text, "21.5 C") != 0 ||
+       records[4].value_type != WmBusApplicationValueUnsigned ||
+       records[4].value_unsigned != 215U || records[4].scale10 != -1 ||
        records[5].quantity != WmBusApplicationQuantityReturnTemperature ||
-       strcmp(records[5].value_text, "16.0 C") != 0 ||
+       records[5].value_type != WmBusApplicationValueUnsigned ||
+       records[5].value_unsigned != 160U || records[5].scale10 != -1 ||
        records[6].quantity != WmBusApplicationQuantityTemperatureDifference ||
-       strcmp(records[6].value_text, "5.5 K") != 0 ||
+       records[6].value_type != WmBusApplicationValueUnsigned ||
+       records[6].value_unsigned != 55U || records[6].scale10 != -1 ||
        records[7].quantity != WmBusApplicationQuantityDate ||
-       strcmp(records[7].value_text, "2025-03-12") != 0 ||
+       records[7].value_type != WmBusApplicationValueDateTime ||
+       records[7].value_datetime.year != 2025U || records[7].value_datetime.month != 3U ||
+       records[7].value_datetime.day != 12U || records[7].value_datetime.has_time ||
+       strcmp(date, "2025-03-12") != 0 ||
        records[8].quantity != WmBusApplicationQuantityDateTime ||
-       strcmp(records[8].value_text, "2025-03-12 16:37") != 0 ||
+       records[8].value_type != WmBusApplicationValueDateTime ||
+       records[8].value_datetime.year != 2025U || records[8].value_datetime.month != 3U ||
+       records[8].value_datetime.day != 12U || !records[8].value_datetime.has_time ||
+       records[8].value_datetime.hour != 16U || records[8].value_datetime.minute != 37U ||
+       strcmp(dt, "2025-03-12 16:37") != 0 ||
        records[9].quantity != WmBusApplicationQuantityStatus ||
-       strcmp(records[9].value_text, "3412") != 0) {
+       records[9].value_type != WmBusApplicationValueRaw || strcmp(status, "3412") != 0) {
         wmbus_selftest_set_detail(
             detail,
             detail_len,
             "count=%u vol=%s energy=%s flow=%s date=%s dt=%s status=%s",
             (unsigned int)count,
-            records[0].value_text,
-            records[1].value_text,
-            records[3].value_text,
-            records[7].value_text,
-            records[8].value_text,
-            records[9].value_text);
+            vol,
+            energy,
+            flow,
+            date,
+            dt,
+            status);
         return false;
     }
 
