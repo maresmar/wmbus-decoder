@@ -8,7 +8,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define WMBUS_HIST_MAX          16U
+#define WMBUS_HIST_MAX          100U
 #define WMBUS_RSSI_HISTORY      64U
 #define WMBUS_RX_PRIMARY_MAX    24U
 #define WMBUS_RX_FIELD_TEXT_MAX 96U
