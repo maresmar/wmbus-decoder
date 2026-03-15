@@ -2,35 +2,6 @@
 
 Developer-focused notes for `applications_user/wmbus_decoder`.
 
-## Copilot Instructions
-
-Use this as startup context for future coding chats in this app.
-
-- Scope:
-  - Work only inside `applications_user/wmbus_decoder/` unless explicitly requested.
-  - Keep live RX mode changes inside the config scene only.
-- Target meter:
-  - Primary target is Apator `AT-WMBUS-16-2` (`apator162`).
-  - Old Apator style with `CI=0xB6` is out of scope unless asked.
-- RX architecture constraints:
-  - RX control is queue-driven (`FuriMessageQueue`) using runtime config snapshots.
-  - Do not reintroduce shared volatile mode/running flags across threads.
-  - Keep plausibility gate for WM-Bus `C-field` valid values (`0x44`, `0x46`).
-  - Keep frame length trimming before CRC/model updates.
-- Data model/UI:
-  - The app now has a live RX scene, a config scene, and a packet detail view.
-  - History entries store their RX tick so the UI can show packet age while browsing.
-  - Normal view should show parser-provided primary fields when available.
-  - Settings use status thresholds for memory and CSV retention.
-- Build/verify commands:
-  - Preferred build: `CCACHE_DISABLE=1 ./fbt fap_wmbus_decoder`
-  - If parser changes are made, validate against known Apator vectors from
-    `wmbusmeters/src/driver_apator162.cc` (expected totals: `3.843`, `270.133`, `30.908` m3).
-- Editing preferences:
-  - Keep changes minimal and localized.
-  - Avoid broad refactors unless requested.
-  - Update this README when behavior, controls, or decoder assumptions change.
-
 ## Purpose
 
 `wmbus_decoder` is a Sub-GHz receive-only app for Wireless M-Bus at `868.95 MHz`.
@@ -72,37 +43,6 @@ Output artifact:
 - `build/f7-firmware-D/.extapps/wmbus_decoder.fap`
 
 Deploy as you normally deploy external apps in your Flipper firmware workflow.
-
-## In-App Selftests
-
-When `WMBUS_SELFTESTS=1`, `wmbus_decoder_app()` calls `wmbus_run_selftests()`
-once at startup.
-
-This is now the only maintained test path for `wmbus_decoder`.
-
-Covered scenarios:
-
-- Mode `C` vectors using already-decoded telegram bytes
-- Mode `T` synthetic 3-of-6 vectors with offset search across `0..7`
-- field parsing, length computation, CRC pass/fail behavior
-- negative cases for bad CRC, bad plausibility, and bad 3-of-6 symbols
-- low-level 3-of-6 decode success/failure edges
-- capture helpers for C-frame reconstruction, expected-length estimation, and state reset
-- format-A and format-B normalization checks
-- public Apator corpus parsing and old-style `CI=0xB6` rejection
-
-Regression vector sources:
-
-- clear-text Apator corpus copied from the vendored `wmbusmeters/src/driver_apator162.cc`
-- matching JSON expectations cross-checked with `wmbusmeters/simulations/simulation_apas.txt`
-- encrypted zero-key Apator sample cross-checked with `wmbusmeters/simulations/serial_aes.msg`
-- two additional encrypted Apator gold telegrams are field samples provided on March 12, 2026 with expected totals `345.654 m3` and `200.257 m3`
-
-Important constraints:
-
-- no software PN9 whitening/dewhitening is implemented
-- Mode `C` assumes bytes already match the parser-visible post-radio form
-- Mode `T` selftests validate only the software 3-of-6/offset/parser path
 
 ## Runtime Controls
 
@@ -210,26 +150,29 @@ Why both are needed:
 
 ## Apator `AT-WMBUS-16-2` Parsing
 
-A targeted parser extracts total volume from proprietary register payloads.
+A targeted parser extracts total volume from Apator proprietary register payloads.
 
-Implemented behavior:
+The vendored upstream reference is `wmbusmeters/drivers/src/apator162.xmq`. That grammar models the proprietary payload as:
 
-- requires `CI == 0x7A`
-- requires Apator identity (`APA` or legacy manufacturer `0x8614`, version `0x05`, device type `0x07`) plus a validated proprietary payload layout
-- for short-TPL security mode `5`, tries keys from `keys.txt` in file order
-- after configured keys, the shared packet path also tries the legacy fixed all-zero 16-byte key
-- mode-5 decrypt candidates are produced in shared code; a candidate is accepted when it has visible `2F2F` check bytes or the Apator parser validates the payload
-- for other encrypted short-TPL modes, requires visible decrypted `2F2F` check bytes before parsing
-- starts after short TPL header
-- skips leading `0x2F` fillers
-- when vendor header byte `0x0F` is present, skips the 8-byte Apator fixed block
-- otherwise accepts payloads that begin directly with a known Apator register
-- iterates vendor registers using `apator162` register-size table
-- validates register boundaries until end marker / padding before trusting the parsed total
-- extracts register `0x10` or `0xA1` as little-endian `uint32`
-- interprets raw value as `m3 * 1000`
+- one leading proprietary marker byte
+- seven status bytes
+- zero or more typed proprietary fields
+- an `0xFF` terminator followed by optional trailing bytes
 
-Displayed on normal UI when available as parser-provided primary fields, for example:
+Current app behavior:
+
+- claims only Apator short-TPL packets with `CI == 0x7A`
+- accepts Apator identity fields matching the upstream detector: version `0x05`, device type `0x06` or `0x07`, plus manufacturer `APA`
+- also accepts the legacy manufacturer code `0x8614` used by existing local regression vectors
+- skips leading `0x2F` fillers in the application payload
+- always treats the next 8 bytes as the proprietary prefix from the upstream grammar:
+  - 1 marker byte
+  - 7 status bytes
+- walks the payload using the proprietary register-size table derived from the upstream grammar
+- extracts the first total-volume field from register `0x10` or `0xA1`
+- stores the parsed total as `m3 * 1000`
+
+Displayed on the normal UI when parser-provided primary fields are available, for example:
 
 - `3.843 m3`
 - `Key:#2`
@@ -240,10 +183,7 @@ Known limit (intentional):
 
 ## References
 
-- `wmbusmeters` generic frame checks and CRC trimming:
-  - `wmbusmeters/src/wmbus.cc`
-- `wmbusmeters` Apator driver behavior:
-  - `wmbusmeters/src/driver_apator162.cc`
+- `wmbusmeters/drivers/src/apator162.xmq`
 
 ## Troubleshooting
 

@@ -3,9 +3,17 @@
 #include <stdio.h>
 #include <string.h>
 
-#define WMBUS_APATOR162_MFG_OLD 0x8614U
-#define WMBUS_APATOR162_META_LEN 8U
+#define TAG                        "apator162"
+#define WMBUS_APATOR162_MFG_OLD    0x8614U
+#define WMBUS_APATOR162_META_LEN   8U
 #define WMBUS_APATOR162_STATUS_LEN 7U
+
+typedef struct {
+    size_t fields_pos;
+    size_t status_pos;
+    size_t status_len;
+    bool has_status;
+} WmBusApator162Layout;
 
 /**
  * Returns the payload size for a single Apator register body.
@@ -135,74 +143,9 @@ int wmbus_parser_apator162_register_size(uint8_t reg) {
     }
 }
 
-/**
- * Checks whether a payload tail can be consumed as an Apator register stream.
- */
-static bool wmbus_parser_apator162_stream_valid(
-    const uint8_t* payload,
-    size_t payload_len,
-    size_t pos) {
-    if(!payload || pos >= payload_len) {
-        return false;
-    }
-
-    bool saw_register = false;
-    while(pos < payload_len) {
-        uint8_t reg = payload[pos++];
-        if(reg == 0xFFU) {
-            break;
-        }
-
-        int reg_size = wmbus_parser_apator162_register_size(reg);
-        if(reg_size < 0 || pos + (size_t)reg_size > payload_len) {
-            return false;
-        }
-
-        saw_register = true;
-        pos += (size_t)reg_size;
-    }
-
-    return saw_register;
-}
-
-static bool wmbus_parser_apator162_scan_total_from_stream(
-    const uint8_t* payload,
-    size_t payload_len,
-    size_t pos,
-    uint32_t* total_m3_x1000) {
-    if(!payload || !total_m3_x1000 || pos >= payload_len) {
-        return false;
-    }
-
-    bool have_total = false;
-    uint32_t parsed_total = 0U;
-
-    while(pos < payload_len) {
-        uint8_t reg = payload[pos++];
-        if(reg == 0xFFU) {
-            break;
-        }
-
-        int reg_size = wmbus_parser_apator162_register_size(reg);
-        if(reg_size < 0 || pos + (size_t)reg_size > payload_len) {
-            break;
-        }
-
-        if(!have_total && reg == 0x10U && reg_size >= 4) {
-            parsed_total = (uint32_t)payload[pos] | ((uint32_t)payload[pos + 1] << 8) |
-                           ((uint32_t)payload[pos + 2] << 16) | ((uint32_t)payload[pos + 3] << 24);
-            have_total = true;
-        }
-
-        pos += (size_t)reg_size;
-    }
-
-    if(!have_total) {
-        return false;
-    }
-
-    *total_m3_x1000 = parsed_total;
-    return true;
+static uint32_t wmbus_parser_apator162_read_u32_le(const uint8_t* data) {
+    return (uint32_t)data[0] | ((uint32_t)data[1] << 8) | ((uint32_t)data[2] << 16) |
+           ((uint32_t)data[3] << 24);
 }
 
 static bool wmbus_parser_apator162_append_record(
@@ -210,10 +153,12 @@ static bool wmbus_parser_apator162_append_record(
     WmBusApplicationRecord** out_record) {
     if(!record || !out_record ||
        record->application.record_count >= COUNT_OF(record->application.records)) {
+        FURI_LOG_E(TAG, "Application record mem is full");
         return false;
     }
 
-    WmBusApplicationRecord* app_record = &record->application.records[record->application.record_count];
+    WmBusApplicationRecord* app_record =
+        &record->application.records[record->application.record_count];
     memset(app_record, 0, sizeof(*app_record));
     record->application.record_count++;
     *out_record = app_record;
@@ -262,18 +207,14 @@ static void wmbus_parser_apator162_store_status_record(
  *
  * Leading 0x2F filler bytes are skipped.
  *
- * Current upstream `wmbusmeters` models Apator 162 payloads as:
+ * The vendored `wmbusmeters` XMQ grammar models Apator 162 payloads as:
  * `2F* <1-byte proprietary marker> <7-byte status block> <register stream> FF*`
- *
- * The first 8 bytes are manufacturer-specific metadata and are not decoded
- * semantically here. The register stream starts immediately after them.
  */
-static bool wmbus_parser_apator162_scan_meta(
+static bool wmbus_parser_apator162_locate_layout(
     const uint8_t* payload,
     size_t payload_len,
-    size_t* meta_pos,
-    size_t* fields_pos) {
-    if(!payload || !meta_pos || !fields_pos || payload_len == 0U) {
+    WmBusApator162Layout* layout) {
+    if(!payload || !layout || payload_len == 0U) {
         return false;
     }
 
@@ -286,54 +227,80 @@ static bool wmbus_parser_apator162_scan_meta(
         return false;
     }
 
+    memset(layout, 0, sizeof(*layout));
     if((payload_len - pos) < WMBUS_APATOR162_META_LEN) {
         return false;
     }
 
-    *meta_pos = pos;
-    *fields_pos = pos + WMBUS_APATOR162_META_LEN;
+    layout->fields_pos = pos + WMBUS_APATOR162_META_LEN;
+    layout->status_pos = pos + 1U;
+    layout->status_len = WMBUS_APATOR162_STATUS_LEN;
+    layout->has_status = true;
+
+    if(layout->fields_pos >= payload_len) {
+        return false;
+    }
+    if(payload[layout->fields_pos] != 0xFFU &&
+       wmbus_parser_apator162_register_size(payload[layout->fields_pos]) < 0) {
+        return false;
+    }
+
     return true;
 }
 
-static bool wmbus_parser_apator162_payload_start(
+static bool wmbus_parser_apator162_scan_stream(
     const uint8_t* payload,
     size_t payload_len,
-    size_t* start_pos) {
-    size_t meta_pos = 0U;
-    size_t pos = 0U;
-    if(!wmbus_parser_apator162_scan_meta(payload, payload_len, &meta_pos, &pos)) {
+    const WmBusApator162Layout* layout,
+    uint32_t* total_m3_x1000,
+    bool* found_total) {
+    if(!payload || !layout || layout->fields_pos >= payload_len) {
         return false;
     }
 
-    if(!wmbus_parser_apator162_stream_valid(payload, payload_len, pos)) {
+    bool saw_register = false;
+    bool have_total = false;
+    uint32_t parsed_total = 0U;
+    size_t pos = layout->fields_pos;
+
+    while(pos < payload_len) {
+        uint8_t reg = payload[pos++];
+        if(reg == 0xFFU) {
+            break;
+        }
+
+        int reg_size = wmbus_parser_apator162_register_size(reg);
+        if(reg_size < 0 || pos + (size_t)reg_size > payload_len) {
+            return false;
+        }
+
+        saw_register = true;
+        if(!have_total && reg_size >= 4 && (reg == 0x10U || reg == 0xA1U)) {
+            parsed_total = wmbus_parser_apator162_read_u32_le(&payload[pos]);
+            have_total = true;
+        }
+
+        pos += (size_t)reg_size;
+    }
+
+    if(!saw_register) {
         return false;
     }
 
-    *start_pos = pos;
+    if(found_total) {
+        *found_total = have_total;
+    }
+    if(total_m3_x1000 && have_total) {
+        *total_m3_x1000 = parsed_total;
+    }
+
     return true;
-}
-
-
-/**
- * Verifies that the payload can be walked as an Apator register stream.
- *
- * Returns true only if the payload start is valid and at least one complete register
- * can be consumed before the optional 0xFF terminator.
- */
-bool wmbus_parser_validate_apator162_payload(const uint8_t* payload, size_t payload_len) {
-    size_t pos = 0U;
-    if(!wmbus_parser_apator162_payload_start(payload, payload_len, &pos)) {
-        return false;
-    }
-
-    return wmbus_parser_apator162_stream_valid(payload, payload_len, pos);
 }
 
 /**
  * Extracts the first total-volume value from the Apator register stream.
  *
- * Register 0x10 is interpreted as a little-endian 32-bit total in m3*1000.
- * Returns true once such a value was found, even if a later register is malformed.
+ * Register 0x10 or 0xA1 is interpreted as a little-endian 32-bit total in m3*1000.
  */
 bool wmbus_parser_parse_apator162_payload_total(
     const uint8_t* payload,
@@ -343,37 +310,28 @@ bool wmbus_parser_parse_apator162_payload_total(
         return false;
     }
 
-    size_t meta_pos = 0U;
-    size_t pos = 0U;
-    if(!wmbus_parser_apator162_scan_meta(payload, payload_len, &meta_pos, &pos)) {
-        return false;
-    }
-    return wmbus_parser_apator162_scan_total_from_stream(payload, payload_len, pos, total_m3_x1000);
-}
-
-/**
- * Matches the fixed meter identity fields used by known Apator 162 devices.
- *
- * Both the current "APA" manufacturer code and the legacy numeric code are accepted.
- */
-static bool wmbus_parser_apator162_identity_matches(const WmBusPacketRecord* record) {
-    if(!record) {
+    WmBusApator162Layout layout = {0};
+    if(!wmbus_parser_apator162_locate_layout(payload, payload_len, &layout)) {
         return false;
     }
 
-    if(record->frame.version != 0x05U || record->frame.dev_type != 0x07U) {
+    uint32_t parsed_total = 0U;
+    bool found_total = false;
+    if(!wmbus_parser_apator162_scan_stream(
+           payload, payload_len, &layout, &parsed_total, &found_total)) {
         return false;
     }
+    if(!found_total) return false;
 
-    return strcmp(record->frame.mfg, "APA") == 0 ||
-           record->frame.m_field == WMBUS_APATOR162_MFG_OLD;
+    *total_m3_x1000 = parsed_total;
+    return true;
 }
 
 /**
  * Checks whether the record is likely an Apator 162 payload that this parser can handle.
  *
- * Probe succeeds either for a fully valid register stream or for a payload where only
- * the total-volume register can be recovered.
+ * Requires short-TPL CI=0x7A and the known Apator 162 identity fields:
+ * version 0x05, device type 0x06 or 0x07, and manufacturer "APA" or legacy 0x8614.
  */
 bool wmbus_parser_apator162_probe(const WmBusPacketRecord* record) {
     if(!record || !record->payload.has_app_payload || record->payload.app_len == 0U) {
@@ -382,7 +340,11 @@ bool wmbus_parser_apator162_probe(const WmBusPacketRecord* record) {
     if(!record->transport.has_short_tpl || record->frame.ci_field != 0x7AU) {
         return false;
     }
-    if(!wmbus_parser_apator162_identity_matches(record)) {
+    if(record->frame.version != 0x05U ||
+       (record->frame.dev_type != 0x06U && record->frame.dev_type != 0x07U)) {
+        return false;
+    }
+    if(strcmp(record->frame.mfg, "APA") != 0 && record->frame.m_field != WMBUS_APATOR162_MFG_OLD) {
         return false;
     }
     return true;
@@ -397,30 +359,28 @@ bool wmbus_parser_apator162_parse(WmBusPacketRecord* record) {
     }
 
     record->application.record_count = 0U;
-    size_t meta_pos = 0U;
-    size_t fields_pos = 0U;
-    if(!wmbus_parser_apator162_scan_meta(
-           record->payload.app_payload, record->payload.app_len, &meta_pos, &fields_pos)) {
+    WmBusApator162Layout layout = {0};
+    if(!wmbus_parser_apator162_locate_layout(
+           record->payload.app_payload, record->payload.app_len, &layout)) {
         return false;
     }
 
     uint32_t total_m3_x1000 = 0U;
-    bool have_total = wmbus_parser_apator162_scan_total_from_stream(
-        record->payload.app_payload, record->payload.app_len, fields_pos, &total_m3_x1000);
-    bool payload_valid = wmbus_parser_apator162_stream_valid(
-        record->payload.app_payload, record->payload.app_len, fields_pos);
-
-    if(!have_total && !payload_valid) {
+    bool found_total = false;
+    if(!wmbus_parser_apator162_scan_stream(
+           record->payload.app_payload,
+           record->payload.app_len,
+           &layout,
+           &total_m3_x1000,
+           &found_total) ||
+       !found_total) {
         return false;
     }
-    if(!have_total) {
-        return false;
-    }
 
-    wmbus_parser_apator162_store_status_record(
-        record,
-        &record->payload.app_payload[meta_pos + 1U],
-        WMBUS_APATOR162_STATUS_LEN);
+    if(layout.has_status) {
+        wmbus_parser_apator162_store_status_record(
+            record, &record->payload.app_payload[layout.status_pos], layout.status_len);
+    }
     wmbus_parser_apator162_store_total_record(record, total_m3_x1000);
 
     return true;
