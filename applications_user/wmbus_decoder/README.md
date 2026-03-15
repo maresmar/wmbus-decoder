@@ -184,19 +184,3 @@ Known limit (intentional):
 ## References
 
 - `wmbusmeters/drivers/src/apator162.xmq`
-
-## Troubleshooting
-
-- `Freq not allowed`: region lock prevents `868.95 MHz` RX.
-- many `Not plausible` statuses:
-  - verify mode (`Left`/`Right`) against your meter transmit mode
-  - confirm antenna/placement and RSSI stability
-- both modes show `0 decoded`:
-  - verify meter is transmitting in your test window (some intervals are minutes apart)
-  - confirm region/frequency access to `868.95 MHz`
-  - reduce distance and improve antenna orientation
-- frequent `CRC BAD`:
-  - weak signal / collisions / wrong mode
-  - check if frame count rises but `CRC OK` stays low
-- no total volume shown for Apator:
-  - telegram may be old `0xB6` style or unsupported register layout

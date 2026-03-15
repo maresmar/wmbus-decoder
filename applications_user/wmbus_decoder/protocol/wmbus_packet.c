@@ -6,7 +6,6 @@
 
 #include "frame/wmbus_frame.h"
 #include "parser/wmbus_device_parser.h"
-#include "parser/wmbus_parser_dif_vif.h"
 #include "parser/wmbus_parser.h"
 
 #define TAG                 "WmBusDecoder"
@@ -419,7 +418,6 @@ static void wmbus_packet_finalize_parser(WmBusPacketRecord* record) {
             record->transport.has_short_tpl ? "Short TPL" :
                                               (record->packet_is_frame ? "Header" : "Raw"));
     }
-
 }
 
 static int wmbus_score_t_decode_candidate(const WmBusTDecodeResult* candidate) {
