@@ -40,7 +40,7 @@ static const char* wmbus_packet_decrypt_result_str(WmBusDecryptResult result) {
 
 static const char* wmbus_packet_log_id(const WmBusPacketRecord* record) {
     if(!record) return "--------";
-    return record->frame.id_str[0] ? record->frame.id_str : "--------";
+    return record->dll.id_str[0] ? record->dll.id_str : "--------";
 }
 
 static void wmbus_packet_log_decrypt_failure_reason(
@@ -53,8 +53,8 @@ static void wmbus_packet_log_decrypt_failure_reason(
         TAG,
         "decrypt failed id=%s ci=%02X cfg=%04X key=%02X%02X.. reason=%s",
         wmbus_packet_log_id(record),
-        record->frame.ci_field,
-        record->transport.cfg,
+        record->dll.ci_field,
+        record->tpl.cfg,
         key[0],
         key[1],
         reason);
@@ -82,6 +82,13 @@ static const char* wmbus_packet_security_mode_name(uint8_t security_mode) {
     default:
         return NULL;
     }
+}
+
+static void wmbus_packet_populate_application_identity(WmBusPacketRecord* record) {
+    if(!record) return;
+
+    wmbus_frame_decode_mfg(record->dll.m_field, record->dll.mfg);
+    wmbus_frame_format_id(record->dll.id, record->dll.id_str, &record->dll.id_is_bcd);
 }
 
 const char* wmbus_packet_status_str(WmBusStatus status) {
@@ -233,84 +240,73 @@ static bool wmbus_ci_has_short_tpl(uint8_t ci) {
     }
 }
 
-static void wmbus_packet_extract_frame_info(
+static void wmbus_packet_extract_dll_tpl_info(
     const uint8_t* frame,
     size_t frame_len,
     WmBusPacketRecord* record) {
     if(!frame || !record || frame_len < 11U) return;
 
-    record->frame.l_field = frame[0];
-    record->frame.c_field = frame[1];
-    record->frame.m_field = (uint16_t)frame[2] | ((uint16_t)frame[3] << 8);
-    wmbus_frame_decode_mfg(record->frame.m_field, record->frame.mfg);
-    memcpy(record->frame.id, &frame[4], sizeof(record->frame.id));
-    wmbus_frame_format_id(record->frame.id, record->frame.id_str, &record->frame.id_is_bcd);
-    record->frame.version = frame[8];
-    record->frame.dev_type = frame[9];
-    record->frame.ci_field = frame[10];
-    record->transport.header_len = 11U;
-
-    if(frame_len > sizeof(record->frame.normalized)) {
-        frame_len = sizeof(record->frame.normalized);
-    }
-    record->frame.normalized_len = (uint16_t)frame_len;
-    memcpy(record->frame.normalized, frame, frame_len);
+    record->dll.l_field = frame[0];
+    record->dll.c_field = frame[1];
+    record->dll.m_field = (uint16_t)frame[2] | ((uint16_t)frame[3] << 8);
+    memcpy(record->dll.id, &frame[4], sizeof(record->dll.id));
+    record->dll.version = frame[8];
+    record->dll.dev_type = frame[9];
+    record->dll.ci_field = frame[10];
+    wmbus_packet_populate_application_identity(record);
+    record->tpl.header_len = 11U;
+    record->tpl.security_mode = 0U;
 
     if(frame_len >= 15U && wmbus_ci_has_short_tpl(frame[10])) {
-        record->transport.has_short_tpl = true;
-        record->transport.header_len = 15U;
-        record->transport.acc = frame[11];
-        record->transport.tpl_status = frame[12];
-        record->transport.cfg = (uint16_t)frame[13] | ((uint16_t)frame[14] << 8);
-        record->transport.security_mode =
-            wmbus_parser_short_tpl_security_mode(record->transport.cfg);
-        record->transport.security_likely_encrypted =
-            wmbus_parser_short_tpl_security_likely_encrypted(record->transport.cfg);
+        record->tpl.has_short_tpl = true;
+        record->tpl.header_len = 15U;
+        record->tpl.acc = frame[11];
+        record->tpl.tpl_status = frame[12];
+        record->tpl.cfg = (uint16_t)frame[13] | ((uint16_t)frame[14] << 8);
+        record->tpl.security_mode = wmbus_parser_short_tpl_security_mode(record->tpl.cfg);
     }
 }
 
-static void wmbus_packet_set_raw_payload(
+static void wmbus_packet_set_payload_packet_slice(
+    WmBusPacketRecord* record, size_t frame_len) {
+    if(!record) return;
+
+    size_t offset = record->tpl.header_len;
+    record->payload.packet_offset = 0U;
+    record->payload.packet_len = 0U;
+    if(frame_len <= offset) return;
+
+    size_t payload_len = frame_len - offset;
+    if(payload_len > (record->packet_len - offset)) {
+        payload_len = record->packet_len - offset;
+    }
+    if(payload_len > UINT16_MAX) payload_len = UINT16_MAX;
+
+    record->payload.packet_offset = (uint16_t)offset;
+    record->payload.packet_len = (uint16_t)payload_len;
+}
+
+static void wmbus_packet_set_application_payload(
     WmBusPacketRecord* record,
     const uint8_t* frame,
     size_t frame_len) {
     if(!record || !frame) return;
 
-    size_t offset = record->transport.header_len;
+    size_t offset = record->tpl.header_len;
     if(frame_len <= offset) {
-        record->payload.raw_len = 0U;
+        record->payload.has_application_payload = false;
+        record->payload.application_len = 0U;
         return;
     }
 
     size_t payload_len = frame_len - offset;
-    if(payload_len > sizeof(record->payload.raw_payload)) {
-        payload_len = sizeof(record->payload.raw_payload);
+    if(payload_len > sizeof(record->payload.application_payload)) {
+        payload_len = sizeof(record->payload.application_payload);
     }
 
-    record->payload.raw_len = (uint16_t)payload_len;
-    memcpy(record->payload.raw_payload, &frame[offset], payload_len);
-}
-
-static void wmbus_packet_set_app_payload(
-    WmBusPacketRecord* record,
-    const uint8_t* frame,
-    size_t frame_len) {
-    if(!record) return;
-
-    record->payload.has_app_payload = false;
-    record->payload.app_len = 0U;
-    if(!frame) return;
-
-    size_t offset = record->transport.header_len;
-    if(frame_len <= offset) return;
-
-    size_t payload_len = frame_len - offset;
-    if(payload_len > sizeof(record->payload.app_payload)) {
-        payload_len = sizeof(record->payload.app_payload);
-    }
-
-    record->payload.has_app_payload = true;
-    record->payload.app_len = (uint16_t)payload_len;
-    memcpy(record->payload.app_payload, &frame[offset], payload_len);
+    record->payload.has_application_payload = true;
+    record->payload.application_len = (uint16_t)payload_len;
+    memcpy(record->payload.application_payload, &frame[offset], payload_len);
 }
 
 static bool wmbus_packet_try_key(
@@ -324,13 +320,13 @@ static bool wmbus_packet_try_key(
     }
 
     WmBusMode5DecryptInfo decrypt =
-        wmbus_parser_decrypt_mode5(frame, frame_len, record->transport.cfg, key, decrypt_frame);
+        wmbus_parser_decrypt_mode5(frame, frame_len, record->tpl.cfg, key, decrypt_frame);
     if(decrypt.result != WmBusDecryptResultOk) {
         wmbus_packet_log_decrypt_failure(record, key, decrypt.result);
         return false;
     }
 
-    wmbus_packet_set_app_payload(record, decrypt_frame, frame_len);
+    wmbus_packet_set_application_payload(record, decrypt_frame, frame_len);
     bool parsed = wmbus_device_parser_apply(record);
 
     if(parsed || decrypt.has_check_bytes) {
@@ -352,34 +348,38 @@ static bool wmbus_packet_select_parse_frame(
         return false;
     }
 
-    record->transport.decrypted = false;
-    record->transport.key_index = 0U;
+    record->tpl.decrypted = false;
+    record->tpl.key_index = 0U;
     memset(&record->application, 0, sizeof(record->application));
+    wmbus_packet_populate_application_identity(record);
 
-    wmbus_packet_set_raw_payload(record, frame, frame_len);
+    wmbus_packet_set_payload_packet_slice(record, frame_len);
 
     // Some Apator telegrams advertise mode-5 settings in short TPL but still
     // carry a clear application payload prefixed with 2F2F. Treat those as
     // already clear instead of forcing a zero-key decrypt attempt.
-    if(record->payload.raw_len >= 2U && record->payload.raw_payload[0] == 0x2FU &&
-       record->payload.raw_payload[1] == 0x2FU) {
-        wmbus_packet_set_app_payload(record, frame, frame_len);
+    if(record->payload.packet_len >= 2U &&
+       record->packet_bytes[record->payload.packet_offset] == 0x2FU &&
+       record->packet_bytes[record->payload.packet_offset + 1U] == 0x2FU) {
+        wmbus_packet_set_application_payload(record, frame, frame_len);
         return wmbus_device_parser_apply(record);
     }
 
-    if(!record->transport.has_short_tpl || !record->transport.security_likely_encrypted) {
-        wmbus_packet_set_app_payload(record, frame, frame_len);
+    if(!record->tpl.has_short_tpl ||
+       !wmbus_parser_short_tpl_security_likely_encrypted(record->tpl.cfg)) {
+        wmbus_packet_set_application_payload(record, frame, frame_len);
         return wmbus_device_parser_apply(record);
     }
 
-    if(record->transport.security_mode != 0x05U) {
+    uint8_t security_mode = record->tpl.security_mode;
+    if(security_mode != 0x05U) {
         FURI_LOG_D(
             TAG,
             "decrypt skipped id=%s ci=%02X cfg=%04X unsupported security mode=%02X",
             wmbus_packet_log_id(record),
-            record->frame.ci_field,
-            record->transport.cfg,
-            record->transport.security_mode);
+            record->dll.ci_field,
+            record->tpl.cfg,
+            security_mode);
         return false;
     }
 
@@ -390,20 +390,21 @@ static bool wmbus_packet_select_parse_frame(
         if(!entry) continue;
 
         if(wmbus_packet_try_key(frame, frame_len, entry->key, record, decrypt_frame)) {
-            record->transport.decrypted = true;
-            record->transport.key_index = i + 1U;
+            record->tpl.decrypted = true;
+            record->tpl.key_index = i + 1U;
             return true;
         }
     }
 
     if(wmbus_packet_try_key(frame, frame_len, wmbus_zero_key, record, decrypt_frame)) {
-        record->transport.decrypted = true;
-        record->transport.key_index = 0U;
+        record->tpl.decrypted = true;
+        record->tpl.key_index = 0U;
         return true;
     }
 
     memset(&record->application, 0, sizeof(record->application));
-    wmbus_packet_set_app_payload(record, frame, frame_len);
+    wmbus_packet_populate_application_identity(record);
+    wmbus_packet_set_application_payload(record, frame, frame_len);
     return wmbus_device_parser_apply(record);
 }
 
@@ -415,7 +416,7 @@ static void wmbus_packet_finalize_parser(WmBusPacketRecord* record) {
             record->application.parser_name,
             sizeof(record->application.parser_name),
             "%s",
-            record->transport.has_short_tpl ? "Short TPL" :
+            record->tpl.has_short_tpl ? "Short TPL" :
                                               (record->packet_is_frame ? "Header" : "Raw"));
     }
 }
@@ -585,7 +586,7 @@ bool wmbus_packet_process_capture(
                                             sizeof(record->packet_bytes) :
                                             frame_len);
         memcpy(record->packet_bytes, frame, record->packet_len);
-        wmbus_packet_extract_frame_info(frame, frame_len, record);
+        wmbus_packet_extract_dll_tpl_info(frame, frame_len, record);
 
         wmbus_packet_select_parse_frame(frame, frame_len, record, keyring);
         wmbus_packet_finalize_parser(record);

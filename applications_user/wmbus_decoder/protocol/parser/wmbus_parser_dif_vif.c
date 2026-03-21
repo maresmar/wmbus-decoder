@@ -1,5 +1,7 @@
 #include "wmbus_parser_dif_vif.h"
 
+#include "../wmbus_application_record.h"
+
 #include <string.h>
 
 static bool
@@ -179,7 +181,14 @@ static void wmbus_packet_decode_record_value(
         }
     }
 
-    if(record->quantity == WmBusApplicationQuantityStatus || is_variable_text) {
+    if(record->quantity == WmBusApplicationQuantityStatus) {
+        if(!wmbus_application_record_set_raw_hex_le(record, data, data_len)) {
+            record->value_type = WmBusApplicationValueRaw;
+        }
+        return;
+    }
+
+    if(is_variable_text) {
         record->value_type = WmBusApplicationValueRaw;
         return;
     }
@@ -197,8 +206,7 @@ static void wmbus_packet_decode_record_value(
         return;
     }
 
-    record->value_type = WmBusApplicationValueUnsigned;
-    record->value_unsigned = value;
+    wmbus_application_record_set_unsigned(record, value);
 }
 
 bool wmbus_packet_decode_application_records(
@@ -226,9 +234,8 @@ bool wmbus_packet_decode_application_records(
         if(count >= out_max) break;
 
         WmBusApplicationRecord* record = &out[count];
-        memset(record, 0, sizeof(*record));
+        wmbus_application_record_reset(record);
 
-        size_t start = pos;
         record->dif = payload[pos++];
 
         uint16_t storage_no = (record->dif >> 6) & 0x01U;
@@ -276,12 +283,7 @@ bool wmbus_packet_decode_application_records(
         wmbus_packet_map_vif(record, first_vife, has_first_vife);
         wmbus_packet_decode_record_value(
             record, &payload[pos], record->data_len, is_bcd, is_variable_text);
-
         pos += record->data_len;
-        record->raw_len = (uint8_t)((pos - start > WMBUS_PACKET_RECORD_RAW_MAX) ?
-                                        WMBUS_PACKET_RECORD_RAW_MAX :
-                                        (pos - start));
-        memcpy(record->raw, &payload[start], record->raw_len);
         count++;
     }
 
@@ -295,7 +297,7 @@ uint8_t wmbus_packet_count_meaningful_records(const WmBusPacketRecord* record) {
     uint8_t count = 0U;
     for(uint8_t i = 0; i < record->application.record_count; i++) {
         const WmBusApplicationRecord* app_record = &record->application.records[i];
-        if(app_record->quantity != WmBusApplicationQuantityUnknown) {
+        if(wmbus_application_record_is_meaningful(app_record)) {
             count++;
         }
     }
@@ -304,7 +306,8 @@ uint8_t wmbus_packet_count_meaningful_records(const WmBusPacketRecord* record) {
 }
 
 bool wmbus_parser_dif_vif_probe(const WmBusPacketRecord* record) {
-    return record && record->payload.has_app_payload && record->payload.app_len > 0U;
+    return record && record->payload.has_application_payload &&
+           record->payload.application_len > 0U;
 }
 
 bool wmbus_parser_dif_vif_parse(WmBusPacketRecord* record) {
@@ -314,8 +317,8 @@ bool wmbus_parser_dif_vif_parse(WmBusPacketRecord* record) {
 
     uint8_t record_count = 0U;
     if(!wmbus_packet_decode_application_records(
-           record->payload.app_payload,
-           record->payload.app_len,
+           record->payload.application_payload,
+           record->payload.application_len,
            record->application.records,
            (uint8_t)(sizeof(record->application.records) / sizeof(record->application.records[0])),
            &record_count)) {

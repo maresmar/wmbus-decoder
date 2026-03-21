@@ -14,7 +14,6 @@
 #define WMBUS_PACKET_LABEL_MAX       16U
 #define WMBUS_PACKET_VALUE_MAX       32U
 #define WMBUS_PACKET_PARSER_NAME_MAX 16U
-#define WMBUS_PACKET_RECORD_RAW_MAX  24U
 
 typedef enum {
     WmBusApplicationValueNone = 0,
@@ -24,7 +23,8 @@ typedef enum {
 } WmBusApplicationValueType;
 
 typedef enum {
-    WmBusApplicationQuantityUnknown = 0, /**< No semantic decode; formatter may render raw bytes. */
+    WmBusApplicationQuantityUnknown =
+        0, /**< No semantic decode; formatter may render raw bytes. */
     WmBusApplicationQuantityVolume, /**< Unsigned cubic meters, scaled by `scale10`. */
     WmBusApplicationQuantityEnergy, /**< Unsigned watt-hours, scaled by `scale10`. */
     WmBusApplicationQuantityPower, /**< Unsigned watts, scaled by `scale10`. */
@@ -53,8 +53,6 @@ typedef struct {
     uint8_t tariff;
     uint8_t subunit;
     uint8_t data_len;
-    uint8_t raw_len;
-    uint8_t raw[WMBUS_PACKET_RECORD_RAW_MAX];
     WmBusApplicationValueType value_type;
     WmBusApplicationQuantity quantity;
     int8_t scale10;
@@ -66,35 +64,32 @@ typedef struct {
     uint8_t l_field;
     uint8_t c_field;
     uint16_t m_field;
-    char mfg[WMBUS_MFG_STR_LEN];
     uint8_t id[4];
-    char id_str[WMBUS_ID_STR_LEN];
-    bool id_is_bcd;
+    char mfg[WMBUS_MFG_STR_LEN]; /**< Derived from `m_field`. */
+    char id_str[WMBUS_ID_STR_LEN]; /**< Derived from `id`. */
+    bool id_is_bcd; /**< Derived while formatting `id`. */
     uint8_t version;
     uint8_t dev_type;
     uint8_t ci_field;
-    uint16_t normalized_len;
-    uint8_t normalized[WMBUS_PACKET_PAYLOAD_MAX];
-} WmBusPacketFrameData;
+} WmBusPacketDllData;
 
 typedef struct {
-    bool has_short_tpl;
-    uint8_t header_len;
+    bool has_short_tpl; /**< Helper derived from `dll.ci_field`. */
+    uint8_t header_len; /**< Helper derived from `dll.ci_field` and short-TPL presence. */
     uint8_t acc;
     uint8_t tpl_status;
     uint16_t cfg;
-    uint8_t security_mode;
-    bool security_likely_encrypted;
+    uint8_t security_mode; /**< Helper derived from `cfg`. */
     bool decrypted;
     uint8_t key_index;
-} WmBusPacketTransportData;
+} WmBusPacketTplData;
 
 typedef struct {
-    uint16_t raw_len;
-    uint8_t raw_payload[WMBUS_PACKET_PAYLOAD_MAX];
-    bool has_app_payload;
-    uint16_t app_len;
-    uint8_t app_payload[WMBUS_PACKET_PAYLOAD_MAX];
+    uint16_t packet_offset; /**< Slice into `packet_bytes` after DLL/TPL header parsing. */
+    uint16_t packet_len; /**< Length of payload bytes available at `packet_bytes + packet_offset`. */
+    bool has_application_payload; /**< Derived from payload slicing and decrypt result. */
+    uint16_t application_len;
+    uint8_t application_payload[WMBUS_PACKET_PAYLOAD_MAX];
 } WmBusPacketPayloadData;
 
 typedef struct {
@@ -113,14 +108,15 @@ typedef struct {
     bool crc_ok;
     bool strong_rssi;
     uint16_t raw_len;
-    uint16_t packet_len;
+    uint16_t
+        packet_len; /**< Stored byte count of `packet_bytes`, not the same as `dll.l_field`. */
     bool packet_is_frame;
     int best_offset;
     int rssi;
     uint32_t rx_tick;
     uint8_t packet_bytes[256];
-    WmBusPacketFrameData frame;
-    WmBusPacketTransportData transport;
+    WmBusPacketDllData dll;
+    WmBusPacketTplData tpl;
     WmBusPacketPayloadData payload;
     WmBusPacketApplicationData application;
 } WmBusPacketRecord;

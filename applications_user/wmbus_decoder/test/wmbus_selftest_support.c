@@ -1,6 +1,6 @@
 #include "wmbus_selftest_i.h"
 
-#include "../app/wmbus_format.h"
+#include "../protocol/wmbus_application_record.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -88,14 +88,14 @@ typedef struct {
 static WmBusSelftestScratch wmbus_selftest_scratch;
 
 bool wmbus_selftest_find_total_volume(const WmBusPacketRecord* record, uint32_t* total_m3_x1000) {
-    return wmbus_format_find_total_volume(record, total_m3_x1000);
+    return wmbus_application_find_total_volume(&record->application, total_m3_x1000);
 }
 
 const char* wmbus_selftest_record_value(
     const WmBusApplicationRecord* record,
     char* out,
     size_t out_size) {
-    if(!wmbus_format_record_value(record, out, out_size)) out[0] = '\0';
+    if(!wmbus_application_record_format_value(record, out, out_size)) out[0] = '\0';
     return out;
 }
 
@@ -118,14 +118,14 @@ void wmbus_selftest_describe_first_record(
     snprintf(
         out,
         out_size,
-        "records=%u q=%u vt=%u scale=%d value=%llu storage=%u raw_len=%u",
+        "records=%u q=%u vt=%u scale=%d value=%llu storage=%u data_len=%u",
         (unsigned int)packet->application.record_count,
         (unsigned int)rec->quantity,
         (unsigned int)rec->value_type,
         (int)rec->scale10,
         (unsigned long long)rec->value_unsigned,
         (unsigned int)rec->storage_no,
-        (unsigned int)rec->raw_len);
+        (unsigned int)rec->data_len);
 }
 
 void wmbus_selftest_set_detail(char* detail, size_t detail_len, const char* format, ...) {

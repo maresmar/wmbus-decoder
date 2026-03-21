@@ -1,6 +1,7 @@
 #include "wmbus_rx_view.h"
 
-#include "../../app/wmbus_format.h"
+#include "../../protocol/wmbus_application_record.h"
+#include "../../protocol/parser/wmbus_parser.h"
 
 #include <furi.h>
 #include <gui/canvas.h>
@@ -8,37 +9,21 @@
 #include <stdio.h>
 #include <string.h>
 
-#define WMBUS_HIST_MAX          100U
-#define WMBUS_RSSI_HISTORY      64U
-#define WMBUS_RX_PRIMARY_MAX    24U
-#define WMBUS_RX_FIELD_TEXT_MAX 96U
-#define WMBUS_RX_PREVIEW_MAX    16U
+#define WMBUS_HIST_MAX            100U
+#define WMBUS_RSSI_HISTORY        64U
+#define WMBUS_RX_DEBUG_PACKET_MAX 16U
 
 typedef struct {
     bool packet_is_frame;
-    uint8_t l_field;
-    uint8_t c_field;
-    char mfg[4];
-    char id_str[9];
-    uint8_t version;
-    uint8_t dev_type;
-    uint8_t ci_field;
+    WmBusStatus status;
+    WmBusRxMode mode;
     int8_t rssi;
     uint32_t rx_tick;
-    WmBusStatus status;
-    bool crc_ok;
-    bool used_3of6;
-    bool has_short_tpl;
-    uint8_t security_mode;
-    bool security_likely_encrypted;
-    bool decrypted;
-    uint8_t key_index;
-    char parser_name[WMBUS_PACKET_PARSER_NAME_MAX];
-    bool has_total_m3;
-    uint32_t total_m3_x1000;
-    char field_text[WMBUS_RX_FIELD_TEXT_MAX];
-    uint8_t packet_len;
-    uint8_t packet_preview[WMBUS_RX_PREVIEW_MAX];
+    uint16_t packet_len;
+    uint8_t packet_bytes[WMBUS_RX_DEBUG_PACKET_MAX];
+    WmBusPacketDllData dll;
+    WmBusPacketTplData tpl;
+    WmBusPacketApplicationData application;
 } WmBusRxHistoryEntry;
 
 typedef struct {
@@ -101,6 +86,12 @@ static const WmBusRxHistoryEntry*
     return &model->hist[index];
 }
 
+static uint16_t wmbus_rx_history_preview_len(const WmBusRxHistoryEntry* entry) {
+    if(!entry) return 0U;
+    return (entry->packet_len > WMBUS_RX_DEBUG_PACKET_MAX) ? WMBUS_RX_DEBUG_PACKET_MAX :
+                                                              entry->packet_len;
+}
+
 static void wmbus_rx_format_age(const WmBusRxHistoryEntry* entry, char* out, size_t out_size) {
     if(!out || out_size == 0U) return;
     out[0] = '\0';
@@ -138,34 +129,29 @@ static void
     out[write] = '\0';
 }
 
-static void
-    wmbus_rx_format_crypto_tag(const WmBusRxHistoryEntry* entry, char* out, size_t out_size) {
+static void wmbus_rx_format_crypto_tag(
+    const WmBusPacketTplData* tpl,
+    char* out,
+    size_t out_size) {
     if(!out || out_size == 0U) return;
     out[0] = '\0';
-    if(!entry || !entry->has_short_tpl) return;
+    if(!tpl || !tpl->has_short_tpl) return;
 
-    if(entry->decrypted) {
-        if(entry->key_index != 0U) {
-            snprintf(out, out_size, "DEC#%u", (unsigned int)entry->key_index);
+    if(tpl->decrypted) {
+        if(tpl->key_index != 0U) {
+            snprintf(out, out_size, "DEC#%u", (unsigned int)tpl->key_index);
         } else {
             snprintf(out, out_size, "DEC0");
         }
-    } else if(entry->security_likely_encrypted) {
+    } else if(wmbus_parser_short_tpl_security_likely_encrypted(tpl->cfg)) {
         snprintf(out, out_size, "ENC");
-    } else if(entry->security_mode == 0x00U) {
+    } else if(tpl->security_mode == 0x00U) {
         snprintf(out, out_size, "CLR");
-    } else if(entry->security_mode == 0x01U) {
+    } else if(tpl->security_mode == 0x01U) {
         snprintf(out, out_size, "MFG");
     } else {
-        snprintf(out, out_size, "S:%02X", entry->security_mode);
+        snprintf(out, out_size, "S:%02X", tpl->security_mode);
     }
-}
-
-static bool wmbus_rx_parser_name_is_generic(const char* parser_name) {
-    if(!parser_name || parser_name[0] == '\0') return true;
-
-    return strcmp(parser_name, "Short TPL") == 0 || strcmp(parser_name, "Header") == 0 ||
-           strcmp(parser_name, "Raw") == 0 || strcmp(parser_name, "DIF/VIF") == 0;
 }
 
 static void
@@ -175,17 +161,18 @@ static void
     if(!entry) return;
 
     char crypto[12] = {0};
-    wmbus_rx_format_crypto_tag(entry, crypto, sizeof(crypto));
+    uint32_t total_m3_x1000 = 0U;
+    wmbus_rx_format_crypto_tag(&entry->tpl, crypto, sizeof(crypto));
 
-    if(entry->has_total_m3) {
-        uint32_t whole = entry->total_m3_x1000 / 1000U;
-        uint32_t frac = entry->total_m3_x1000 % 1000U;
+    if(wmbus_application_find_total_volume(&entry->application, &total_m3_x1000)) {
+        uint32_t whole = total_m3_x1000 / 1000U;
+        uint32_t frac = total_m3_x1000 % 1000U;
         if(crypto[0] != '\0') {
             snprintf(
                 out,
                 out_size,
                 "M:%c R:%d C:%s %lu.%03lum3",
-                entry->used_3of6 ? 'T' : 'C',
+                entry->mode == WmBusRxModeT ? 'T' : 'C',
                 entry->rssi,
                 crypto,
                 (unsigned long)whole,
@@ -195,7 +182,7 @@ static void
                 out,
                 out_size,
                 "M:%c R:%d %lu.%03lum3",
-                entry->used_3of6 ? 'T' : 'C',
+                entry->mode == WmBusRxModeT ? 'T' : 'C',
                 entry->rssi,
                 (unsigned long)whole,
                 (unsigned long)frac);
@@ -206,32 +193,32 @@ static void
                 out,
                 out_size,
                 "M:%c R:%d %s CI:%02X",
-                entry->used_3of6 ? 'T' : 'C',
+                entry->mode == WmBusRxModeT ? 'T' : 'C',
                 entry->rssi,
                 crypto,
-                entry->ci_field);
+                entry->dll.ci_field);
         } else {
             snprintf(
                 out,
                 out_size,
                 "M:%c R:%d CI:%02X",
-                entry->used_3of6 ? 'T' : 'C',
+                entry->mode == WmBusRxModeT ? 'T' : 'C',
                 entry->rssi,
-                entry->ci_field);
+                entry->dll.ci_field);
         }
     } else {
         snprintf(
             out,
             out_size,
             "M:%c R:%d Len:%u",
-            entry->used_3of6 ? 'T' : 'C',
+            entry->mode == WmBusRxModeT ? 'T' : 'C',
             entry->rssi,
             (unsigned int)entry->packet_len);
     }
 }
 
 static void wmbus_rx_draw(Canvas* canvas, void* model) {
-    WmBusRxViewModel* m = model;
+    const WmBusRxViewModel* m = model;
     char line[64];
     char age[12];
     char header[16];
@@ -304,23 +291,25 @@ static void wmbus_rx_draw(Canvas* canvas, void* model) {
         canvas_draw_str(canvas, 0, 58, "OK=history  long OK=config");
     } else if(m->debug_mode) {
         char hex[WMBUS_PACKET_VALUE_MAX];
-        wmbus_rx_preview_hex(entry->packet_preview, entry->packet_len, hex, sizeof(hex));
+        wmbus_rx_preview_hex(
+            entry->packet_bytes, wmbus_rx_history_preview_len(entry), hex, sizeof(hex));
         snprintf(
             line,
             sizeof(line),
             "L:%02X C:%02X CI:%02X V:%02X",
-            entry->l_field,
-            entry->c_field,
-            entry->ci_field,
-            entry->version);
+            entry->dll.l_field,
+            entry->dll.c_field,
+            entry->dll.ci_field,
+            entry->dll.version);
         canvas_draw_str(canvas, 0, 48, line);
         snprintf(line, sizeof(line), "Hex:%s%s", hex, (entry->packet_len > 8U) ? "..." : "");
         canvas_draw_str(canvas, 0, 58, line);
     } else {
         char right[20];
-        snprintf(line, sizeof(line), "MF:%s DT:%02X", entry->mfg, entry->dev_type);
+        snprintf(
+            line, sizeof(line), "MF:%s DT:%02X", entry->dll.mfg, entry->dll.dev_type);
         canvas_draw_str(canvas, 0, 48, line);
-        snprintf(right, sizeof(right), "ID:%s", entry->id_str);
+        snprintf(right, sizeof(right), "ID:%s", entry->dll.id_str);
         canvas_draw_str_aligned(canvas, canvas_width(canvas), 48, AlignRight, AlignBottom, right);
         wmbus_rx_format_bottom_line(entry, line, sizeof(line));
         canvas_draw_str(canvas, 0, 58, line);
@@ -537,36 +526,19 @@ void wmbus_rx_view_push_packet(
                 WmBusRxHistoryEntry* entry = &model->hist[model->hist_head];
                 memset(entry, 0, sizeof(*entry));
                 entry->packet_is_frame = record->packet_is_frame;
-                entry->l_field = record->frame.l_field;
-                entry->c_field = record->frame.c_field;
-                snprintf(entry->mfg, sizeof(entry->mfg), "%s", record->frame.mfg);
-                snprintf(entry->id_str, sizeof(entry->id_str), "%s", record->frame.id_str);
-                entry->version = record->frame.version;
-                entry->dev_type = record->frame.dev_type;
-                entry->ci_field = record->frame.ci_field;
+                entry->status = record->status;
+                entry->mode = record->mode;
                 entry->rssi = (int8_t)record->rssi;
                 entry->rx_tick = record->rx_tick;
-                entry->status = record->status;
-                entry->crc_ok = record->crc_ok;
-                entry->used_3of6 = (record->mode == WmBusRxModeT);
-                entry->has_short_tpl = record->transport.has_short_tpl;
-                entry->security_mode = record->transport.security_mode;
-                entry->security_likely_encrypted = record->transport.security_likely_encrypted;
-                entry->decrypted = record->transport.decrypted;
-                entry->key_index = record->transport.key_index;
-                snprintf(
-                    entry->parser_name,
-                    sizeof(entry->parser_name),
-                    "%.*s",
-                    (int)(sizeof(entry->parser_name) - 1U),
-                    record->application.parser_name);
-                entry->has_total_m3 =
-                    wmbus_format_find_total_volume(record, &entry->total_m3_x1000);
-                wmbus_format_fields_text(record, entry->field_text, sizeof(entry->field_text));
-                entry->packet_len = (uint8_t)((record->packet_len > WMBUS_RX_PREVIEW_MAX) ?
-                                                  WMBUS_RX_PREVIEW_MAX :
-                                                  record->packet_len);
-                memcpy(entry->packet_preview, record->packet_bytes, entry->packet_len);
+                entry->packet_len = record->packet_len;
+                memcpy(
+                    entry->packet_bytes,
+                    record->packet_bytes,
+                    (record->packet_len > WMBUS_RX_DEBUG_PACKET_MAX) ? WMBUS_RX_DEBUG_PACKET_MAX :
+                                                                       record->packet_len);
+                entry->dll = record->dll;
+                entry->tpl = record->tpl;
+                entry->application = record->application;
 
                 if(model->freeze_display) {
                     if(model->hist_count > 0U && model->hist_cursor + 1U < model->hist_count) {
@@ -603,76 +575,17 @@ bool wmbus_rx_view_build_selected_detail_text(WmBusRxView* rx_view, char* out, s
         {
             const WmBusRxHistoryEntry* entry = wmbus_rx_history_get(model, model->hist_cursor);
             if(entry) {
-                char total[WMBUS_PACKET_VALUE_MAX] = {0};
-                char security[48] = {0};
-                char total_line[48] = {0};
-                char security_line[64] = {0};
-                char detail_fields[160] = {0};
-                char parser_line[40] = {0};
-                char mode_line[32] = {0};
-                const char* detail_tail = "-";
-                if(entry->has_total_m3) {
-                    wmbus_packet_format_total_m3(entry->total_m3_x1000, total, sizeof(total));
-                    snprintf(total_line, sizeof(total_line), "Total: %s\n", total);
-                }
-                wmbus_packet_format_security_text(
-                    entry->has_short_tpl,
-                    entry->security_mode,
-                    entry->security_likely_encrypted,
-                    entry->decrypted,
-                    entry->key_index,
-                    security,
-                    sizeof(security));
-                if(security[0]) {
-                    snprintf(security_line, sizeof(security_line), "Security: %s\n", security);
-                }
-                if(entry->field_text[0]) {
-                    snprintf(
-                        detail_fields, sizeof(detail_fields), "Fields: %s", entry->field_text);
-                }
-                if(detail_fields[0]) {
-                    detail_tail = detail_fields;
-                } else if(total_line[0] || security_line[0]) {
-                    detail_tail = "";
-                }
-
-                snprintf(
-                    mode_line,
-                    sizeof(mode_line),
-                    "M:%c  R:%d",
-                    entry->used_3of6 ? 'T' : 'C',
-                    entry->rssi);
-                if(!wmbus_rx_parser_name_is_generic(entry->parser_name)) {
-                    snprintf(parser_line, sizeof(parser_line), "Parser: %s\n", entry->parser_name);
-                }
-
-                if(entry->packet_is_frame) {
-                    snprintf(
-                        out,
-                        out_size,
-                        "Status: %s\nMF:%s  DT:%02X  ID:%s\n%s\nCI:%02X  V:%02X\n%s%s%s%s",
-                        wmbus_packet_status_str(entry->status),
-                        entry->mfg,
-                        entry->dev_type,
-                        entry->id_str,
-                        mode_line,
-                        entry->ci_field,
-                        entry->version,
-                        parser_line,
-                        total_line,
-                        security_line,
-                        detail_tail);
-                } else {
-                    snprintf(
-                        out,
-                        out_size,
-                        "Status: %s\nMode: %c  RSSI: %d\nParser: %s\nLen: %u bytes",
-                        wmbus_packet_status_str(entry->status),
-                        entry->used_3of6 ? 'T' : 'C',
-                        entry->rssi,
-                        entry->parser_name,
-                        (unsigned int)entry->packet_len);
-                }
+                wmbus_packet_format_detail_text_sections(
+                    entry->status,
+                    entry->mode,
+                    entry->rssi,
+                    entry->packet_is_frame,
+                    entry->packet_len,
+                    &entry->dll,
+                    &entry->tpl,
+                    &entry->application,
+                    out,
+                    out_size);
                 found = true;
             }
         },

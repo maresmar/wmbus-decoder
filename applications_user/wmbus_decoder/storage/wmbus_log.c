@@ -1,12 +1,11 @@
 #include "wmbus_log.h"
 #include "wmbus_paths.h"
 
-#include "../app/wmbus_format.h"
+#include "../protocol/wmbus_application_record.h"
 
 #include <stdarg.h>
 #include <stdio.h>
-#include <string.h>
-#define WMBUS_LOG_LINE_MAX          1024U
+#define WMBUS_LOG_LINE_MAX 1024U
 
 static const char* wmbus_log_path(WmBusCsvLogging logging) {
     return (logging == WmBusCsvLoggingFull) ? WMBUS_PACKET_LOG_FULL_PATH :
@@ -39,11 +38,8 @@ static bool wmbus_log_write_line(File* file, const char* format, ...) {
     return storage_file_write(file, line, to_write) == to_write;
 }
 
-static void wmbus_log_format_hex(
-    const uint8_t* data,
-    size_t data_len,
-    char* out,
-    size_t out_size) {
+static void
+    wmbus_log_format_hex(const uint8_t* data, size_t data_len, char* out, size_t out_size) {
     if(!out || out_size == 0U) return;
     out[0] = '\0';
 
@@ -57,16 +53,14 @@ static void wmbus_log_format_hex(
     out[write] = '\0';
 }
 
-static void wmbus_log_format_total_m3(
-    const WmBusPacketRecord* record,
-    char* out,
-    size_t out_size) {
+static void
+    wmbus_log_format_total_m3(const WmBusPacketRecord* record, char* out, size_t out_size) {
     if(!out || out_size == 0U) return;
     out[0] = '\0';
     if(!record) return;
 
     uint32_t total_m3_x1000 = 0U;
-    if(!wmbus_format_find_total_volume(record, &total_m3_x1000)) {
+    if(!wmbus_application_find_total_volume(&record->application, &total_m3_x1000)) {
         return;
     }
 
@@ -75,10 +69,7 @@ static void wmbus_log_format_total_m3(
     snprintf(out, out_size, "%lu.%03lu", (unsigned long)whole, (unsigned long)frac);
 }
 
-bool wmbus_log_append(
-    Storage* storage,
-    WmBusCsvLogging logging,
-    const WmBusPacketRecord* record) {
+bool wmbus_log_append(Storage* storage, WmBusCsvLogging logging, const WmBusPacketRecord* record) {
     if(!storage || !record || logging == WmBusCsvLoggingNone) return false;
 
     if(!wmbus_storage_ensure_app_folder(storage)) {
@@ -103,8 +94,10 @@ bool wmbus_log_append(
         char fields[384] = {0};
         char packet_hex[513] = {0};
         char total_m3[24] = {0};
-        wmbus_format_fields_text(record, fields, sizeof(fields));
-        wmbus_log_format_hex(record->packet_bytes, record->packet_len, packet_hex, sizeof(packet_hex));
+        wmbus_application_format_fields_text(
+            &record->application, &record->tpl, fields, sizeof(fields));
+        wmbus_log_format_hex(
+            record->packet_bytes, record->packet_len, packet_hex, sizeof(packet_hex));
         wmbus_log_format_total_m3(record, total_m3, sizeof(total_m3));
 
         if(logging == WmBusCsvLoggingFull) {
@@ -116,16 +109,16 @@ bool wmbus_log_append(
                 wmbus_packet_status_str(record->status),
                 record->plausible ? "yes" : "no",
                 record->crc_known ? (record->crc_ok ? "yes" : "no") : "",
-                record->packet_is_frame ? record->frame.mfg : "",
-                record->packet_is_frame ? record->frame.id_str : "",
-                record->packet_is_frame ? record->frame.version : 0U,
-                record->packet_is_frame ? record->frame.dev_type : 0U,
-                record->packet_is_frame ? record->frame.ci_field : 0U,
+                record->packet_is_frame ? record->dll.mfg : "",
+                record->packet_is_frame ? record->dll.id_str : "",
+                record->packet_is_frame ? record->dll.version : 0U,
+                record->packet_is_frame ? record->dll.dev_type : 0U,
+                record->packet_is_frame ? record->dll.ci_field : 0U,
                 record->rssi,
                 record->application.parser_name,
-                record->transport.has_short_tpl ? record->transport.security_mode : 0U,
-                record->transport.decrypted ? "yes" : "no",
-                record->transport.key_index,
+                record->tpl.security_mode,
+                record->tpl.decrypted ? "yes" : "no",
+                record->tpl.key_index,
                 total_m3,
                 fields,
                 packet_hex);
@@ -136,11 +129,11 @@ bool wmbus_log_append(
                 (unsigned long)record->rx_tick,
                 record->mode == WmBusRxModeT ? 'T' : 'C',
                 wmbus_packet_status_str(record->status),
-                record->packet_is_frame ? record->frame.mfg : "",
-                record->packet_is_frame ? record->frame.id_str : "",
-                record->packet_is_frame ? record->frame.version : 0U,
-                record->packet_is_frame ? record->frame.dev_type : 0U,
-                record->packet_is_frame ? record->frame.ci_field : 0U,
+                record->packet_is_frame ? record->dll.mfg : "",
+                record->packet_is_frame ? record->dll.id_str : "",
+                record->packet_is_frame ? record->dll.version : 0U,
+                record->packet_is_frame ? record->dll.dev_type : 0U,
+                record->packet_is_frame ? record->dll.ci_field : 0U,
                 record->rssi,
                 record->application.parser_name,
                 total_m3);
