@@ -322,20 +322,24 @@ uint8_t wmbus_packet_count_meaningful_records(const WmBusPacketRecord* record) {
     return count;
 }
 
-bool wmbus_parser_dif_vif_probe(const WmBusPacketRecord* record) {
-    return record && record->payload.has_application_payload &&
-           record->payload.application_len > 0U;
+bool wmbus_parser_dif_vif_probe(
+    const WmBusPacketRecord* record,
+    const WmBusPacketParseContext* parse_context) {
+    return record && parse_context && parse_context->has_application_payload &&
+           parse_context->application_len > 0U;
 }
 
-bool wmbus_parser_dif_vif_parse(WmBusPacketRecord* record) {
-    if(!wmbus_parser_dif_vif_probe(record)) {
+bool wmbus_parser_dif_vif_parse(
+    WmBusPacketRecord* record,
+    const WmBusPacketParseContext* parse_context) {
+    if(!wmbus_parser_dif_vif_probe(record, parse_context)) {
         return false;
     }
 
     uint8_t record_count = 0U;
     if(!wmbus_packet_decode_application_records(
-           record->payload.application_payload,
-           record->payload.application_len,
+           parse_context->application_payload,
+           parse_context->application_len,
            record->application.records,
            (uint8_t)(sizeof(record->application.records) / sizeof(record->application.records[0])),
            &record_count)) {

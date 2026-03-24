@@ -5,7 +5,6 @@
 #include <stdint.h>
 
 #include "../../core/wmbus_types.h"
-#include "../parser/wmbus_parser.h"
 
 typedef struct {
     uint8_t data[256];

@@ -6,8 +6,12 @@
 
 #include "../wmbus_packet.h"
 
-bool wmbus_parser_dif_vif_probe(const WmBusPacketRecord* record);
-bool wmbus_parser_dif_vif_parse(WmBusPacketRecord* record);
+bool wmbus_parser_dif_vif_probe(
+    const WmBusPacketRecord* record,
+    const WmBusPacketParseContext* parse_context);
+bool wmbus_parser_dif_vif_parse(
+    WmBusPacketRecord* record,
+    const WmBusPacketParseContext* parse_context);
 bool wmbus_packet_decode_application_records(
     const uint8_t* payload,
     size_t payload_len,

@@ -126,6 +126,39 @@ bool wmbus_parser_is_plausible(const uint8_t* data, size_t len) {
     return true;
 }
 
+const char* wmbus_parser_id_name(WmBusParserId parser_id) {
+    switch(parser_id) {
+    case WmBusParserIdRaw:
+        return "Raw";
+    case WmBusParserIdHeader:
+        return "Header";
+    case WmBusParserIdShortTpl:
+        return "Short TPL";
+    case WmBusParserIdDifVif:
+        return "DifVif";
+    case WmBusParserIdApator162:
+        return "Apator162";
+    case WmBusParserIdUnknown:
+    default:
+        return "Unknown";
+    }
+}
+
+bool wmbus_parser_id_is_generic(WmBusParserId parser_id) {
+    switch(parser_id) {
+    case WmBusParserIdUnknown:
+    case WmBusParserIdRaw:
+    case WmBusParserIdHeader:
+    case WmBusParserIdShortTpl:
+    case WmBusParserIdDifVif:
+        return true;
+    case WmBusParserIdApator162:
+        return false;
+    default:
+        return true;
+    }
+}
+
 uint8_t wmbus_parser_short_tpl_security_mode(uint16_t cfg) {
     return (uint8_t)((cfg >> 8) & 0x1FU);
 }

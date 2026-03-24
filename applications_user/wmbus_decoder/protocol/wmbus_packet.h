@@ -13,7 +13,6 @@
 #define WMBUS_PACKET_RECORD_MAX      12U
 #define WMBUS_PACKET_LABEL_MAX       32U
 #define WMBUS_PACKET_VALUE_MAX       32U
-#define WMBUS_PACKET_PARSER_NAME_MAX 16U
 
 typedef enum {
     WmBusApplicationValueNone = 0,
@@ -44,6 +43,15 @@ typedef enum {
     WmBusApplicationQuantityDateTime, /**< Structured date-time in `value_datetime`, `has_time = true`. */
     WmBusApplicationQuantityStatus, /**< Raw status payload; formatter normally renders hex bytes. */
 } WmBusApplicationQuantity;
+
+typedef enum {
+    WmBusParserIdUnknown = 0,
+    WmBusParserIdRaw,
+    WmBusParserIdHeader,
+    WmBusParserIdShortTpl,
+    WmBusParserIdDifVif,
+    WmBusParserIdApator162,
+} WmBusParserId;
 
 typedef struct {
     uint16_t year;
@@ -96,13 +104,17 @@ typedef struct {
 typedef struct {
     uint16_t packet_offset; /**< Slice into `packet_bytes` after DLL/TPL header parsing. */
     uint16_t packet_len; /**< Length of payload bytes available at `packet_bytes + packet_offset`. */
-    bool has_application_payload; /**< Derived from payload slicing and decrypt result. */
-    uint16_t application_len;
-    uint8_t application_payload[WMBUS_PACKET_PAYLOAD_MAX];
 } WmBusPacketPayloadData;
 
 typedef struct {
-    char parser_name[WMBUS_PACKET_PARSER_NAME_MAX];
+    bool has_application_payload; /**< Derived from payload slicing and decrypt result. */
+    uint16_t application_len;
+    const uint8_t* application_payload;
+    uint8_t application_payload_storage[WMBUS_PACKET_PAYLOAD_MAX];
+} WmBusPacketParseContext;
+
+typedef struct {
+    WmBusParserId parser_id;
     uint8_t record_count;
     WmBusApplicationRecord records[WMBUS_PACKET_RECORD_MAX];
 } WmBusPacketApplicationData;
@@ -138,20 +150,3 @@ bool wmbus_packet_process_capture(
 const char* wmbus_packet_status_str(WmBusStatus status);
 const char* wmbus_packet_status_short_label(WmBusStatus status);
 const char* wmbus_packet_csv_logging_str(WmBusCsvLogging logging);
-void wmbus_packet_format_total_m3(uint32_t total_m3_x1000, char* out, size_t out_size);
-void wmbus_packet_format_security_summary(
-    bool has_short_tpl,
-    uint8_t security_mode,
-    bool security_likely_encrypted,
-    bool decrypted,
-    uint8_t key_index,
-    char* out,
-    size_t out_size);
-void wmbus_packet_format_security_text(
-    bool has_short_tpl,
-    uint8_t security_mode,
-    bool security_likely_encrypted,
-    bool decrypted,
-    uint8_t key_index,
-    char* out,
-    size_t out_size);

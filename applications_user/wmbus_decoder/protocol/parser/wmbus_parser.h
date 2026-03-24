@@ -1,9 +1,11 @@
 #pragma once
 
-#include "core/wmbus_types.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#include "../wmbus_packet.h"
+#include "core/wmbus_types.h"
 
 bool wmbus_parser_decode_3of6_bits(
     const uint8_t* raw,
@@ -21,6 +23,8 @@ bool wmbus_parser_decode_3of6(
     size_t* out_len);
 
 bool wmbus_parser_is_plausible(const uint8_t* data, size_t len);
+const char* wmbus_parser_id_name(WmBusParserId parser_id);
+bool wmbus_parser_id_is_generic(WmBusParserId parser_id);
 
 uint8_t wmbus_parser_short_tpl_security_mode(uint16_t cfg);
 bool wmbus_parser_short_tpl_security_likely_encrypted(uint16_t cfg);

@@ -309,9 +309,11 @@ bool wmbus_parser_parse_apator162_payload_total(
  * Requires short-TPL CI=0x7A and the known Apator 162 identity fields:
  * version 0x05, device type 0x06 or 0x07, and manufacturer "APA" or legacy 0x8614.
  */
-bool wmbus_parser_apator162_probe(const WmBusPacketRecord* record) {
-    if(!record || !record->payload.has_application_payload ||
-       record->payload.application_len == 0U) {
+bool wmbus_parser_apator162_probe(
+    const WmBusPacketRecord* record,
+    const WmBusPacketParseContext* parse_context) {
+    if(!record || !parse_context || !parse_context->has_application_payload ||
+       parse_context->application_len == 0U) {
         return false;
     }
     if(!record->tpl.has_short_tpl || record->dll.ci_field != 0x7AU) {
@@ -331,23 +333,25 @@ bool wmbus_parser_apator162_probe(const WmBusPacketRecord* record) {
 /**
  * Populates reusable application records from an Apator 162 payload.
  */
-bool wmbus_parser_apator162_parse(WmBusPacketRecord* record) {
-    if(!wmbus_parser_apator162_probe(record)) {
+bool wmbus_parser_apator162_parse(
+    WmBusPacketRecord* record,
+    const WmBusPacketParseContext* parse_context) {
+    if(!wmbus_parser_apator162_probe(record, parse_context)) {
         return false;
     }
 
     record->application.record_count = 0U;
     WmBusApator162Layout layout = {0};
     if(!wmbus_parser_apator162_locate_layout(
-           record->payload.application_payload, record->payload.application_len, &layout)) {
+           parse_context->application_payload, parse_context->application_len, &layout)) {
         return false;
     }
 
     uint32_t total_m3_x1000 = 0U;
     bool found_total = false;
     if(!wmbus_parser_apator162_scan_stream(
-           record->payload.application_payload,
-           record->payload.application_len,
+           parse_context->application_payload,
+           parse_context->application_len,
            &layout,
            &total_m3_x1000,
            &found_total) ||
@@ -357,7 +361,9 @@ bool wmbus_parser_apator162_parse(WmBusPacketRecord* record) {
 
     if(layout.has_status) {
         wmbus_parser_apator162_store_status_record(
-            record, &record->payload.application_payload[layout.status_pos], layout.status_len);
+            record,
+            &parse_context->application_payload[layout.status_pos],
+            layout.status_len);
     }
     wmbus_parser_apator162_store_total_record(record, total_m3_x1000);
 

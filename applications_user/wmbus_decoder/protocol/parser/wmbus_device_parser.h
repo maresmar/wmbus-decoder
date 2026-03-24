@@ -7,9 +7,11 @@
 #include "../wmbus_packet.h"
 
 typedef struct {
-    const char* name;
-    bool (*probe)(const WmBusPacketRecord* record);
-    bool (*parse)(WmBusPacketRecord* record);
+    WmBusParserId parser_id;
+    bool (*probe)(const WmBusPacketRecord* record, const WmBusPacketParseContext* parse_context);
+    bool (*parse)(WmBusPacketRecord* record, const WmBusPacketParseContext* parse_context);
 } WmBusDeviceParser;
 
-bool wmbus_device_parser_apply(WmBusPacketRecord* record);
+bool wmbus_device_parser_apply(
+    WmBusPacketRecord* record,
+    const WmBusPacketParseContext* parse_context);

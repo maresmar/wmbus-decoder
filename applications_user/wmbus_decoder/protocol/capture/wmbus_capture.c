@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#include "../parser/wmbus_parser.h"
+
 #define WMBUS_C_SIGNAL_BYTE 0x54U
 
 void wmbus_capture_state_t_reset(WmBusCaptureStateT* state) {

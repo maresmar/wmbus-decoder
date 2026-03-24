@@ -1,25 +1,25 @@
 #include "wmbus_device_parser.h"
 
-#include <stdio.h>
-
 #include "wmbus_parser_apator162.h"
 #include "wmbus_parser_dif_vif.h"
 
 static const WmBusDeviceParser wmbus_device_parsers[] = {
     {
-        .name = "Apator162",
+        .parser_id = WmBusParserIdApator162,
         .probe = wmbus_parser_apator162_probe,
         .parse = wmbus_parser_apator162_parse,
     },
     {
         // Generic parser, should be last one
-        .name = "DifVif",
+        .parser_id = WmBusParserIdDifVif,
         .probe = wmbus_parser_dif_vif_probe,
         .parse = wmbus_parser_dif_vif_parse,
     },
 };
 
-bool wmbus_device_parser_apply(WmBusPacketRecord* record) {
+bool wmbus_device_parser_apply(
+    WmBusPacketRecord* record,
+    const WmBusPacketParseContext* parse_context) {
     if(!record) {
         return false;
     }
@@ -29,16 +29,12 @@ bool wmbus_device_parser_apply(WmBusPacketRecord* record) {
         if(!parser->probe || !parser->parse) {
             continue;
         }
-        if(!parser->probe(record)) {
+        if(!parser->probe(record, parse_context)) {
             continue;
         }
-        if(parser->parse(record)) {
-            if(record->application.parser_name[0] == '\0') {
-                snprintf(
-                    record->application.parser_name,
-                    sizeof(record->application.parser_name),
-                    "%s",
-                    parser->name);
+        if(parser->parse(record, parse_context)) {
+            if(record->application.parser_id == WmBusParserIdUnknown) {
+                record->application.parser_id = parser->parser_id;
             }
             return true;
         }

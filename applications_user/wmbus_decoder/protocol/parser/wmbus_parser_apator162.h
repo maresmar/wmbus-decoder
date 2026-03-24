@@ -11,5 +11,9 @@ bool wmbus_parser_parse_apator162_payload_total(
     const uint8_t* payload,
     size_t payload_len,
     uint32_t* total_m3_x1000);
-bool wmbus_parser_apator162_probe(const WmBusPacketRecord* record);
-bool wmbus_parser_apator162_parse(WmBusPacketRecord* record);
+bool wmbus_parser_apator162_probe(
+    const WmBusPacketRecord* record,
+    const WmBusPacketParseContext* parse_context);
+bool wmbus_parser_apator162_parse(
+    WmBusPacketRecord* record,
+    const WmBusPacketParseContext* parse_context);
