@@ -114,6 +114,22 @@ static int wmbus_packet_data_len_from_dif(uint8_t dif, bool* is_bcd, bool* is_va
     }
 }
 
+static WmBusApplicationMeasurementType
+    wmbus_packet_measurement_type_from_dif(uint8_t dif) {
+    switch(dif & 0x30U) {
+    case 0x00U:
+        return WmBusApplicationMeasurementTypeInstantaneous;
+    case 0x10U:
+        return WmBusApplicationMeasurementTypeMaximum;
+    case 0x20U:
+        return WmBusApplicationMeasurementTypeMinimum;
+    case 0x30U:
+        return WmBusApplicationMeasurementTypeAtError;
+    default:
+        return WmBusApplicationMeasurementTypeUnknown;
+    }
+}
+
 static void wmbus_packet_map_vif(
     WmBusApplicationRecord* record,
     uint8_t first_vife,
@@ -237,6 +253,7 @@ bool wmbus_packet_decode_application_records(
         wmbus_application_record_reset(record);
 
         record->dif = payload[pos++];
+        record->measurement_type = wmbus_packet_measurement_type_from_dif(record->dif);
 
         uint16_t storage_no = (record->dif >> 6) & 0x01U;
         uint8_t storage_shift = 1U;

@@ -1,5 +1,6 @@
 #include "wmbus_selftest_i.h"
 
+#include "../protocol/wmbus_application_record.h"
 #include "../protocol/parser/wmbus_parser.h"
 #include "../protocol/parser/wmbus_parser_apator162.h"
 #include "../protocol/parser/wmbus_parser_dif_vif.h"
@@ -207,6 +208,78 @@ static bool wmbus_selftest_check_dif_vif_decode_reject_malformed(char* detail, s
     return true;
 }
 
+static bool wmbus_selftest_check_format_fields_text_prefers_primary_records(
+    char* detail,
+    size_t detail_len) {
+    WmBusPacketApplicationData application = {0};
+    char fields[WMBUS_PACKET_DETAIL_MAX] = {0};
+    WmBusApplicationRecord* record = NULL;
+
+    if(!wmbus_application_record_append(&application, &record)) {
+        wmbus_selftest_set_detail(detail, detail_len, "append volume primary failed");
+        return false;
+    }
+    record->quantity = WmBusApplicationQuantityVolume;
+    record->measurement_type = WmBusApplicationMeasurementTypeInstantaneous;
+    record->scale10 = -3;
+    record->data_len = 4U;
+    wmbus_application_record_set_unsigned(record, 150U);
+
+    if(!wmbus_application_record_append(&application, &record)) {
+        wmbus_selftest_set_detail(detail, detail_len, "append volume history failed");
+        return false;
+    }
+    record->quantity = WmBusApplicationQuantityVolume;
+    record->measurement_type = WmBusApplicationMeasurementTypeInstantaneous;
+    record->storage_no = 1U;
+    record->scale10 = -5;
+    record->data_len = 6U;
+    wmbus_application_record_set_unsigned(record, 9395877606541289160ULL);
+
+    if(!wmbus_application_record_append(&application, &record)) {
+        wmbus_selftest_set_detail(detail, detail_len, "append energy primary failed");
+        return false;
+    }
+    record->quantity = WmBusApplicationQuantityEnergy;
+    record->measurement_type = WmBusApplicationMeasurementTypeInstantaneous;
+    record->scale10 = -2;
+    record->data_len = 2U;
+    wmbus_application_record_set_unsigned(record, 2U);
+
+    if(!wmbus_application_record_append(&application, &record)) {
+        wmbus_selftest_set_detail(detail, detail_len, "append energy tariff failed");
+        return false;
+    }
+    record->quantity = WmBusApplicationQuantityEnergy;
+    record->measurement_type = WmBusApplicationMeasurementTypeInstantaneous;
+    record->tariff = 1U;
+    record->scale10 = 0;
+    record->data_len = 6U;
+    wmbus_application_record_set_unsigned(record, 468274118951ULL);
+
+    if(!wmbus_application_record_append(&application, &record)) {
+        wmbus_selftest_set_detail(detail, detail_len, "append status failed");
+        return false;
+    }
+    record->quantity = WmBusApplicationQuantityStatus;
+    record->measurement_type = WmBusApplicationMeasurementTypeInstantaneous;
+    if(!wmbus_application_record_set_raw_hex_le(record, (const uint8_t[]){0x92, 0x01}, 2U)) {
+        wmbus_selftest_set_detail(detail, detail_len, "status raw encode failed");
+        return false;
+    }
+    record->data_len = 2U;
+
+    wmbus_application_format_fields_text(&application, NULL, fields, sizeof(fields));
+
+    if(strcmp(fields, "Volume[inst]=0.150 m3;Energy[inst]=0.02 Wh;Status=9201") != 0) {
+        wmbus_selftest_set_detail(detail, detail_len, "fields=%s", fields);
+        return false;
+    }
+
+    wmbus_selftest_set_detail(detail, detail_len, "fields=%s", fields);
+    return true;
+}
+
 static const WmBusSelftestCheck wmbus_selftest_checks_tooling[] = {
     {"check_3of6_valid_single_byte", wmbus_selftest_check_3of6_valid_single_byte},
     {"check_3of6_valid_single_byte_offset_1", wmbus_selftest_check_3of6_valid_single_byte_offset_1},
@@ -217,6 +290,8 @@ static const WmBusSelftestCheck wmbus_selftest_checks_tooling[] = {
     {"check_short_tpl_security_modes", wmbus_selftest_check_short_tpl_security_modes},
     {"check_dif_vif_decode_basic", wmbus_selftest_check_dif_vif_decode_basic},
     {"check_dif_vif_decode_reject_malformed", wmbus_selftest_check_dif_vif_decode_reject_malformed},
+    {"check_format_fields_text_prefers_primary_records",
+     wmbus_selftest_check_format_fields_text_prefers_primary_records},
 };
 
 const WmBusSelftestCheck* wmbus_selftest_tooling_checks(size_t* count) {

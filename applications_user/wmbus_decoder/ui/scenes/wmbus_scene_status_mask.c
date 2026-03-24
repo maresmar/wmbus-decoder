@@ -37,16 +37,11 @@ static void wmbus_scene_status_mask_changed(VariableItem* item) {
     wmbus_app_apply_runtime_config(item_ctx->app, true);
 }
 
-void wmbus_scene_status_mask_on_enter(void* context) {
-    WmBusApp* app = context;
-    if(!wmbus_app_ensure_status_mask_view(app)) {
-        return;
-    }
-    WmBusMaskTarget target =
-        (WmBusMaskTarget)scene_manager_get_scene_state(app->scene_manager, WmBusSceneStatusMask);
+static void wmbus_scene_status_mask_populate(WmBusApp* app, WmBusMaskTarget target) {
     WmBusStatusMask mask = *wmbus_scene_status_mask_get_mask(app, target);
 
-    VariableItem* item = variable_item_list_add(app->status_mask_list, "Target", 1U, NULL, NULL);
+    VariableItem* item =
+        variable_item_list_add(app->status_mask_list, "Target", 1U, NULL, NULL);
     variable_item_set_current_value_text(item, target == WmBusMaskTargetCsv ? "CSV" : "Memory");
 
     for(uint8_t status = WmBusStatusDecodeFail; status < WmBusStatusCount; status++) {
@@ -54,18 +49,26 @@ void wmbus_scene_status_mask_on_enter(void* context) {
         wmbus_mask_item_contexts[status].target = target;
         wmbus_mask_item_contexts[status].status = (WmBusStatus)status;
 
+        bool enabled = wmbus_status_mask_test(mask, (WmBusStatus)status);
         item = variable_item_list_add(
             app->status_mask_list,
             wmbus_packet_status_short_label((WmBusStatus)status),
-            2U,
+            COUNT_OF(wmbus_mask_toggle),
             wmbus_scene_status_mask_changed,
             &wmbus_mask_item_contexts[status]);
-        variable_item_set_current_value_index(
-            item, wmbus_status_mask_test(mask, (WmBusStatus)status) ? 1U : 0U);
-        variable_item_set_current_value_text(
-            item,
-            wmbus_mask_toggle[wmbus_status_mask_test(mask, (WmBusStatus)status) ? 1U : 0U]);
+        variable_item_set_current_value_index(item, enabled ? 1U : 0U);
+        variable_item_set_current_value_text(item, wmbus_mask_toggle[enabled ? 1U : 0U]);
     }
+}
+
+void wmbus_scene_status_mask_on_enter(void* context) {
+    WmBusApp* app = context;
+    if(!wmbus_app_ensure_status_mask_view(app)) {
+        return;
+    }
+    WmBusMaskTarget target =
+        (WmBusMaskTarget)scene_manager_get_scene_state(app->scene_manager, WmBusSceneStatusMask);
+    wmbus_scene_status_mask_populate(app, target);
 
     view_dispatcher_switch_to_view(app->view_dispatcher, WmBusAppViewStatusMask);
 }

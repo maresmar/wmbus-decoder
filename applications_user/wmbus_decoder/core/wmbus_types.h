@@ -47,7 +47,7 @@ typedef uint32_t WmBusStatusMask;
      WMBUS_STATUS_MASK(WmBusStatusWeakRssi) | WMBUS_STATUS_MASK(WmBusStatusOk))
 
 #define WMBUS_PACKET_PREVIEW_MAX 48U
-#define WMBUS_PACKET_DETAIL_MAX  192U
+#define WMBUS_PACKET_DETAIL_MAX  320U
 
 static inline bool wmbus_status_mask_test(WmBusStatusMask mask, WmBusStatus status) {
     if((status == WmBusStatusNone) || (status >= WmBusStatusCount)) {

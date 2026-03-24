@@ -104,24 +104,16 @@ static void wmbus_scene_config_debug_overlay_changed(VariableItem* item) {
     wmbus_app_apply_runtime_config(app, true);
 }
 
-void wmbus_scene_config_on_enter(void* context) {
-    WmBusApp* app = context;
-    if(!wmbus_app_ensure_config_view(app)) {
-        return;
-    }
+static void wmbus_scene_config_add_mode_item(WmBusApp* app) {
+    VariableItem* item = variable_item_list_add(
+        app->config_list, "Mode", COUNT_OF(wmbus_mode_text), wmbus_scene_config_mode_changed, app);
+    uint8_t index = (app->settings.mode == WmBusRxModeC) ? 1U : 0U;
+    variable_item_set_current_value_index(item, index);
+    variable_item_set_current_value_text(item, wmbus_mode_text[index]);
+}
 
-    VariableItem* item = NULL;
-
-    variable_item_list_set_enter_callback(
-        app->config_list, wmbus_scene_config_enter_callback, app);
-
-    item = variable_item_list_add(
-        app->config_list, "Mode", 2U, wmbus_scene_config_mode_changed, app);
-    variable_item_set_current_value_index(item, app->settings.mode == WmBusRxModeC ? 1U : 0U);
-    variable_item_set_current_value_text(
-        item, wmbus_mode_text[app->settings.mode == WmBusRxModeC ? 1U : 0U]);
-
-    item = variable_item_list_add(
+static void wmbus_scene_config_add_csv_logging_item(WmBusApp* app) {
+    VariableItem* item = variable_item_list_add(
         app->config_list,
         "CSV logging",
         WmBusCsvLoggingCount,
@@ -129,55 +121,81 @@ void wmbus_scene_config_on_enter(void* context) {
         app);
     variable_item_set_current_value_index(item, app->settings.csv_logging);
     variable_item_set_current_value_text(item, wmbus_csv_logging_text[app->settings.csv_logging]);
+}
 
-    item = variable_item_list_add(
+static void wmbus_scene_config_add_threshold_item(
+    WmBusApp* app,
+    const char* label,
+    WmBusStatus current,
+    VariableItemChangeCallback callback) {
+    VariableItem* item = variable_item_list_add(
         app->config_list,
-        "Store if >=",
+        label,
         COUNT_OF(wmbus_status_threshold_text),
-        wmbus_scene_config_memory_threshold_changed,
+        callback,
         app);
-    variable_item_set_current_value_index(
-        item, wmbus_status_threshold_index(app->settings.memory_threshold));
-    variable_item_set_current_value_text(
-        item, wmbus_status_threshold_text[wmbus_status_threshold_index(app->settings.memory_threshold)]);
+    uint8_t index = wmbus_status_threshold_index(current);
+    variable_item_set_current_value_index(item, index);
+    variable_item_set_current_value_text(item, wmbus_status_threshold_text[index]);
+}
 
-    item = variable_item_list_add(
+static void wmbus_scene_config_add_debug_overlay_item(WmBusApp* app) {
+    VariableItem* item = variable_item_list_add(
         app->config_list,
-        "Log if >=",
-        COUNT_OF(wmbus_status_threshold_text),
-        wmbus_scene_config_csv_threshold_changed,
+        "Debug overlay",
+        COUNT_OF(wmbus_toggle_text),
+        wmbus_scene_config_debug_overlay_changed,
         app);
-    variable_item_set_current_value_index(
-        item, wmbus_status_threshold_index(app->settings.csv_threshold));
-    variable_item_set_current_value_text(
-        item, wmbus_status_threshold_text[wmbus_status_threshold_index(app->settings.csv_threshold)]);
+    uint8_t index = app->settings.debug_overlay ? 1U : 0U;
+    variable_item_set_current_value_index(item, index);
+    variable_item_set_current_value_text(item, wmbus_toggle_text[index]);
+}
 
-    item = variable_item_list_add(
-        app->config_list, "Debug overlay", 2U, wmbus_scene_config_debug_overlay_changed, app);
-    variable_item_set_current_value_index(item, app->settings.debug_overlay ? 1U : 0U);
-    variable_item_set_current_value_text(
-        item, wmbus_toggle_text[app->settings.debug_overlay ? 1U : 0U]);
-
-    item = variable_item_list_add(app->config_list, "Keyring", 1U, NULL, app);
+static void wmbus_scene_config_add_keyring_item(WmBusApp* app) {
+    VariableItem* item = variable_item_list_add(app->config_list, "Keyring", 1U, NULL, app);
     variable_item_set_current_value_text(item, app->keyring.status);
+}
+
+void wmbus_scene_config_on_enter(void* context) {
+    WmBusApp* app = context;
+    if(!wmbus_app_ensure_config_view(app)) {
+        return;
+    }
+
+    variable_item_list_set_enter_callback(
+        app->config_list, wmbus_scene_config_enter_callback, app);
+    wmbus_scene_config_add_mode_item(app);
+    wmbus_scene_config_add_csv_logging_item(app);
+    wmbus_scene_config_add_threshold_item(
+        app,
+        "Store if >=",
+        app->settings.memory_threshold,
+        wmbus_scene_config_memory_threshold_changed);
+    wmbus_scene_config_add_threshold_item(
+        app,
+        "Log if >=",
+        app->settings.csv_threshold,
+        wmbus_scene_config_csv_threshold_changed);
+    wmbus_scene_config_add_debug_overlay_item(app);
+    wmbus_scene_config_add_keyring_item(app);
 
     view_dispatcher_switch_to_view(app->view_dispatcher, WmBusAppViewConfig);
 }
 
 bool wmbus_scene_config_on_event(void* context, SceneManagerEvent event) {
     WmBusApp* app = context;
-    bool consumed = false;
 
-    if(event.type == SceneManagerEventTypeCustom) {
-        consumed = true;
-        if(event.event == WmBusCustomEventConfigOpenKeyInput) {
-            scene_manager_next_scene(app->scene_manager, WmBusSceneKeyAdd);
-        } else {
-            consumed = false;
-        }
+    if(event.type != SceneManagerEventTypeCustom) {
+        return false;
     }
 
-    return consumed;
+    switch(event.event) {
+    case WmBusCustomEventConfigOpenKeyInput:
+        scene_manager_next_scene(app->scene_manager, WmBusSceneKeyAdd);
+        return true;
+    default:
+        return false;
+    }
 }
 
 void wmbus_scene_config_on_exit(void* context) {

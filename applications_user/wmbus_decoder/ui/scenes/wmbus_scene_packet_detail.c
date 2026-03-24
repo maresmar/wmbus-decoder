@@ -2,16 +2,21 @@
 
 void wmbus_scene_packet_detail_on_enter(void* context) {
     WmBusApp* app = context;
-    if(!wmbus_app_ensure_detail_view(app)) {
+    if(!app || !wmbus_app_ensure_detail_view(app)) {
         return;
     }
-    char detail[WMBUS_PACKET_DETAIL_MAX];
+    FuriString* detail = furi_string_alloc();
+    if(!detail) {
+        return;
+    }
 
     widget_reset(app->detail_widget);
-    if(!wmbus_app_build_detail_text(app, detail, sizeof(detail))) {
-        snprintf(detail, sizeof(detail), "No packet selected.");
+    if(!wmbus_rx_view_build_selected_detail_text(app->rx_view, detail)) {
+        furi_string_set(detail, "No packet selected.");
     }
-    widget_add_text_scroll_element(app->detail_widget, 0U, 0U, 128U, 64U, detail);
+    widget_add_text_scroll_element(
+        app->detail_widget, 0U, 0U, 128U, 64U, furi_string_get_cstr(detail));
+    furi_string_free(detail);
     view_dispatcher_switch_to_view(app->view_dispatcher, WmBusAppViewPacketDetail);
 }
 

@@ -636,11 +636,6 @@ bool wmbus_app_add_key(WmBusApp* app, const uint8_t key[WMBUS_KEY_BYTES]) {
     return added;
 }
 
-bool wmbus_app_build_detail_text(WmBusApp* app, char* out, size_t out_size) {
-    if(!app) return false;
-    return wmbus_rx_view_build_selected_detail_text(app->rx_view, out, out_size);
-}
-
 bool wmbus_app_ensure_config_view(WmBusApp* app) {
     if(!app) return false;
     if(app->config_list) return true;

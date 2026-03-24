@@ -564,9 +564,38 @@ bool wmbus_rx_view_has_selected_packet(WmBusRxView* rx_view) {
     return has_packet;
 }
 
-bool wmbus_rx_view_build_selected_detail_text(WmBusRxView* rx_view, char* out, size_t out_size) {
-    if(!rx_view || !out || out_size == 0U) return false;
-    out[0] = '\0';
+static size_t wmbus_rx_view_selected_detail_text_capacity(WmBusRxView* rx_view) {
+    if(!rx_view) return 0U;
+
+    size_t capacity = 0U;
+    with_view_model(
+        rx_view->view,
+        WmBusRxViewModel * model,
+        {
+            const WmBusRxHistoryEntry* entry = wmbus_rx_history_get(model, model->hist_cursor);
+            if(entry) {
+                size_t base = entry->packet_is_frame ? 160U : 96U;
+                size_t per_record = 56U;
+                capacity = base + ((size_t)entry->application.record_count * per_record);
+                if(capacity < WMBUS_PACKET_DETAIL_MAX) {
+                    capacity = WMBUS_PACKET_DETAIL_MAX;
+                }
+            }
+        },
+        false);
+    return capacity;
+}
+
+bool wmbus_rx_view_build_selected_detail_text(WmBusRxView* rx_view, FuriString* out) {
+    if(!rx_view || !out) return false;
+    furi_string_reset(out);
+
+    size_t text_capacity = wmbus_rx_view_selected_detail_text_capacity(rx_view);
+    if(text_capacity == 0U) return false;
+
+    char* text = malloc(text_capacity);
+    if(!text) return false;
+    text[0] = '\0';
 
     bool found = false;
     with_view_model(
@@ -584,11 +613,16 @@ bool wmbus_rx_view_build_selected_detail_text(WmBusRxView* rx_view, char* out, s
                     &entry->dll,
                     &entry->tpl,
                     &entry->application,
-                    out,
-                    out_size);
+                    text,
+                    text_capacity);
                 found = true;
             }
         },
         false);
+
+    if(found) {
+        furi_string_set(out, text);
+    }
+    free(text);
     return found;
 }

@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include <furi.h>
 #include <gui/view_dispatcher.h>
 
 #include "../../protocol/wmbus_packet.h"
@@ -30,5 +31,4 @@ void wmbus_rx_view_push_packet(
 bool wmbus_rx_view_has_selected_packet(WmBusRxView* rx_view);
 bool wmbus_rx_view_build_selected_detail_text(
     WmBusRxView* rx_view,
-    char* out,
-    size_t out_size);
+    FuriString* out);

@@ -86,6 +86,109 @@ static const char*
     }
 }
 
+static const char*
+    wmbus_application_record_measurement_type_short(const WmBusApplicationRecord* record) {
+    if(!record) return NULL;
+
+    switch(record->measurement_type) {
+    case WmBusApplicationMeasurementTypeInstantaneous:
+        return "inst";
+    case WmBusApplicationMeasurementTypeMinimum:
+        return "min";
+    case WmBusApplicationMeasurementTypeMaximum:
+        return "max";
+    case WmBusApplicationMeasurementTypeAtError:
+        return "err";
+    case WmBusApplicationMeasurementTypeUnknown:
+    default:
+        return NULL;
+    }
+}
+
+static uint8_t wmbus_application_count_records_for_quantity(
+    const WmBusPacketApplicationData* application,
+    WmBusApplicationQuantity quantity) {
+    if(!application || quantity == WmBusApplicationQuantityUnknown) return 0U;
+
+    uint8_t count = 0U;
+    for(uint8_t i = 0; i < application->record_count; i++) {
+        if(application->records[i].quantity == quantity &&
+           wmbus_application_record_is_meaningful(&application->records[i])) {
+            count++;
+        }
+    }
+
+    return count;
+}
+
+static bool wmbus_application_record_format_label_with_context(
+    const WmBusApplicationRecord* record,
+    const WmBusPacketApplicationData* application,
+    char* out,
+    size_t out_size) {
+    if(!wmbus_application_record_format_label(record, out, out_size)) {
+        return false;
+    }
+
+    if(!record || out[0] == '\0') return false;
+
+    uint8_t same_quantity_count =
+        wmbus_application_count_records_for_quantity(application, record->quantity);
+    bool include_measurement_type =
+        same_quantity_count > 1U ||
+        (record->measurement_type != WmBusApplicationMeasurementTypeUnknown &&
+         record->measurement_type != WmBusApplicationMeasurementTypeInstantaneous);
+    bool include_storage = record->storage_no != 0U;
+    bool include_tariff = record->tariff != 0U;
+    bool include_subunit = record->subunit != 0U;
+
+    if(!(include_measurement_type || include_storage || include_tariff || include_subunit)) {
+        return true;
+    }
+
+    size_t write = strlen(out);
+    int len = snprintf(&out[write], out_size - write, "[");
+    if(len < 0 || (size_t)len >= (out_size - write)) return false;
+    write += (size_t)len;
+
+    bool need_sep = false;
+    if(include_measurement_type) {
+        const char* mt = wmbus_application_record_measurement_type_short(record);
+        if(mt) {
+            len = snprintf(&out[write], out_size - write, "%s", mt);
+            if(len < 0 || (size_t)len >= (out_size - write)) return false;
+            write += (size_t)len;
+            need_sep = true;
+        }
+    }
+
+    if(include_storage) {
+        len = snprintf(
+            &out[write], out_size - write, "%sS%u", need_sep ? "," : "", record->storage_no);
+        if(len < 0 || (size_t)len >= (out_size - write)) return false;
+        write += (size_t)len;
+        need_sep = true;
+    }
+
+    if(include_tariff) {
+        len = snprintf(
+            &out[write], out_size - write, "%sT%u", need_sep ? "," : "", record->tariff);
+        if(len < 0 || (size_t)len >= (out_size - write)) return false;
+        write += (size_t)len;
+        need_sep = true;
+    }
+
+    if(include_subunit) {
+        len = snprintf(
+            &out[write], out_size - write, "%sU%u", need_sep ? "," : "", record->subunit);
+        if(len < 0 || (size_t)len >= (out_size - write)) return false;
+        write += (size_t)len;
+    }
+
+    len = snprintf(&out[write], out_size - write, "]");
+    return len >= 0 && (size_t)len < (out_size - write);
+}
+
 static void wmbus_application_format_short_tpl_fields(
     const WmBusPacketTplData* tpl,
     char* out,
@@ -318,7 +421,30 @@ bool wmbus_application_record_format_field(
     char* value_out,
     size_t value_out_size) {
     bool have_label =
-        wmbus_application_record_format_label(record, label_out, label_out_size);
+        wmbus_application_record_format_label_with_context(record, NULL, label_out, label_out_size);
+    bool have_value =
+        wmbus_application_record_format_value(record, value_out, value_out_size);
+    return have_label && have_value && label_out[0] != '\0' && value_out[0] != '\0';
+}
+
+static bool wmbus_application_record_is_primary_summary_candidate(
+    const WmBusApplicationRecord* record) {
+    if(!record || !wmbus_application_record_is_meaningful(record)) {
+        return false;
+    }
+
+    return record->storage_no == 0U && record->tariff == 0U && record->subunit == 0U;
+}
+
+static bool wmbus_application_record_format_field_with_context(
+    const WmBusApplicationRecord* record,
+    const WmBusPacketApplicationData* application,
+    char* label_out,
+    size_t label_out_size,
+    char* value_out,
+    size_t value_out_size) {
+    bool have_label = wmbus_application_record_format_label_with_context(
+        record, application, label_out, label_out_size);
     bool have_value =
         wmbus_application_record_format_value(record, value_out, value_out_size);
     return have_label && have_value && label_out[0] != '\0' && value_out[0] != '\0';
@@ -369,16 +495,84 @@ void wmbus_application_format_fields_text(
     if(!application) return;
 
     size_t write = 0U;
+    bool quantity_seen[WmBusApplicationQuantityStatus + 1U] = {0};
+
+    for(uint8_t pass = 0U; pass < 2U; pass++) {
+        for(uint8_t i = 0; i < application->record_count; i++) {
+            const WmBusApplicationRecord* record = &application->records[i];
+            char label[WMBUS_PACKET_LABEL_MAX] = {0};
+            char value[WMBUS_PACKET_VALUE_MAX] = {0};
+
+            if(!wmbus_application_record_format_field_with_context(
+                   record, application, label, sizeof(label), value, sizeof(value))) {
+                continue;
+            }
+
+            if(record->quantity > WmBusApplicationQuantityStatus ||
+               quantity_seen[record->quantity]) {
+                continue;
+            }
+
+            if((pass == 0U) &&
+               !wmbus_application_record_is_primary_summary_candidate(record)) {
+                continue;
+            }
+
+            int len = snprintf(
+                &out[write],
+                out_size - write,
+                "%s%s=%s",
+                (write == 0U) ? "" : ";",
+                label,
+                value);
+            if(len < 0 || (size_t)len >= (out_size - write)) {
+                return;
+            }
+
+            quantity_seen[record->quantity] = true;
+            write += (size_t)len;
+
+            if(record->quantity == WmBusApplicationQuantityDateTime ||
+               record->quantity == WmBusApplicationQuantityStatus) {
+                continue;
+            }
+
+            if(write >= (out_size / 2U)) {
+                return;
+            }
+        }
+    }
+
+    if(write == 0U && tpl && tpl->has_short_tpl) {
+        wmbus_application_format_short_tpl_fields(tpl, out, out_size);
+    }
+}
+
+static void wmbus_application_format_fields_multiline_text(
+    const WmBusPacketApplicationData* application,
+    const WmBusPacketTplData* tpl,
+    char* out,
+    size_t out_size) {
+    if(!out || out_size == 0U) return;
+    out[0] = '\0';
+    if(!application) return;
+
+    size_t write = 0U;
     for(uint8_t i = 0; i < application->record_count; i++) {
         char label[WMBUS_PACKET_LABEL_MAX] = {0};
         char value[WMBUS_PACKET_VALUE_MAX] = {0};
-        if(!wmbus_application_record_format_field(
-               &application->records[i], label, sizeof(label), value, sizeof(value))) {
+        if(!wmbus_application_record_format_field_with_context(
+               &application->records[i], application, label, sizeof(label), value, sizeof(value))) {
             continue;
         }
 
         int len = snprintf(
-            &out[write], out_size - write, "%s%s=%s", (write == 0U) ? "" : ";", label, value);
+            &out[write],
+            out_size - write,
+            "%s%s=%s",
+            (write == 0U) ? "" : "\n",
+            label,
+            value);
         if(len < 0 || (size_t)len >= (out_size - write)) {
             return;
         }
@@ -422,7 +616,7 @@ void wmbus_packet_format_detail_text_sections(
     const char* detail_tail = "-";
     uint32_t total_m3_x1000 = 0U;
 
-    wmbus_application_format_fields_text(application, tpl, fields, sizeof(fields));
+    wmbus_application_format_fields_multiline_text(application, tpl, fields, sizeof(fields));
     if(wmbus_application_find_total_volume(application, &total_m3_x1000)) {
         wmbus_packet_format_total_m3(total_m3_x1000, total, sizeof(total));
     }
@@ -437,7 +631,7 @@ void wmbus_packet_format_detail_text_sections(
         sizeof(security));
 
     if(fields[0]) {
-        snprintf(detail_fields, sizeof(detail_fields), "Fields: %s", fields);
+        snprintf(detail_fields, sizeof(detail_fields), "Fields:\n%s", fields);
     }
     if(detail_fields[0]) {
         detail_tail = detail_fields;
@@ -469,9 +663,9 @@ void wmbus_packet_format_detail_text_sections(
             out_size,
             "Status: %s\nMF:%s  DT:%02X  ID:%s\n%s\nCI:%02X  V:%02X\n%s%s%s%s",
             wmbus_packet_status_str(status),
-            application->mfg,
+            dll ? dll->mfg : "",
             dll ? dll->dev_type : 0U,
-            application->id_str,
+            dll ? dll->id_str : "",
             mode_line,
             dll ? dll->ci_field : 0U,
             dll ? dll->version : 0U,

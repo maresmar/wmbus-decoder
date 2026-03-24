@@ -11,7 +11,7 @@
 
 #define WMBUS_PACKET_PAYLOAD_MAX     256U
 #define WMBUS_PACKET_RECORD_MAX      12U
-#define WMBUS_PACKET_LABEL_MAX       16U
+#define WMBUS_PACKET_LABEL_MAX       32U
 #define WMBUS_PACKET_VALUE_MAX       32U
 #define WMBUS_PACKET_PARSER_NAME_MAX 16U
 
@@ -21,6 +21,14 @@ typedef enum {
     WmBusApplicationValueDateTime,
     WmBusApplicationValueRaw,
 } WmBusApplicationValueType;
+
+typedef enum {
+    WmBusApplicationMeasurementTypeUnknown = 0,
+    WmBusApplicationMeasurementTypeInstantaneous,
+    WmBusApplicationMeasurementTypeMinimum,
+    WmBusApplicationMeasurementTypeMaximum,
+    WmBusApplicationMeasurementTypeAtError,
+} WmBusApplicationMeasurementType;
 
 typedef enum {
     WmBusApplicationQuantityUnknown =
@@ -54,6 +62,7 @@ typedef struct {
     uint8_t subunit;
     uint8_t data_len;
     WmBusApplicationValueType value_type;
+    WmBusApplicationMeasurementType measurement_type;
     WmBusApplicationQuantity quantity;
     int8_t scale10;
     uint64_t value_unsigned;
