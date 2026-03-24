@@ -2,7 +2,8 @@
 
 #include <furi.h>
 
-#include "wmbus_packet.h"
+#include "../model/wmbus_application_types.h"
+#include "../packet/wmbus_packet.h"
 
 /**
  * Format the display label for one application record.

@@ -1,6 +1,7 @@
 #include "wmbus_selftest_i.h"
 
-#include "../protocol/wmbus_application_record.h"
+#include "../protocol/format/wmbus_record_formatter.h"
+#include "../protocol/model/wmbus_application_record.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -88,14 +89,29 @@ typedef struct {
 static WmBusSelftestScratch wmbus_selftest_scratch;
 
 bool wmbus_selftest_find_total_volume(const WmBusPacketRecord* record, uint32_t* total_m3_x1000) {
-    return wmbus_application_find_total_volume(&record->application, total_m3_x1000);
+    return wmbus_application_find_total_volume(
+        record->application.records, record->application.record_count, total_m3_x1000);
 }
 
 const char* wmbus_selftest_record_value(
     const WmBusApplicationRecord* record,
     char* out,
     size_t out_size) {
-    if(!wmbus_application_record_format_value(record, out, out_size)) out[0] = '\0';
+    if(!out || out_size == 0U) return out;
+
+    FuriString* value = furi_string_alloc();
+    if(!value) {
+        out[0] = '\0';
+        return out;
+    }
+
+    if(!wmbus_record_formatter_format_value(record, value)) {
+        out[0] = '\0';
+    } else {
+        snprintf(out, out_size, "%s", furi_string_get_cstr(value));
+    }
+
+    furi_string_free(value);
     return out;
 }
 

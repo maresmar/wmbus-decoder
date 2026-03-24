@@ -116,6 +116,52 @@ Why both are needed:
 
 ## RX/Decode Architecture
 
+### Packet flow
+
+```mermaid
+flowchart TD
+    A["wmbus_rx_thread()<br/>CC1101 RX loop"] --> B{"RX mode"}
+    B -->|T| C["wmbus_capture_t_step()<br/>raw FIFO bytes"]
+    B -->|C| D["wmbus_capture_c_step()<br/>dewhitened bytes, optional 0x54 strip"]
+    C --> E["wmbus_process_captured_frame()"]
+    D --> E
+
+    E --> F["wmbus_packet_process_capture()<br/>build WmBusPacketRecord"]
+    F --> G{"Capture decode path"}
+    G -->|T| H["wmbus_decode_t_capture()<br/>3-of-6 decode, plausibility scoring"]
+    G -->|C| I["direct bytes<br/>plausibility check"]
+    H --> J["wmbus_frame_normalize()<br/>length fit + CRC state"]
+    I --> J
+
+    J --> K["extract DLL/TPL fields<br/>copy packet bytes"]
+    K --> L{"short TPL says encrypted?"}
+    L -->|no| M["copy application payload"]
+    L -->|yes, mode 5| N["try keys from keyring<br/>then legacy zero key"]
+    L -->|yes, unsupported mode| O["keep payload, parser may still inspect it"]
+    N --> P["wmbus_device_parser_apply()"]
+    M --> P
+    O --> P
+
+    P --> Q["finalize parser id<br/>set status:<br/>DecodeFail / NotPlausible / FramingError / CrcBad / WeakRssi / Ok"]
+
+    Q --> R{"CSV logging enabled<br/>and status >= csv threshold?"}
+    R -->|yes| S["wmbus_log_append()<br/>write basic/full CSV line"]
+    R -->|no| T["skip CSV sink"]
+
+    Q --> U{"status >= memory threshold?"}
+    U -->|yes| V["wmbus_rx_view_push_packet()<br/>update counters, RSSI graph, history ring"]
+    U -->|no| W["wmbus_rx_view_push_packet()<br/>update live counters only"]
+
+    V --> X["RX screen<br/>Latest / History rows"]
+    W --> X
+    X --> Y["Long Down on selected packet"]
+    Y --> Z["wmbus_rx_view_build_selected_detail_text()"]
+    Z --> AA["wmbus_packet_format_detail_text()"]
+    AA --> AB["packet detail widget scene"]
+
+    N -. decrypt failures .-> AC["FURI_LOG_D<br/>decrypt failure reason"]
+```
+
 ### Radio
 
 - CC1101 custom preset for WM-Bus receive at `868.95 MHz`

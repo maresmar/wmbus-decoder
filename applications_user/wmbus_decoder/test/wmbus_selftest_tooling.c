@@ -1,6 +1,9 @@
 #include "wmbus_selftest_i.h"
 
-#include "../protocol/wmbus_application_record.h"
+#include "../protocol/decode/wmbus_decode.h"
+#include "../protocol/format/wmbus_packet_formatter.h"
+#include "../protocol/format/wmbus_record_formatter.h"
+#include "../protocol/model/wmbus_application_record.h"
 #include "../protocol/parser/wmbus_parser.h"
 #include "../protocol/parser/wmbus_parser_apator162.h"
 #include "../protocol/parser/wmbus_parser_dif_vif.h"
@@ -12,7 +15,7 @@ static bool wmbus_selftest_check_3of6_valid_single_byte(char* detail, size_t det
     uint8_t out[4] = {0};
     size_t out_len = 0;
 
-    if(!wmbus_parser_decode_3of6(raw, sizeof(raw), out, sizeof(out), &out_len)) {
+    if(!wmbus_decode_3of6(raw, sizeof(raw), out, sizeof(out), &out_len)) {
         wmbus_selftest_set_detail(detail, detail_len, "decode failed");
         return false;
     }
@@ -30,7 +33,7 @@ static bool wmbus_selftest_check_3of6_valid_single_byte_offset_1(char* detail, s
     uint8_t out[4] = {0};
     size_t out_len = 0;
 
-    if(!wmbus_parser_decode_3of6_bits(raw, 17U, 1U, out, sizeof(out), &out_len)) {
+    if(!wmbus_decode_3of6_bits(raw, 17U, 1U, out, sizeof(out), &out_len)) {
         wmbus_selftest_set_detail(detail, detail_len, "decode failed at offset=1");
         return false;
     }
@@ -48,7 +51,7 @@ static bool wmbus_selftest_check_3of6_reject_dangling_nibble(char* detail, size_
     uint8_t out[4] = {0};
     size_t out_len = 0;
 
-    if(wmbus_parser_decode_3of6(raw, sizeof(raw), out, sizeof(out), &out_len)) {
+    if(wmbus_decode_3of6(raw, sizeof(raw), out, sizeof(out), &out_len)) {
         wmbus_selftest_set_detail(detail, detail_len, "dangling nibble accepted");
         return false;
     }
@@ -62,7 +65,7 @@ static bool wmbus_selftest_check_3of6_reject_invalid_symbol(char* detail, size_t
     uint8_t out[4] = {0};
     size_t out_len = 0;
 
-    if(wmbus_parser_decode_3of6(raw, sizeof(raw), out, sizeof(out), &out_len)) {
+    if(wmbus_decode_3of6(raw, sizeof(raw), out, sizeof(out), &out_len)) {
         wmbus_selftest_set_detail(detail, detail_len, "invalid symbol accepted");
         return false;
     }
@@ -76,19 +79,19 @@ static bool wmbus_selftest_check_parser_plausibility(char* detail, size_t detail
     const uint8_t bad_c[] = {10, 0x45, 0x01, 0x06, 0, 0, 0, 0, 0, 0, 0};
     const uint8_t bad_mfg[] = {10, 0x44, 0x00, 0x00, 0, 0, 0, 0, 0, 0, 0};
 
-    if(!wmbus_parser_is_plausible(valid, sizeof(valid))) {
+    if(!wmbus_decode_is_plausible_frame(valid, sizeof(valid))) {
         wmbus_selftest_set_detail(detail, detail_len, "valid frame rejected");
         return false;
     }
-    if(wmbus_parser_is_plausible(bad_c, sizeof(bad_c))) {
+    if(wmbus_decode_is_plausible_frame(bad_c, sizeof(bad_c))) {
         wmbus_selftest_set_detail(detail, detail_len, "bad C-field accepted");
         return false;
     }
-    if(wmbus_parser_is_plausible(bad_mfg, sizeof(bad_mfg))) {
+    if(wmbus_decode_is_plausible_frame(bad_mfg, sizeof(bad_mfg))) {
         wmbus_selftest_set_detail(detail, detail_len, "bad manufacturer accepted");
         return false;
     }
-    if(wmbus_parser_is_plausible(valid, 10U)) {
+    if(wmbus_decode_is_plausible_frame(valid, 10U)) {
         wmbus_selftest_set_detail(detail, detail_len, "too-short frame accepted");
         return false;
     }
@@ -212,11 +215,17 @@ static bool wmbus_selftest_check_format_fields_text_prefers_primary_records(
     char* detail,
     size_t detail_len) {
     WmBusPacketApplicationData application = {0};
-    char fields[WMBUS_PACKET_DETAIL_MAX] = {0};
     WmBusApplicationRecord* record = NULL;
+    FuriString* fields = furi_string_alloc();
+
+    if(!fields) {
+        wmbus_selftest_set_detail(detail, detail_len, "fields alloc failed");
+        return false;
+    }
 
     if(!wmbus_application_record_append(&application, &record)) {
         wmbus_selftest_set_detail(detail, detail_len, "append volume primary failed");
+        furi_string_free(fields);
         return false;
     }
     record->quantity = WmBusApplicationQuantityVolume;
@@ -227,6 +236,7 @@ static bool wmbus_selftest_check_format_fields_text_prefers_primary_records(
 
     if(!wmbus_application_record_append(&application, &record)) {
         wmbus_selftest_set_detail(detail, detail_len, "append volume history failed");
+        furi_string_free(fields);
         return false;
     }
     record->quantity = WmBusApplicationQuantityVolume;
@@ -238,6 +248,7 @@ static bool wmbus_selftest_check_format_fields_text_prefers_primary_records(
 
     if(!wmbus_application_record_append(&application, &record)) {
         wmbus_selftest_set_detail(detail, detail_len, "append energy primary failed");
+        furi_string_free(fields);
         return false;
     }
     record->quantity = WmBusApplicationQuantityEnergy;
@@ -248,6 +259,7 @@ static bool wmbus_selftest_check_format_fields_text_prefers_primary_records(
 
     if(!wmbus_application_record_append(&application, &record)) {
         wmbus_selftest_set_detail(detail, detail_len, "append energy tariff failed");
+        furi_string_free(fields);
         return false;
     }
     record->quantity = WmBusApplicationQuantityEnergy;
@@ -259,24 +271,29 @@ static bool wmbus_selftest_check_format_fields_text_prefers_primary_records(
 
     if(!wmbus_application_record_append(&application, &record)) {
         wmbus_selftest_set_detail(detail, detail_len, "append status failed");
+        furi_string_free(fields);
         return false;
     }
     record->quantity = WmBusApplicationQuantityStatus;
     record->measurement_type = WmBusApplicationMeasurementTypeInstantaneous;
     if(!wmbus_application_record_set_raw_hex_le(record, (const uint8_t[]){0x92, 0x01}, 2U)) {
         wmbus_selftest_set_detail(detail, detail_len, "status raw encode failed");
+        furi_string_free(fields);
         return false;
     }
     record->data_len = 2U;
 
-    wmbus_application_format_fields_text(&application, NULL, fields, sizeof(fields));
+    wmbus_record_formatter_format_joined(
+        application.records, application.record_count, ';', fields);
 
-    if(strcmp(fields, "Volume[inst]=0.150 m3;Energy[inst]=0.02 Wh;Status=9201") != 0) {
-        wmbus_selftest_set_detail(detail, detail_len, "fields=%s", fields);
+    if(strcmp(furi_string_get_cstr(fields), "Volume[inst]=0.150 m3;Energy[inst]=0.02 Wh;Status=9201") != 0) {
+        wmbus_selftest_set_detail(detail, detail_len, "fields=%s", furi_string_get_cstr(fields));
+        furi_string_free(fields);
         return false;
     }
 
-    wmbus_selftest_set_detail(detail, detail_len, "fields=%s", fields);
+    wmbus_selftest_set_detail(detail, detail_len, "fields=%s", furi_string_get_cstr(fields));
+    furi_string_free(fields);
     return true;
 }
 

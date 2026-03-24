@@ -1,6 +1,8 @@
 #include "wmbus_rx_view.h"
 
-#include "../../protocol/wmbus_application_record.h"
+#include "../../protocol/format/wmbus_packet_formatter.h"
+#include "../../protocol/format/wmbus_packet_summary.h"
+#include "../../protocol/model/wmbus_application_record.h"
 #include "../../protocol/parser/wmbus_parser.h"
 
 #include <furi.h>
@@ -9,9 +11,14 @@
 #include <stdio.h>
 #include <string.h>
 
-#define WMBUS_HIST_MAX            100U
+#define WMBUS_HIST_MAX            40U
 #define WMBUS_RSSI_HISTORY        64U
 #define WMBUS_RX_DEBUG_PACKET_MAX 16U
+
+typedef struct {
+    ViewDispatcher* view_dispatcher;
+    View* view;
+} WmBusRxViewContext;
 
 typedef struct {
     bool packet_is_frame;
@@ -20,16 +27,16 @@ typedef struct {
     int8_t rssi;
     uint32_t rx_tick;
     uint16_t packet_len;
-    uint8_t packet_bytes[WMBUS_RX_DEBUG_PACKET_MAX];
+    uint8_t packet_preview_len;
+    uint8_t packet_preview[WMBUS_RX_DEBUG_PACKET_MAX];
     WmBusPacketDllData dll;
+    WmBusPacketIdentityData identity;
     WmBusPacketTplData tpl;
-    WmBusPacketApplicationData application;
+    bool has_total_volume;
+    uint32_t total_m3_x1000;
+    WmBusParserId parser_id;
+    char detail_text[WMBUS_PACKET_DETAIL_MAX];
 } WmBusRxHistoryEntry;
-
-typedef struct {
-    ViewDispatcher* view_dispatcher;
-    View* view;
-} WmBusRxViewContext;
 
 typedef struct {
     bool freq_valid;
@@ -88,8 +95,7 @@ static const WmBusRxHistoryEntry*
 
 static uint16_t wmbus_rx_history_preview_len(const WmBusRxHistoryEntry* entry) {
     if(!entry) return 0U;
-    return (entry->packet_len > WMBUS_RX_DEBUG_PACKET_MAX) ? WMBUS_RX_DEBUG_PACKET_MAX :
-                                                              entry->packet_len;
+    return entry->packet_preview_len;
 }
 
 static void wmbus_rx_format_age(const WmBusRxHistoryEntry* entry, char* out, size_t out_size) {
@@ -129,92 +135,23 @@ static void
     out[write] = '\0';
 }
 
-static void wmbus_rx_format_crypto_tag(
-    const WmBusPacketTplData* tpl,
-    char* out,
-    size_t out_size) {
-    if(!out || out_size == 0U) return;
-    out[0] = '\0';
-    if(!tpl || !tpl->has_short_tpl) return;
-
-    if(tpl->decrypted) {
-        if(tpl->key_index != 0U) {
-            snprintf(out, out_size, "DEC#%u", (unsigned int)tpl->key_index);
-        } else {
-            snprintf(out, out_size, "DEC0");
-        }
-    } else if(wmbus_parser_short_tpl_security_likely_encrypted(tpl->cfg)) {
-        snprintf(out, out_size, "ENC");
-    } else if(tpl->security_mode == 0x00U) {
-        snprintf(out, out_size, "CLR");
-    } else if(tpl->security_mode == 0x01U) {
-        snprintf(out, out_size, "MFG");
-    } else {
-        snprintf(out, out_size, "S:%02X", tpl->security_mode);
-    }
-}
-
 static void
     wmbus_rx_format_bottom_line(const WmBusRxHistoryEntry* entry, char* out, size_t out_size) {
     if(!out || out_size == 0U) return;
     out[0] = '\0';
     if(!entry) return;
 
-    char crypto[12] = {0};
-    uint32_t total_m3_x1000 = 0U;
-    wmbus_rx_format_crypto_tag(&entry->tpl, crypto, sizeof(crypto));
-
-    if(wmbus_application_find_total_volume(&entry->application, &total_m3_x1000)) {
-        uint32_t whole = total_m3_x1000 / 1000U;
-        uint32_t frac = total_m3_x1000 % 1000U;
-        if(crypto[0] != '\0') {
-            snprintf(
-                out,
-                out_size,
-                "M:%c R:%d C:%s %lu.%03lum3",
-                entry->mode == WmBusRxModeT ? 'T' : 'C',
-                entry->rssi,
-                crypto,
-                (unsigned long)whole,
-                (unsigned long)frac);
-        } else {
-            snprintf(
-                out,
-                out_size,
-                "M:%c R:%d %lu.%03lum3",
-                entry->mode == WmBusRxModeT ? 'T' : 'C',
-                entry->rssi,
-                (unsigned long)whole,
-                (unsigned long)frac);
-        }
-    } else if(entry->packet_is_frame) {
-        if(crypto[0] != '\0') {
-            snprintf(
-                out,
-                out_size,
-                "M:%c R:%d %s CI:%02X",
-                entry->mode == WmBusRxModeT ? 'T' : 'C',
-                entry->rssi,
-                crypto,
-                entry->dll.ci_field);
-        } else {
-            snprintf(
-                out,
-                out_size,
-                "M:%c R:%d CI:%02X",
-                entry->mode == WmBusRxModeT ? 'T' : 'C',
-                entry->rssi,
-                entry->dll.ci_field);
-        }
-    } else {
-        snprintf(
-            out,
-            out_size,
-            "M:%c R:%d Len:%u",
-            entry->mode == WmBusRxModeT ? 'T' : 'C',
-            entry->rssi,
-            (unsigned int)entry->packet_len);
-    }
+    wmbus_packet_summary_format_bottom_line(
+        entry->mode,
+        entry->rssi,
+        entry->packet_is_frame,
+        entry->packet_len,
+        &entry->dll,
+        &entry->tpl,
+        entry->has_total_volume,
+        entry->total_m3_x1000,
+        out,
+        out_size);
 }
 
 static void wmbus_rx_draw(Canvas* canvas, void* model) {
@@ -292,7 +229,7 @@ static void wmbus_rx_draw(Canvas* canvas, void* model) {
     } else if(m->debug_mode) {
         char hex[WMBUS_PACKET_VALUE_MAX];
         wmbus_rx_preview_hex(
-            entry->packet_bytes, wmbus_rx_history_preview_len(entry), hex, sizeof(hex));
+            entry->packet_preview, wmbus_rx_history_preview_len(entry), hex, sizeof(hex));
         snprintf(
             line,
             sizeof(line),
@@ -307,9 +244,9 @@ static void wmbus_rx_draw(Canvas* canvas, void* model) {
     } else {
         char right[20];
         snprintf(
-            line, sizeof(line), "MF:%s DT:%02X", entry->dll.mfg, entry->dll.dev_type);
+            line, sizeof(line), "MF:%s DT:%02X", entry->identity.manufacturer, entry->dll.dev_type);
         canvas_draw_str(canvas, 0, 48, line);
-        snprintf(right, sizeof(right), "ID:%s", entry->dll.id_str);
+        snprintf(right, sizeof(right), "ID:%s", entry->identity.meter_id);
         canvas_draw_str_aligned(canvas, canvas_width(canvas), 48, AlignRight, AlignBottom, right);
         wmbus_rx_format_bottom_line(entry, line, sizeof(line));
         canvas_draw_str(canvas, 0, 58, line);
@@ -465,11 +402,61 @@ static void wmbus_rx_rssi_hist_push(WmBusRxViewModel* model, int rssi) {
     model->rssi_hist[model->rssi_hist_head] = (int8_t)rssi;
 }
 
+static void wmbus_rx_history_fill_entry(
+    WmBusRxHistoryEntry* entry,
+    const WmBusPacketRecord* record,
+    const char* detail_text,
+    bool has_total_volume,
+    uint32_t total_m3_x1000) {
+    if(!entry || !record) return;
+
+    memset(entry, 0, sizeof(*entry));
+    entry->packet_is_frame = record->packet_is_frame;
+    entry->status = record->status;
+    entry->mode = record->mode;
+    entry->rssi = (int8_t)record->rssi;
+    entry->rx_tick = record->rx_tick;
+    entry->packet_len = record->packet_len;
+    entry->packet_preview_len = (uint8_t)((record->packet_len > WMBUS_RX_DEBUG_PACKET_MAX) ?
+                                              WMBUS_RX_DEBUG_PACKET_MAX :
+                                              record->packet_len);
+    memcpy(entry->packet_preview, record->packet_bytes, entry->packet_preview_len);
+    entry->dll = record->dll;
+    entry->identity = record->identity;
+    entry->tpl = record->tpl;
+    entry->has_total_volume = has_total_volume;
+    entry->total_m3_x1000 = total_m3_x1000;
+    entry->parser_id = record->application.parser_id;
+    if(detail_text) {
+        snprintf(entry->detail_text, sizeof(entry->detail_text), "%s", detail_text);
+    } else {
+        snprintf(entry->detail_text, sizeof(entry->detail_text), "-");
+    }
+}
+
 void wmbus_rx_view_push_packet(
     WmBusRxView* rx_view,
     const WmBusPacketRecord* record,
     bool store_in_history) {
     if(!rx_view || !record) return;
+
+    char detail_text[WMBUS_PACKET_DETAIL_MAX] = {0};
+    uint32_t total_m3_x1000 = 0U;
+    bool has_total_volume = false;
+
+    if(store_in_history) {
+        FuriString* detail = furi_string_alloc();
+        if(detail) {
+            wmbus_packet_format_detail_text(record, detail);
+            snprintf(detail_text, sizeof(detail_text), "%s", furi_string_get_cstr(detail));
+            furi_string_free(detail);
+        } else {
+            snprintf(detail_text, sizeof(detail_text), "-");
+        }
+
+        has_total_volume =
+            wmbus_packet_summary_find_total_m3(&record->application, &total_m3_x1000);
+    }
 
     with_view_model(
         rx_view->view,
@@ -487,7 +474,7 @@ void wmbus_rx_view_push_packet(
                 model->packets_decoded++;
                 if(record->crc_known) {
                     if(record->crc_ok) {
-                        model->packets_crc_ok++;
+            model->packets_crc_ok++;
                     } else {
                         model->packets_crc_bad++;
                     }
@@ -524,21 +511,8 @@ void wmbus_rx_view_push_packet(
                 }
 
                 WmBusRxHistoryEntry* entry = &model->hist[model->hist_head];
-                memset(entry, 0, sizeof(*entry));
-                entry->packet_is_frame = record->packet_is_frame;
-                entry->status = record->status;
-                entry->mode = record->mode;
-                entry->rssi = (int8_t)record->rssi;
-                entry->rx_tick = record->rx_tick;
-                entry->packet_len = record->packet_len;
-                memcpy(
-                    entry->packet_bytes,
-                    record->packet_bytes,
-                    (record->packet_len > WMBUS_RX_DEBUG_PACKET_MAX) ? WMBUS_RX_DEBUG_PACKET_MAX :
-                                                                       record->packet_len);
-                entry->dll = record->dll;
-                entry->tpl = record->tpl;
-                entry->application = record->application;
+                wmbus_rx_history_fill_entry(
+                    entry, record, detail_text, has_total_volume, total_m3_x1000);
 
                 if(model->freeze_display) {
                     if(model->hist_count > 0U && model->hist_cursor + 1U < model->hist_count) {
@@ -564,38 +538,9 @@ bool wmbus_rx_view_has_selected_packet(WmBusRxView* rx_view) {
     return has_packet;
 }
 
-static size_t wmbus_rx_view_selected_detail_text_capacity(WmBusRxView* rx_view) {
-    if(!rx_view) return 0U;
-
-    size_t capacity = 0U;
-    with_view_model(
-        rx_view->view,
-        WmBusRxViewModel * model,
-        {
-            const WmBusRxHistoryEntry* entry = wmbus_rx_history_get(model, model->hist_cursor);
-            if(entry) {
-                size_t base = entry->packet_is_frame ? 160U : 96U;
-                size_t per_record = 56U;
-                capacity = base + ((size_t)entry->application.record_count * per_record);
-                if(capacity < WMBUS_PACKET_DETAIL_MAX) {
-                    capacity = WMBUS_PACKET_DETAIL_MAX;
-                }
-            }
-        },
-        false);
-    return capacity;
-}
-
 bool wmbus_rx_view_build_selected_detail_text(WmBusRxView* rx_view, FuriString* out) {
     if(!rx_view || !out) return false;
     furi_string_reset(out);
-
-    size_t text_capacity = wmbus_rx_view_selected_detail_text_capacity(rx_view);
-    if(text_capacity == 0U) return false;
-
-    char* text = malloc(text_capacity);
-    if(!text) return false;
-    text[0] = '\0';
 
     bool found = false;
     with_view_model(
@@ -604,25 +549,10 @@ bool wmbus_rx_view_build_selected_detail_text(WmBusRxView* rx_view, FuriString* 
         {
             const WmBusRxHistoryEntry* entry = wmbus_rx_history_get(model, model->hist_cursor);
             if(entry) {
-                wmbus_packet_format_detail_text_sections(
-                    entry->status,
-                    entry->mode,
-                    entry->rssi,
-                    entry->packet_is_frame,
-                    entry->packet_len,
-                    &entry->dll,
-                    &entry->tpl,
-                    &entry->application,
-                    text,
-                    text_capacity);
+                furi_string_set(out, entry->detail_text);
                 found = true;
             }
         },
         false);
-
-    if(found) {
-        furi_string_set(out, text);
-    }
-    free(text);
     return found;
 }

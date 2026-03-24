@@ -2,64 +2,14 @@
 
 #include <stdio.h>
 
-#include "wmbus_application_record.h"
+#include "wmbus_packet_summary.h"
 #include "wmbus_record_formatter.h"
-#include "parser/wmbus_parser.h"
+#include "../parser/wmbus_parser.h"
 
-static const char* wmbus_packet_formatter_security_mode_name(uint8_t security_mode) {
-    switch(security_mode) {
-    case 0x00:
-        return "Clear";
-    case 0x01:
-        return "Manufacturer";
-    case 0x05:
-        return "AES-CBC IV";
-    case 0x08:
-        return "AES-CTR CMAC";
-    default:
-        return NULL;
-    }
-}
-
-static void wmbus_packet_formatter_format_total_m3(
-    uint32_t total_m3_x1000,
-    char* out,
-    size_t out_size) {
-    if(!out || out_size == 0U) return;
-    out[0] = '\0';
-
-    uint32_t whole = total_m3_x1000 / 1000U;
-    uint32_t frac = total_m3_x1000 % 1000U;
-    snprintf(out, out_size, "%lu.%03lu m3", (unsigned long)whole, (unsigned long)frac);
-}
-
-static void wmbus_packet_formatter_format_security_text(
-    const WmBusPacketTplData* tpl,
-    char* out,
-    size_t out_size) {
-    if(!out || out_size == 0U) return;
-    out[0] = '\0';
-    if(!tpl || !tpl->has_short_tpl) return;
-
-    char mode[20] = {0};
-    const char* known_mode = wmbus_packet_formatter_security_mode_name(tpl->security_mode);
-    if(known_mode) {
-        snprintf(mode, sizeof(mode), "%s", known_mode);
-    } else {
-        snprintf(mode, sizeof(mode), "Mode %02X", tpl->security_mode);
-    }
-
-    if(tpl->decrypted) {
-        if(tpl->key_index != 0U) {
-            snprintf(out, out_size, "%s, decrypted key #%u", mode, (unsigned int)tpl->key_index);
-        } else {
-            snprintf(out, out_size, "%s, decrypted zero key", mode);
-        }
-    } else if(wmbus_parser_short_tpl_security_likely_encrypted(tpl->cfg)) {
-        snprintf(out, out_size, "%s, encrypted", mode);
-    } else {
-        snprintf(out, out_size, "%s", mode);
-    }
+static bool wmbus_packet_formatter_show_parser(WmBusParserId parser_id) {
+    return parser_id != WmBusParserIdUnknown && parser_id != WmBusParserIdRaw &&
+           parser_id != WmBusParserIdHeader && parser_id != WmBusParserIdShortTpl &&
+           parser_id != WmBusParserIdDifVif;
 }
 
 static void wmbus_packet_formatter_format_tpl_fields(
@@ -115,13 +65,10 @@ static void wmbus_packet_formatter_format_detail_body(
         return;
     }
 
-    if(wmbus_application_find_total_volume(
-           record->application.records,
-           record->application.record_count,
-           &total_m3_x1000)) {
-        wmbus_packet_formatter_format_total_m3(total_m3_x1000, total, sizeof(total));
+    if(wmbus_packet_summary_find_total_m3(&record->application, &total_m3_x1000)) {
+        wmbus_packet_summary_format_total_m3(total_m3_x1000, total, sizeof(total), true);
     }
-    wmbus_packet_formatter_format_security_text(&record->tpl, security, sizeof(security));
+    wmbus_packet_summary_format_security_text(&record->tpl, security, sizeof(security));
     wmbus_record_formatter_format_joined(
         record->application.records, record->application.record_count, '\n', fields);
 
@@ -169,15 +116,15 @@ static void wmbus_packet_formatter_format_frame_detail(
         out,
         "Status: %s\nMF:%s  DT:%02X  ID:%s\nM:%c  R:%d\nCI:%02X  V:%02X\n",
         wmbus_packet_status_str(record->status),
-        record->dll.mfg,
+        record->identity.manufacturer,
         record->dll.dev_type,
-        record->dll.id_str,
+        record->identity.meter_id,
         record->mode == WmBusRxModeT ? 'T' : 'C',
         record->rssi,
         record->dll.ci_field,
         record->dll.version);
 
-    if(!wmbus_parser_id_is_generic(record->application.parser_id)) {
+    if(wmbus_packet_formatter_show_parser(record->application.parser_id)) {
         furi_string_cat_printf(
             out, "Parser: %s\n", wmbus_parser_id_name(record->application.parser_id));
     }

@@ -2,7 +2,7 @@
 
 #include <string.h>
 
-#include "../parser/wmbus_parser.h"
+#include "../decode/wmbus_decode.h"
 
 #define WMBUS_C_SIGNAL_BYTE 0x54U
 
@@ -110,7 +110,7 @@ bool wmbus_capture_estimate_t_expected_raw_len(
             raw_bit_len -= tail_pad;
 
             size_t decoded_len = 0;
-            if(!wmbus_parser_decode_3of6_bits(
+            if(!wmbus_decode_3of6_bits(
                    raw, raw_bit_len, bit_offset, decoded, sizeof(decoded), &decoded_len) ||
                decoded_len < 1) {
                 continue;
@@ -124,7 +124,7 @@ bool wmbus_capture_estimate_t_expected_raw_len(
             if(expected > raw_max) expected = raw_max;
 
             int score = 1;
-            if(decoded_len >= 11U && wmbus_parser_is_plausible(decoded, decoded_len)) {
+            if(decoded_len >= 11U && wmbus_decode_is_plausible_frame(decoded, decoded_len)) {
                 score += 2;
             }
 

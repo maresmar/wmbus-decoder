@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "wmbus_packet.h"
+#include "wmbus_application_types.h"
 
 void wmbus_application_record_reset(WmBusApplicationRecord* record);
 bool wmbus_application_record_append(

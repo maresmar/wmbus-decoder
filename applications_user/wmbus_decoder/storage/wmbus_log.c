@@ -1,7 +1,10 @@
 #include "wmbus_log.h"
 #include "wmbus_paths.h"
 
-#include "../protocol/wmbus_application_record.h"
+#include "../protocol/format/wmbus_packet_summary.h"
+#include "../protocol/format/wmbus_record_formatter.h"
+#include "../protocol/model/wmbus_application_record.h"
+#include "../protocol/parser/wmbus_parser.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -60,13 +63,10 @@ static void
     if(!record) return;
 
     uint32_t total_m3_x1000 = 0U;
-    if(!wmbus_application_find_total_volume(&record->application, &total_m3_x1000)) {
+    if(!wmbus_packet_summary_find_total_m3(&record->application, &total_m3_x1000)) {
         return;
     }
-
-    uint32_t whole = total_m3_x1000 / 1000U;
-    uint32_t frac = total_m3_x1000 % 1000U;
-    snprintf(out, out_size, "%lu.%03lu", (unsigned long)whole, (unsigned long)frac);
+    wmbus_packet_summary_format_total_m3(total_m3_x1000, out, out_size, false);
 }
 
 bool wmbus_log_append(Storage* storage, WmBusCsvLogging logging, const WmBusPacketRecord* record) {
@@ -91,11 +91,14 @@ bool wmbus_log_append(Storage* storage, WmBusCsvLogging logging, const WmBusPack
             }
         }
 
-        char fields[384] = {0};
         char packet_hex[513] = {0};
         char total_m3[24] = {0};
-        wmbus_application_format_fields_text(
-            &record->application, &record->tpl, fields, sizeof(fields));
+        FuriString* fields = furi_string_alloc();
+        if(!fields) {
+            break;
+        }
+        wmbus_record_formatter_format_joined(
+            record->application.records, record->application.record_count, ';', fields);
         wmbus_log_format_hex(
             record->packet_bytes, record->packet_len, packet_hex, sizeof(packet_hex));
         wmbus_log_format_total_m3(record, total_m3, sizeof(total_m3));
@@ -109,18 +112,18 @@ bool wmbus_log_append(Storage* storage, WmBusCsvLogging logging, const WmBusPack
                 wmbus_packet_status_str(record->status),
                 record->plausible ? "yes" : "no",
                 record->crc_known ? (record->crc_ok ? "yes" : "no") : "",
-                record->packet_is_frame ? record->dll.mfg : "",
-                record->packet_is_frame ? record->dll.id_str : "",
+                record->packet_is_frame ? record->identity.manufacturer : "",
+                record->packet_is_frame ? record->identity.meter_id : "",
                 record->packet_is_frame ? record->dll.version : 0U,
                 record->packet_is_frame ? record->dll.dev_type : 0U,
                 record->packet_is_frame ? record->dll.ci_field : 0U,
                 record->rssi,
-                record->application.parser_name,
+                wmbus_parser_id_name(record->application.parser_id),
                 record->tpl.security_mode,
                 record->tpl.decrypted ? "yes" : "no",
                 record->tpl.key_index,
                 total_m3,
-                fields,
+                furi_string_get_cstr(fields),
                 packet_hex);
         } else {
             written = wmbus_log_write_line(
@@ -129,15 +132,17 @@ bool wmbus_log_append(Storage* storage, WmBusCsvLogging logging, const WmBusPack
                 (unsigned long)record->rx_tick,
                 record->mode == WmBusRxModeT ? 'T' : 'C',
                 wmbus_packet_status_str(record->status),
-                record->packet_is_frame ? record->dll.mfg : "",
-                record->packet_is_frame ? record->dll.id_str : "",
+                record->packet_is_frame ? record->identity.manufacturer : "",
+                record->packet_is_frame ? record->identity.meter_id : "",
                 record->packet_is_frame ? record->dll.version : 0U,
                 record->packet_is_frame ? record->dll.dev_type : 0U,
                 record->packet_is_frame ? record->dll.ci_field : 0U,
                 record->rssi,
-                record->application.parser_name,
+                wmbus_parser_id_name(record->application.parser_id),
                 total_m3);
         }
+
+        furi_string_free(fields);
 
         storage_file_sync(file);
     } while(false);

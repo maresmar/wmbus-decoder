@@ -1,6 +1,6 @@
 #include "wmbus_parser_dif_vif.h"
 
-#include "../wmbus_application_record.h"
+#include "../model/wmbus_application_record.h"
 
 #include <string.h>
 
@@ -308,12 +308,13 @@ bool wmbus_packet_decode_application_records(
     return true;
 }
 
-uint8_t wmbus_packet_count_meaningful_records(const WmBusPacketRecord* record) {
-    if(!record) return 0U;
-
+uint8_t wmbus_packet_count_meaningful_records(
+    const WmBusApplicationRecord* records,
+    uint8_t record_count) {
+    if(!records) return 0U;
     uint8_t count = 0U;
-    for(uint8_t i = 0; i < record->application.record_count; i++) {
-        const WmBusApplicationRecord* app_record = &record->application.records[i];
+    for(uint8_t i = 0; i < record_count; i++) {
+        const WmBusApplicationRecord* app_record = &records[i];
         if(wmbus_application_record_is_meaningful(app_record)) {
             count++;
         }
@@ -323,29 +324,32 @@ uint8_t wmbus_packet_count_meaningful_records(const WmBusPacketRecord* record) {
 }
 
 bool wmbus_parser_dif_vif_probe(
-    const WmBusPacketRecord* record,
+    const WmBusParserPacketView* packet,
     const WmBusPacketParseContext* parse_context) {
-    return record && parse_context && parse_context->has_application_payload &&
+    return packet && parse_context && parse_context->has_application_payload &&
            parse_context->application_len > 0U;
 }
 
 bool wmbus_parser_dif_vif_parse(
-    WmBusPacketRecord* record,
-    const WmBusPacketParseContext* parse_context) {
-    if(!wmbus_parser_dif_vif_probe(record, parse_context)) {
+    const WmBusParserPacketView* packet,
+    const WmBusPacketParseContext* parse_context,
+    WmBusPacketApplicationData* out_application) {
+    if(!wmbus_parser_dif_vif_probe(packet, parse_context) || !out_application) {
         return false;
     }
 
+    memset(out_application, 0, sizeof(*out_application));
+    out_application->parser_id = WmBusParserIdDifVif;
     uint8_t record_count = 0U;
     if(!wmbus_packet_decode_application_records(
            parse_context->application_payload,
            parse_context->application_len,
-           record->application.records,
-           (uint8_t)(sizeof(record->application.records) / sizeof(record->application.records[0])),
+           out_application->records,
+           (uint8_t)(sizeof(out_application->records) / sizeof(out_application->records[0])),
            &record_count)) {
         return false;
     }
 
-    record->application.record_count = record_count;
-    return wmbus_packet_count_meaningful_records(record) > 0U;
+    out_application->record_count = record_count;
+    return wmbus_packet_count_meaningful_records(out_application->records, record_count) > 0U;
 }

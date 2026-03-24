@@ -10,7 +10,6 @@ static const WmBusDeviceParser wmbus_device_parsers[] = {
         .parse = wmbus_parser_apator162_parse,
     },
     {
-        // Generic parser, should be last one
         .parser_id = WmBusParserIdDifVif,
         .probe = wmbus_parser_dif_vif_probe,
         .parse = wmbus_parser_dif_vif_parse,
@@ -18,9 +17,10 @@ static const WmBusDeviceParser wmbus_device_parsers[] = {
 };
 
 bool wmbus_device_parser_apply(
-    WmBusPacketRecord* record,
-    const WmBusPacketParseContext* parse_context) {
-    if(!record) {
+    const WmBusParserPacketView* packet,
+    const WmBusPacketParseContext* parse_context,
+    WmBusPacketApplicationData* out_application) {
+    if(!packet || !out_application) {
         return false;
     }
 
@@ -29,17 +29,13 @@ bool wmbus_device_parser_apply(
         if(!parser->probe || !parser->parse) {
             continue;
         }
-        if(!parser->probe(record, parse_context)) {
+        if(!parser->probe(packet, parse_context)) {
             continue;
         }
-        if(parser->parse(record, parse_context)) {
-            if(record->application.parser_id == WmBusParserIdUnknown) {
-                record->application.parser_id = parser->parser_id;
-            }
+        WmBusPacketApplicationData application = {.parser_id = parser->parser_id};
+        if(parser->parse(packet, parse_context, &application)) {
+            *out_application = application;
             return true;
-        }
-        if(i + 1U < COUNT_OF(wmbus_device_parsers)) {
-            return false;
         }
     }
 

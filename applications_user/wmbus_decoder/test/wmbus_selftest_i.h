@@ -4,7 +4,7 @@
 
 #include "../protocol/capture/wmbus_capture.h"
 #include "../protocol/frame/wmbus_frame.h"
-#include "../protocol/wmbus_packet.h"
+#include "../protocol/packet/wmbus_packet.h"
 #include "../storage/wmbus_keyring.h"
 
 #include <furi.h>

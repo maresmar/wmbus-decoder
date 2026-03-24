@@ -1,6 +1,7 @@
 #pragma once
 
 #include "wmbus_app.h"
+#include "radio/wmbus_radio_rx_service.h"
 
 #include "../storage/wmbus_keyring.h"
 #include "../storage/wmbus_settings.h"
@@ -51,8 +52,7 @@ struct WmBusApp {
     Widget* detail_widget;
     WmBusRxView* rx_view;
 
-    FuriThread* rx_thread;
-    FuriMessageQueue* control_queue;
+    WmBusRadioRxService* rx_service;
     FuriMutex* keyring_mutex;
 
     WmBusSettings settings;

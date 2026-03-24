@@ -19,7 +19,7 @@ void wmbus_application_record_reset(WmBusApplicationRecord* record) {
 bool wmbus_application_record_append(
     WmBusPacketApplicationData* application,
     WmBusApplicationRecord** out_record) {
-    if(!application || !out_record || application->record_count >= COUNT_OF(application->records)) {
+    if(!application || !out_record || application->record_count >= WMBUS_PACKET_RECORD_MAX) {
         return false;
     }
 

@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "wmbus_application_record.h"
+#include "../model/wmbus_application_record.h"
 
 static uint64_t wmbus_record_formatter_pow10_u64(uint8_t power) {
     uint64_t result = 1U;

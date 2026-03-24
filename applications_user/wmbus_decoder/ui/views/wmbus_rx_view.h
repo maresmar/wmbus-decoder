@@ -6,7 +6,7 @@
 #include <furi.h>
 #include <gui/view_dispatcher.h>
 
-#include "../../protocol/wmbus_packet.h"
+#include "../../protocol/packet/wmbus_packet.h"
 #include "../../storage/wmbus_settings.h"
 
 typedef struct WmBusRxView WmBusRxView;

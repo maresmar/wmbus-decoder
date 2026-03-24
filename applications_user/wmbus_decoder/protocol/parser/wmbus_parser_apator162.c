@@ -1,6 +1,6 @@
 #include "wmbus_parser_apator162.h"
 
-#include "../wmbus_application_record.h"
+#include "../model/wmbus_application_record.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -150,10 +150,11 @@ static uint32_t wmbus_parser_apator162_read_u32_le(const uint8_t* data) {
            ((uint32_t)data[3] << 24);
 }
 
-static void
-    wmbus_parser_apator162_store_total_record(WmBusPacketRecord* record, uint32_t total_m3_x1000) {
+static void wmbus_parser_apator162_store_total_record(
+    WmBusPacketApplicationData* application,
+    uint32_t total_m3_x1000) {
     WmBusApplicationRecord* app_record = NULL;
-    if(!record || !wmbus_application_record_append(&record->application, &app_record)) return;
+    if(!application || !wmbus_application_record_append(application, &app_record)) return;
 
     app_record->quantity = WmBusApplicationQuantityVolume;
     app_record->scale10 = -3;
@@ -162,12 +163,12 @@ static void
 }
 
 static void wmbus_parser_apator162_store_status_record(
-    WmBusPacketRecord* record,
+    WmBusPacketApplicationData* application,
     const uint8_t* status,
     size_t status_len) {
     WmBusApplicationRecord* app_record = NULL;
-    if(!record || !status || status_len == 0U ||
-       !wmbus_application_record_append(&record->application, &app_record)) {
+    if(!application || !status || status_len == 0U ||
+       !wmbus_application_record_append(application, &app_record)) {
         return;
     }
 
@@ -310,21 +311,22 @@ bool wmbus_parser_parse_apator162_payload_total(
  * version 0x05, device type 0x06 or 0x07, and manufacturer "APA" or legacy 0x8614.
  */
 bool wmbus_parser_apator162_probe(
-    const WmBusPacketRecord* record,
+    const WmBusParserPacketView* packet,
     const WmBusPacketParseContext* parse_context) {
-    if(!record || !parse_context || !parse_context->has_application_payload ||
+    if(!packet || !packet->dll || !packet->tpl || !packet->identity || !parse_context ||
+       !parse_context->has_application_payload ||
        parse_context->application_len == 0U) {
         return false;
     }
-    if(!record->tpl.has_short_tpl || record->dll.ci_field != 0x7AU) {
+    if(!packet->tpl->has_short_tpl || packet->dll->ci_field != 0x7AU) {
         return false;
     }
-    if(record->dll.version != 0x05U ||
-       (record->dll.dev_type != 0x06U && record->dll.dev_type != 0x07U)) {
+    if(packet->dll->version != 0x05U ||
+       (packet->dll->dev_type != 0x06U && packet->dll->dev_type != 0x07U)) {
         return false;
     }
-    if(strcmp(record->dll.mfg, "APA") != 0 &&
-       record->dll.m_field != WMBUS_APATOR162_MFG_OLD) {
+    if(strcmp(packet->identity->manufacturer, "APA") != 0 &&
+       packet->dll->m_field != WMBUS_APATOR162_MFG_OLD) {
         return false;
     }
     return true;
@@ -334,13 +336,15 @@ bool wmbus_parser_apator162_probe(
  * Populates reusable application records from an Apator 162 payload.
  */
 bool wmbus_parser_apator162_parse(
-    WmBusPacketRecord* record,
-    const WmBusPacketParseContext* parse_context) {
-    if(!wmbus_parser_apator162_probe(record, parse_context)) {
+    const WmBusParserPacketView* packet,
+    const WmBusPacketParseContext* parse_context,
+    WmBusPacketApplicationData* out_application) {
+    if(!wmbus_parser_apator162_probe(packet, parse_context) || !out_application) {
         return false;
     }
 
-    record->application.record_count = 0U;
+    memset(out_application, 0, sizeof(*out_application));
+    out_application->parser_id = WmBusParserIdApator162;
     WmBusApator162Layout layout = {0};
     if(!wmbus_parser_apator162_locate_layout(
            parse_context->application_payload, parse_context->application_len, &layout)) {
@@ -361,11 +365,11 @@ bool wmbus_parser_apator162_parse(
 
     if(layout.has_status) {
         wmbus_parser_apator162_store_status_record(
-            record,
+            out_application,
             &parse_context->application_payload[layout.status_pos],
             layout.status_len);
     }
-    wmbus_parser_apator162_store_total_record(record, total_m3_x1000);
+    wmbus_parser_apator162_store_total_record(out_application, total_m3_x1000);
 
     return true;
 }

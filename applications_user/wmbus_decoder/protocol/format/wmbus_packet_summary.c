@@ -1,0 +1,171 @@
+#include "wmbus_packet_summary.h"
+
+#include <stdio.h>
+
+#include "../model/wmbus_application_record.h"
+#include "../parser/wmbus_parser.h"
+
+bool wmbus_packet_summary_find_total_m3(
+    const WmBusPacketApplicationData* application,
+    uint32_t* total_m3_x1000) {
+    if(!application) return false;
+    return wmbus_application_find_total_volume(
+        application->records, application->record_count, total_m3_x1000);
+}
+
+void wmbus_packet_summary_format_total_m3(
+    uint32_t total_m3_x1000,
+    char* out,
+    size_t out_size,
+    bool with_unit) {
+    if(!out || out_size == 0U) return;
+    out[0] = '\0';
+
+    uint32_t whole = total_m3_x1000 / 1000U;
+    uint32_t frac = total_m3_x1000 % 1000U;
+    snprintf(
+        out,
+        out_size,
+        with_unit ? "%lu.%03lu m3" : "%lu.%03lu",
+        (unsigned long)whole,
+        (unsigned long)frac);
+}
+
+static const char* wmbus_packet_summary_security_mode_name(uint8_t security_mode) {
+    switch(security_mode) {
+    case 0x00:
+        return "Clear";
+    case 0x01:
+        return "Manufacturer";
+    case 0x05:
+        return "AES-CBC IV";
+    case 0x08:
+        return "AES-CTR CMAC";
+    default:
+        return NULL;
+    }
+}
+
+void wmbus_packet_summary_format_crypto_tag(
+    const WmBusPacketTplData* tpl,
+    char* out,
+    size_t out_size) {
+    if(!out || out_size == 0U) return;
+    out[0] = '\0';
+    if(!tpl || !tpl->has_short_tpl) return;
+
+    if(tpl->decrypted) {
+        if(tpl->key_index != 0U) {
+            snprintf(out, out_size, "DEC#%u", (unsigned int)tpl->key_index);
+        } else {
+            snprintf(out, out_size, "DEC0");
+        }
+    } else if(wmbus_parser_short_tpl_security_likely_encrypted(tpl->cfg)) {
+        snprintf(out, out_size, "ENC");
+    } else if(tpl->security_mode == 0x00U) {
+        snprintf(out, out_size, "CLR");
+    } else if(tpl->security_mode == 0x01U) {
+        snprintf(out, out_size, "MFG");
+    } else {
+        snprintf(out, out_size, "S:%02X", tpl->security_mode);
+    }
+}
+
+void wmbus_packet_summary_format_security_text(
+    const WmBusPacketTplData* tpl,
+    char* out,
+    size_t out_size) {
+    if(!out || out_size == 0U) return;
+    out[0] = '\0';
+    if(!tpl || !tpl->has_short_tpl) return;
+
+    char mode[20] = {0};
+    const char* known_mode = wmbus_packet_summary_security_mode_name(tpl->security_mode);
+    if(known_mode) {
+        snprintf(mode, sizeof(mode), "%s", known_mode);
+    } else {
+        snprintf(mode, sizeof(mode), "Mode %02X", tpl->security_mode);
+    }
+
+    if(tpl->decrypted) {
+        if(tpl->key_index != 0U) {
+            snprintf(out, out_size, "%s, decrypted key #%u", mode, (unsigned int)tpl->key_index);
+        } else {
+            snprintf(out, out_size, "%s, decrypted zero key", mode);
+        }
+    } else if(wmbus_parser_short_tpl_security_likely_encrypted(tpl->cfg)) {
+        snprintf(out, out_size, "%s, encrypted", mode);
+    } else {
+        snprintf(out, out_size, "%s", mode);
+    }
+}
+
+void wmbus_packet_summary_format_bottom_line(
+    WmBusRxMode mode,
+    int rssi,
+    bool packet_is_frame,
+    uint16_t packet_len,
+    const WmBusPacketDllData* dll,
+    const WmBusPacketTplData* tpl,
+    bool has_total_volume,
+    uint32_t total_m3_x1000,
+    char* out,
+    size_t out_size) {
+    if(!out || out_size == 0U) return;
+    out[0] = '\0';
+
+    char crypto[12] = {0};
+    wmbus_packet_summary_format_crypto_tag(tpl, crypto, sizeof(crypto));
+
+    if(has_total_volume) {
+        uint32_t whole = total_m3_x1000 / 1000U;
+        uint32_t frac = total_m3_x1000 % 1000U;
+        if(crypto[0] != '\0') {
+            snprintf(
+                out,
+                out_size,
+                "M:%c R:%d C:%s %lu.%03lum3",
+                mode == WmBusRxModeT ? 'T' : 'C',
+                rssi,
+                crypto,
+                (unsigned long)whole,
+                (unsigned long)frac);
+        } else {
+            snprintf(
+                out,
+                out_size,
+                "M:%c R:%d %lu.%03lum3",
+                mode == WmBusRxModeT ? 'T' : 'C',
+                rssi,
+                (unsigned long)whole,
+                (unsigned long)frac);
+        }
+    } else if(packet_is_frame && dll) {
+        if(crypto[0] != '\0') {
+            snprintf(
+                out,
+                out_size,
+                "M:%c R:%d %s CI:%02X",
+                mode == WmBusRxModeT ? 'T' : 'C',
+                rssi,
+                crypto,
+                dll->ci_field);
+        } else {
+            snprintf(
+                out,
+                out_size,
+                "M:%c R:%d CI:%02X",
+                mode == WmBusRxModeT ? 'T' : 'C',
+                rssi,
+                dll->ci_field);
+        }
+    } else {
+        snprintf(
+            out,
+            out_size,
+            "M:%c R:%d Len:%u",
+            mode == WmBusRxModeT ? 'T' : 'C',
+            rssi,
+            (unsigned int)packet_len);
+    }
+}

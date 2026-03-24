@@ -2,7 +2,7 @@
 
 #include <furi.h>
 
-#include "wmbus_packet.h"
+#include "../packet/wmbus_packet.h"
 
 /**
  * Format packet detail text for UI or logging.
