@@ -1,8 +1,5 @@
 #include "wmbus_radio_rx_service.h"
 
-#include "../wmbus_capture_processor.h"
-#include "../../protocol/capture/wmbus_capture.h"
-
 #include <furi.h>
 #include <furi_hal.h>
 #include <furi_hal_spi.h>
@@ -27,16 +24,15 @@ typedef enum {
 typedef struct {
     WmBusControlCmd cmd;
     WmBusSettings settings;
+    WmBusCryptoKeyStore key_store;
 } WmBusControlEvent;
 
 struct WmBusRadioRxService {
-    WmBusCaptureProcessor* capture_processor;
-    WmBusRxView* rx_view;
-    FuriMutex* keyring_mutex;
-    const WmBusKeyring* keyring;
+    WmBusRadioRxCallbacks callbacks;
     FuriThread* thread;
     FuriMessageQueue* control_queue;
     WmBusSettings settings;
+    WmBusCryptoKeyStore key_store;
 };
 
 static uint8_t wmbus_cc1101_preset_regs[];
@@ -355,16 +351,6 @@ static bool wmbus_capture_c_step(
     return true;
 }
 
-static void wmbus_radio_rx_service_copy_keyring(
-    const WmBusRadioRxService* service,
-    WmBusCryptoKeyStore* key_store) {
-    if(!service || !key_store || !service->keyring_mutex || !service->keyring) return;
-
-    furi_check(furi_mutex_acquire(service->keyring_mutex, FuriWaitForever) == FuriStatusOk);
-    wmbus_keyring_copy_key_store(service->keyring, key_store);
-    furi_check(furi_mutex_release(service->keyring_mutex) == FuriStatusOk);
-}
-
 static uint32_t wmbus_ticks_from_ms(uint32_t ms) {
     uint32_t tick_freq = furi_kernel_get_tick_frequency();
     uint32_t ticks = (tick_freq * ms + 999U) / 1000U;
@@ -376,15 +362,16 @@ static int32_t wmbus_radio_rx_service_thread(void* context) {
 
     if(!furi_hal_subghz_is_frequency_valid(WMBUS_FREQ_HZ)) {
         FURI_LOG_W(TAG, "frequency %lu invalid", (unsigned long)WMBUS_FREQ_HZ);
-        wmbus_rx_view_set_freq_valid(service->rx_view, false);
+        if(service->callbacks.set_freq_valid) {
+            service->callbacks.set_freq_valid(service->callbacks.context, false);
+        }
         return 0;
     }
 
     furi_hal_power_suppress_charge_enter();
 
     WmBusSettings runtime_settings = service->settings;
-    WmBusCryptoKeyStore runtime_key_store = {0};
-    wmbus_radio_rx_service_copy_keyring(service, &runtime_key_store);
+    WmBusCryptoKeyStore runtime_key_store = service->key_store;
     WmBusRxMode mode = runtime_settings.mode;
     wmbus_radio_apply_mode(mode);
 
@@ -414,7 +401,7 @@ static int32_t wmbus_radio_rx_service_thread(void* context) {
             if(event.cmd == WmBusControlCmdApplyConfig) {
                 bool mode_changed = (runtime_settings.mode != event.settings.mode);
                 runtime_settings = event.settings;
-                wmbus_radio_rx_service_copy_keyring(service, &runtime_key_store);
+                runtime_key_store = event.key_store;
                 if(mode_changed) {
                     mode = runtime_settings.mode;
                     wmbus_radio_apply_mode(mode);
@@ -437,11 +424,10 @@ static int32_t wmbus_radio_rx_service_thread(void* context) {
             furi_hal_light_set(LightGreen, 0xFF);
             led_pulse_on = true;
             led_pulse_off_tick = pulse_now + led_pulse_ticks;
-            wmbus_capture_processor_handle(
-                service->capture_processor,
-                &runtime_settings,
-                &runtime_key_store,
-                &capture);
+            if(service->callbacks.handle_capture) {
+                service->callbacks.handle_capture(
+                    service->callbacks.context, &runtime_settings, &runtime_key_store, &capture);
+            }
         }
 
         uint32_t now_tick = furi_get_tick();
@@ -451,7 +437,10 @@ static int32_t wmbus_radio_rx_service_thread(void* context) {
         }
 
         if(last_rssi_tick == 0U || (now_tick - last_rssi_tick) >= rssi_ticks) {
-            wmbus_rx_view_set_live_rssi(service->rx_view, (int)furi_hal_subghz_get_rssi());
+            if(service->callbacks.set_live_rssi) {
+                service->callbacks.set_live_rssi(
+                    service->callbacks.context, (int)furi_hal_subghz_get_rssi());
+            }
             last_rssi_tick = now_tick;
         }
 
@@ -467,12 +456,10 @@ static int32_t wmbus_radio_rx_service_thread(void* context) {
 }
 
 WmBusRadioRxService* wmbus_radio_rx_service_alloc(
-    WmBusCaptureProcessor* capture_processor,
-    WmBusRxView* rx_view,
+    const WmBusRadioRxCallbacks* callbacks,
     const WmBusSettings* settings,
-    FuriMutex* keyring_mutex,
-    const WmBusKeyring* keyring) {
-    if(!capture_processor || !rx_view || !settings || !keyring_mutex || !keyring) {
+    const WmBusCryptoKeyStore* key_store) {
+    if(!callbacks || !settings || !key_store) {
         return NULL;
     }
 
@@ -482,11 +469,9 @@ WmBusRadioRxService* wmbus_radio_rx_service_alloc(
     }
 
     *service = (WmBusRadioRxService){
-        .capture_processor = capture_processor,
-        .rx_view = rx_view,
-        .keyring_mutex = keyring_mutex,
-        .keyring = keyring,
+        .callbacks = *callbacks,
         .settings = *settings,
+        .key_store = *key_store,
     };
 
     service->control_queue = furi_message_queue_alloc(4U, sizeof(WmBusControlEvent));
@@ -528,15 +513,18 @@ void wmbus_radio_rx_service_free(WmBusRadioRxService* service) {
 
 bool wmbus_radio_rx_service_apply_config(
     WmBusRadioRxService* service,
-    const WmBusSettings* settings) {
-    if(!service || !settings || !service->control_queue) {
+    const WmBusSettings* settings,
+    const WmBusCryptoKeyStore* key_store) {
+    if(!service || !settings || !key_store || !service->control_queue) {
         return false;
     }
 
     service->settings = *settings;
+    service->key_store = *key_store;
     WmBusControlEvent event = {
         .cmd = WmBusControlCmdApplyConfig,
         .settings = *settings,
+        .key_store = *key_store,
     };
     return furi_message_queue_put(service->control_queue, &event, FuriWaitForever) ==
            FuriStatusOk;

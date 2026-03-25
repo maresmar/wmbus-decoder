@@ -1,43 +1,41 @@
 #include "wmbus_capture_processor.h"
 
-#include "sink/wmbus_csv_sink.h"
-#include "sink/wmbus_history_sink.h"
-
 #include "../protocol/packet/wmbus_packet.h"
 
 #include <stdlib.h>
 #include <string.h>
 
+#define WMBUS_CAPTURE_PROCESSOR_MAX_SINKS 4U
+
 struct WmBusCaptureProcessor {
-    WmBusCsvSink csv_sink;
-    WmBusHistorySink history_sink;
-    const WmBusPacketSink* sinks[2];
+    const WmBusPacketSink* sinks[WMBUS_CAPTURE_PROCESSOR_MAX_SINKS];
     size_t sink_count;
 };
 
-WmBusCaptureProcessor* wmbus_capture_processor_alloc(Storage* storage, WmBusRxView* rx_view) {
-    if(!storage || !rx_view) {
-        return NULL;
-    }
-
+WmBusCaptureProcessor* wmbus_capture_processor_alloc(void) {
     WmBusCaptureProcessor* processor = malloc(sizeof(*processor));
     if(!processor) {
         return NULL;
     }
 
     memset(processor, 0, sizeof(*processor));
-    wmbus_csv_sink_init(&processor->csv_sink, storage);
-    wmbus_history_sink_init(&processor->history_sink, rx_view);
-
-    processor->sinks[processor->sink_count++] =
-        wmbus_csv_sink_get_packet_sink(&processor->csv_sink);
-    processor->sinks[processor->sink_count++] =
-        wmbus_history_sink_get_packet_sink(&processor->history_sink);
     return processor;
 }
 
 void wmbus_capture_processor_free(WmBusCaptureProcessor* processor) {
     free(processor);
+}
+
+bool wmbus_capture_processor_add_sink(
+    WmBusCaptureProcessor* processor,
+    const WmBusPacketSink* sink) {
+    if(!processor || !sink || !sink->consume ||
+       processor->sink_count >= WMBUS_CAPTURE_PROCESSOR_MAX_SINKS) {
+        return false;
+    }
+
+    processor->sinks[processor->sink_count++] = sink;
+    return true;
 }
 
 void wmbus_capture_processor_handle(

@@ -1,6 +1,9 @@
 #pragma once
 
 #include "wmbus_app.h"
+#include "wmbus_capture_processor.h"
+#include "sink/wmbus_csv_sink.h"
+#include "sink/wmbus_history_sink.h"
 #include "radio/wmbus_radio_rx_service.h"
 
 #include "../storage/wmbus_keyring.h"
@@ -52,6 +55,8 @@ struct WmBusApp {
     Widget* detail_widget;
     WmBusRxView* rx_view;
 
+    WmBusCsvSink csv_sink;
+    WmBusHistorySink history_sink;
     WmBusCaptureProcessor* capture_processor;
     WmBusRadioRxService* rx_service;
     FuriMutex* keyring_mutex;

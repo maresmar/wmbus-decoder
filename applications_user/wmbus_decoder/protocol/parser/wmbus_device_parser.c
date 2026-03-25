@@ -3,6 +3,13 @@
 #include "wmbus_parser_apator162.h"
 #include "wmbus_parser_dif_vif.h"
 
+/*
+ * Parser order is semantic: the first parser whose probe+parse succeeds wins.
+ *
+ * Keep device-specific parsers before broader fallbacks such as DifVif, and
+ * place any new specialized parser ahead of the more generic parser it should
+ * override.
+ */
 static const WmBusDeviceParser wmbus_device_parsers[] = {
     {
         .info =

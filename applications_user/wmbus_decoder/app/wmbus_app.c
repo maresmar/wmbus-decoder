@@ -6,11 +6,65 @@
 #define TAG "WmBusDecoder"
 static void wmbus_app_log_step(const char* step);
 static void wmbus_app_free(WmBusApp* app);
+static void wmbus_app_copy_key_store(const WmBusApp* app, WmBusCryptoKeyStore* out_key_store);
+static void wmbus_app_handle_capture(
+    void* context,
+    const WmBusSettings* settings,
+    const WmBusCryptoKeyStore* key_store,
+    const WmBusCaptureFrame* capture);
+static void wmbus_app_set_freq_valid(void* context, bool freq_valid);
+static void wmbus_app_set_live_rssi(void* context, int rssi);
 
 static void wmbus_app_log_step(const char* step) {
     if(step) {
         FURI_LOG_D(TAG, "app init: %s", step);
     }
+}
+
+static void wmbus_app_copy_key_store(const WmBusApp* app, WmBusCryptoKeyStore* out_key_store) {
+    if(!out_key_store) {
+        return;
+    }
+
+    memset(out_key_store, 0, sizeof(*out_key_store));
+    if(!app || !app->keyring_mutex) {
+        return;
+    }
+
+    furi_check(furi_mutex_acquire(app->keyring_mutex, FuriWaitForever) == FuriStatusOk);
+    wmbus_keyring_copy_key_store(&app->keyring, out_key_store);
+    furi_check(furi_mutex_release(app->keyring_mutex) == FuriStatusOk);
+}
+
+static void wmbus_app_handle_capture(
+    void* context,
+    const WmBusSettings* settings,
+    const WmBusCryptoKeyStore* key_store,
+    const WmBusCaptureFrame* capture) {
+    WmBusApp* app = context;
+    if(!app || !app->capture_processor) {
+        return;
+    }
+
+    wmbus_capture_processor_handle(app->capture_processor, settings, key_store, capture);
+}
+
+static void wmbus_app_set_freq_valid(void* context, bool freq_valid) {
+    WmBusApp* app = context;
+    if(!app || !app->rx_view) {
+        return;
+    }
+
+    wmbus_rx_view_set_freq_valid(app->rx_view, freq_valid);
+}
+
+static void wmbus_app_set_live_rssi(void* context, int rssi) {
+    WmBusApp* app = context;
+    if(!app || !app->rx_view) {
+        return;
+    }
+
+    wmbus_rx_view_set_live_rssi(app->rx_view, rssi);
 }
 
 static bool wmbus_app_custom_event_callback(void* context, uint32_t event) {
@@ -29,13 +83,17 @@ static bool wmbus_app_back_event_callback(void* context) {
 bool wmbus_app_apply_runtime_config(WmBusApp* app, bool persist) {
     if(!app) return false;
 
+    WmBusCryptoKeyStore key_store = {0};
+    wmbus_app_copy_key_store(app, &key_store);
+
     wmbus_rx_view_apply_settings(app->rx_view, &app->settings);
     if(persist) {
         wmbus_settings_save(app->storage, &app->settings);
     }
 
-    return app->rx_service ? wmbus_radio_rx_service_apply_config(app->rx_service, &app->settings) :
-                             true;
+    return app->rx_service ?
+               wmbus_radio_rx_service_apply_config(app->rx_service, &app->settings, &key_store) :
+               true;
 }
 
 bool wmbus_app_reload_keys(WmBusApp* app) {
@@ -153,14 +211,31 @@ static WmBusApp* wmbus_app_alloc(void) {
     wmbus_app_log_step("enter rx scene");
     scene_manager_next_scene(app->scene_manager, WmBusSceneRx);
     wmbus_app_log_step("alloc capture processor");
-    app->capture_processor = wmbus_capture_processor_alloc(app->storage, app->rx_view);
+    app->capture_processor = wmbus_capture_processor_alloc();
     if(!app->capture_processor) {
         wmbus_app_free(app);
         return NULL;
     }
+    wmbus_csv_sink_init(&app->csv_sink, app->storage);
+    wmbus_history_sink_init(&app->history_sink, app->rx_view);
+    if(!wmbus_capture_processor_add_sink(
+           app->capture_processor, wmbus_csv_sink_get_packet_sink(&app->csv_sink)) ||
+       !wmbus_capture_processor_add_sink(
+           app->capture_processor, wmbus_history_sink_get_packet_sink(&app->history_sink))) {
+        wmbus_app_free(app);
+        return NULL;
+    }
     wmbus_app_log_step("start rx service");
+    WmBusCryptoKeyStore key_store = {0};
+    wmbus_app_copy_key_store(app, &key_store);
+    WmBusRadioRxCallbacks rx_callbacks = {
+        .context = app,
+        .handle_capture = wmbus_app_handle_capture,
+        .set_freq_valid = wmbus_app_set_freq_valid,
+        .set_live_rssi = wmbus_app_set_live_rssi,
+    };
     app->rx_service = wmbus_radio_rx_service_alloc(
-        app->capture_processor, app->rx_view, &app->settings, app->keyring_mutex, &app->keyring);
+        &rx_callbacks, &app->settings, &key_store);
     if(!app->rx_service) {
         wmbus_app_free(app);
         return NULL;

@@ -32,10 +32,7 @@ typedef struct {
     WmBusPacketDllData dll;
     WmBusPacketIdentityData identity;
     WmBusPacketTplData tpl;
-    bool has_total_volume;
-    uint32_t total_m3_x1000;
-    WmBusParserId parser_id;
-    char detail_text[WMBUS_PACKET_DETAIL_MAX];
+    WmBusPacketApplicationData application;
 } WmBusRxHistoryEntry;
 
 typedef struct {
@@ -141,6 +138,10 @@ static void
     out[0] = '\0';
     if(!entry) return;
 
+    uint32_t total_m3_x1000 = 0U;
+    bool has_total_volume =
+        wmbus_packet_summary_find_total_m3(&entry->application, &total_m3_x1000);
+
     wmbus_packet_summary_format_bottom_line(
         entry->mode,
         entry->rssi,
@@ -148,8 +149,8 @@ static void
         entry->packet_len,
         &entry->dll,
         &entry->tpl,
-        entry->has_total_volume,
-        entry->total_m3_x1000,
+        has_total_volume,
+        total_m3_x1000,
         out,
         out_size);
 }
@@ -404,10 +405,7 @@ static void wmbus_rx_rssi_hist_push(WmBusRxViewModel* model, int rssi) {
 
 static void wmbus_rx_history_fill_entry(
     WmBusRxHistoryEntry* entry,
-    const WmBusPacketRecord* record,
-    const char* detail_text,
-    bool has_total_volume,
-    uint32_t total_m3_x1000) {
+    const WmBusPacketRecord* record) {
     if(!entry || !record) return;
 
     memset(entry, 0, sizeof(*entry));
@@ -424,14 +422,27 @@ static void wmbus_rx_history_fill_entry(
     entry->dll = record->dll;
     entry->identity = record->identity;
     entry->tpl = record->tpl;
-    entry->has_total_volume = has_total_volume;
-    entry->total_m3_x1000 = total_m3_x1000;
-    entry->parser_id = record->application.parser_id;
-    if(detail_text) {
-        snprintf(entry->detail_text, sizeof(entry->detail_text), "%s", detail_text);
-    } else {
-        snprintf(entry->detail_text, sizeof(entry->detail_text), "-");
+    entry->application = record->application;
+}
+
+static void wmbus_rx_history_entry_to_record(
+    const WmBusRxHistoryEntry* entry,
+    WmBusPacketRecord* record) {
+    if(!entry || !record) {
+        return;
     }
+
+    memset(record, 0, sizeof(*record));
+    record->packet_is_frame = entry->packet_is_frame;
+    record->status = entry->status;
+    record->mode = entry->mode;
+    record->rssi = entry->rssi;
+    record->rx_tick = entry->rx_tick;
+    record->packet_len = entry->packet_len;
+    record->dll = entry->dll;
+    record->identity = entry->identity;
+    record->tpl = entry->tpl;
+    record->application = entry->application;
 }
 
 void wmbus_rx_view_push_packet(
@@ -439,24 +450,6 @@ void wmbus_rx_view_push_packet(
     const WmBusPacketRecord* record,
     bool store_in_history) {
     if(!rx_view || !record) return;
-
-    char detail_text[WMBUS_PACKET_DETAIL_MAX] = {0};
-    uint32_t total_m3_x1000 = 0U;
-    bool has_total_volume = false;
-
-    if(store_in_history) {
-        FuriString* detail = furi_string_alloc();
-        if(detail) {
-            wmbus_packet_format_detail_text(record, detail);
-            snprintf(detail_text, sizeof(detail_text), "%s", furi_string_get_cstr(detail));
-            furi_string_free(detail);
-        } else {
-            snprintf(detail_text, sizeof(detail_text), "-");
-        }
-
-        has_total_volume =
-            wmbus_packet_summary_find_total_m3(&record->application, &total_m3_x1000);
-    }
 
     with_view_model(
         rx_view->view,
@@ -511,8 +504,7 @@ void wmbus_rx_view_push_packet(
                 }
 
                 WmBusRxHistoryEntry* entry = &model->hist[model->hist_head];
-                wmbus_rx_history_fill_entry(
-                    entry, record, detail_text, has_total_volume, total_m3_x1000);
+                wmbus_rx_history_fill_entry(entry, record);
 
                 if(model->freeze_display) {
                     if(model->hist_count > 0U && model->hist_cursor + 1U < model->hist_count) {
@@ -549,7 +541,9 @@ bool wmbus_rx_view_build_selected_detail_text(WmBusRxView* rx_view, FuriString* 
         {
             const WmBusRxHistoryEntry* entry = wmbus_rx_history_get(model, model->hist_cursor);
             if(entry) {
-                furi_string_set(out, entry->detail_text);
+                WmBusPacketRecord record = {0};
+                wmbus_rx_history_entry_to_record(entry, &record);
+                wmbus_packet_format_detail_text(&record, out);
                 found = true;
             }
         },

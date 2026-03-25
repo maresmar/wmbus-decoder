@@ -4,8 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "../model/wmbus_application_types.h"
 #include "../../core/wmbus_types.h"
+#include "wmbus_parser_id.h"
 
 typedef struct {
     WmBusParserId parser_id;

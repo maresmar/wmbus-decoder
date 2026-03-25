@@ -3,6 +3,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "../parser/wmbus_parser_id.h"
+
 #define WMBUS_PACKET_RECORD_MAX 12U
 
 typedef enum {
@@ -33,15 +35,6 @@ typedef enum {
     WmBusApplicationQuantityDateTime,
     WmBusApplicationQuantityStatus,
 } WmBusApplicationQuantity;
-
-typedef enum {
-    WmBusParserIdUnknown = 0,
-    WmBusParserIdRaw,
-    WmBusParserIdHeader,
-    WmBusParserIdShortTpl,
-    WmBusParserIdDifVif,
-    WmBusParserIdApator162,
-} WmBusParserId;
 
 typedef struct {
     uint16_t year;
