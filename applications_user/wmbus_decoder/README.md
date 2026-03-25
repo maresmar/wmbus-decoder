@@ -120,46 +120,43 @@ Why both are needed:
 
 ```mermaid
 flowchart TD
-    A["wmbus_rx_thread()<br/>CC1101 RX loop"] --> B{"RX mode"}
+    A["app/radio<br/>wmbus_rx_thread()<br/>CC1101 RX loop"] --> B{"RX mode"}
     B -->|T| C["wmbus_capture_t_step()<br/>raw FIFO bytes"]
-    B -->|C| D["wmbus_capture_c_step()<br/>dewhitened bytes, optional 0x54 strip"]
-    C --> E["wmbus_process_captured_frame()"]
+    B -->|C| D["wmbus_capture_c_step()<br/>dewhitened bytes<br/>optional 0x54 strip"]
+    C --> E["WmBusCaptureFrame"]
     D --> E
 
-    E --> F["wmbus_packet_process_capture()<br/>build WmBusPacketRecord"]
-    F --> G{"Capture decode path"}
-    G -->|T| H["wmbus_decode_t_capture()<br/>3-of-6 decode, plausibility scoring"]
-    G -->|C| I["direct bytes<br/>plausibility check"]
-    H --> J["wmbus_frame_normalize()<br/>length fit + CRC state"]
-    I --> J
+    E --> F["app<br/>wmbus_capture_processor_handle()"]
+    F --> G["protocol<br/>wmbus_packet_process_capture()"]
 
-    J --> K["extract DLL/TPL fields<br/>copy packet bytes"]
-    K --> L{"short TPL says encrypted?"}
-    L -->|no| M["copy application payload"]
-    L -->|yes, mode 5| N["try keys from keyring<br/>then legacy zero key"]
-    L -->|yes, unsupported mode| O["keep payload, parser may still inspect it"]
-    N --> P["wmbus_device_parser_apply()"]
-    M --> P
-    O --> P
+    G --> H["decode by mode<br/>T: 3-of-6 decode<br/>C: direct bytes"]
+    H --> I["normalize frame<br/>length fit + CRC state"]
+    I --> J["populate WmBusPacketRecord<br/>DLL / TPL / payload / identity"]
+    J --> K{"short TPL<br/>encrypted?"}
+    K -->|no| L["parser payload view"]
+    K -->|yes, mode 5| M["try keyring keys<br/>then legacy zero key"]
+    K -->|yes, unsupported mode| N["leave payload undecoded"]
+    L --> O["wmbus_device_parser_apply()<br/>finalize parser + status"]
+    M --> O
+    N --> O
 
-    P --> Q["finalize parser id<br/>set status:<br/>DecodeFail / NotPlausible / FramingError / CrcBad / WeakRssi / Ok"]
+    O --> P["WmBusPacketRecord"]
+    P --> Q["app/sink<br/>wmbus_csv_sink"]
+    P --> R["app/sink<br/>wmbus_history_sink"]
 
-    Q --> R{"CSV logging enabled<br/>and status >= csv threshold?"}
-    R -->|yes| S["wmbus_log_append()<br/>write basic/full CSV line"]
-    R -->|no| T["skip CSV sink"]
+    Q -->|csv enabled and<br/>status >= csv threshold| S["storage<br/>wmbus_log_append()<br/>basic/full CSV"]
+    Q -->|otherwise| T["skip CSV write"]
 
-    Q --> U{"status >= memory threshold?"}
-    U -->|yes| V["wmbus_rx_view_push_packet()<br/>update counters, RSSI graph, history ring"]
-    U -->|no| W["wmbus_rx_view_push_packet()<br/>update live counters only"]
-
-    V --> X["RX screen<br/>Latest / History rows"]
+    R --> U["wmbus_rx_view_push_packet()<br/>always updates live counters"]
+    U -->|status >= memory threshold| V["history ring + selected packet"]
+    U -->|otherwise| W["live-only update"]
+    V --> X["ui/views<br/>RX screen Latest / History"]
     W --> X
-    X --> Y["Long Down on selected packet"]
+    X --> Y["detail scene"]
     Y --> Z["wmbus_rx_view_build_selected_detail_text()"]
-    Z --> AA["wmbus_packet_format_detail_text()"]
-    AA --> AB["packet detail widget scene"]
+    Z --> AA["protocol/format<br/>wmbus_packet_format_detail_text()"]
 
-    N -. decrypt failures .-> AC["FURI_LOG_D<br/>decrypt failure reason"]
+    M -. decrypt failure logging .-> AB["FURI_LOG_D"]
 ```
 
 ### Radio

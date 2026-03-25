@@ -152,9 +152,15 @@ static WmBusApp* wmbus_app_alloc(void) {
     view_dispatcher_attach_to_gui(app->view_dispatcher, app->gui, ViewDispatcherTypeFullscreen);
     wmbus_app_log_step("enter rx scene");
     scene_manager_next_scene(app->scene_manager, WmBusSceneRx);
+    wmbus_app_log_step("alloc capture processor");
+    app->capture_processor = wmbus_capture_processor_alloc(app->storage, app->rx_view);
+    if(!app->capture_processor) {
+        wmbus_app_free(app);
+        return NULL;
+    }
     wmbus_app_log_step("start rx service");
     app->rx_service = wmbus_radio_rx_service_alloc(
-        app->storage, app->rx_view, &app->settings, app->keyring_mutex, &app->keyring);
+        app->capture_processor, app->rx_view, &app->settings, app->keyring_mutex, &app->keyring);
     if(!app->rx_service) {
         wmbus_app_free(app);
         return NULL;
@@ -167,6 +173,7 @@ static void wmbus_app_free(WmBusApp* app) {
     if(!app) return;
 
     wmbus_radio_rx_service_free(app->rx_service);
+    wmbus_capture_processor_free(app->capture_processor);
 
     if(app->detail_widget) {
         view_dispatcher_remove_view(app->view_dispatcher, WmBusAppViewPacketDetail);

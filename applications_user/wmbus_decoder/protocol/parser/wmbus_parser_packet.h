@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../packet/wmbus_packet.h"
+#include "../packet/wmbus_packet_parts.h"
 
 typedef struct {
     const WmBusPacketDllData* dll;

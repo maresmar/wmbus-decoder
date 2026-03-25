@@ -8,6 +8,6 @@ bool wmbus_packet_select_application(
     size_t frame_len,
     WmBusPacketRecord* record,
     WmBusPacketParseContext* parse_context,
-    const WmBusKeyring* keyring);
+    const WmBusCryptoKeyStore* key_store);
 
 void wmbus_packet_finalize_parser(WmBusPacketRecord* record);

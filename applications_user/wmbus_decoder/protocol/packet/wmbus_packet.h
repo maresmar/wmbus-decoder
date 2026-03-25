@@ -5,20 +5,13 @@
 #include <stdint.h>
 
 #include "../capture/wmbus_capture.h"
+#include "../crypto/wmbus_crypto_key_store.h"
 #include "../model/wmbus_application_types.h"
-#include "../parser/wmbus_parser_context.h"
 #include "../../core/wmbus_types.h"
-#include "../../storage/wmbus_keyring.h"
 #include "wmbus_packet_parts.h"
 
 #define WMBUS_PACKET_LABEL_MAX       32U
 #define WMBUS_PACKET_VALUE_MAX       32U
-
-typedef struct {
-    char manufacturer[WMBUS_MFG_STR_LEN];
-    char meter_id[WMBUS_ID_STR_LEN];
-    bool meter_id_is_bcd;
-} WmBusPacketIdentityData;
 
 typedef struct {
     WmBusStatus status;
@@ -46,7 +39,7 @@ typedef struct {
 
 bool wmbus_packet_process_capture(
     const WmBusCaptureFrame* capture,
-    const WmBusKeyring* keyring,
+    const WmBusCryptoKeyStore* key_store,
     WmBusPacketRecord* record);
 
 const char* wmbus_packet_status_str(WmBusStatus status);

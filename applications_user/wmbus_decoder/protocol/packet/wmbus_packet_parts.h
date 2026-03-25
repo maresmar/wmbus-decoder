@@ -30,3 +30,9 @@ typedef struct {
     uint16_t packet_offset;
     uint16_t packet_len;
 } WmBusPacketPayloadData;
+
+typedef struct {
+    char manufacturer[WMBUS_MFG_STR_LEN];
+    char meter_id[WMBUS_ID_STR_LEN];
+    bool meter_id_is_bcd;
+} WmBusPacketIdentityData;

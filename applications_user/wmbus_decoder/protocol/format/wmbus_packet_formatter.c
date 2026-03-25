@@ -6,12 +6,6 @@
 #include "wmbus_record_formatter.h"
 #include "../parser/wmbus_parser.h"
 
-static bool wmbus_packet_formatter_show_parser(WmBusParserId parser_id) {
-    return parser_id != WmBusParserIdUnknown && parser_id != WmBusParserIdRaw &&
-           parser_id != WmBusParserIdHeader && parser_id != WmBusParserIdShortTpl &&
-           parser_id != WmBusParserIdDifVif;
-}
-
 static void wmbus_packet_formatter_format_tpl_fields(
     const WmBusPacketTplData* tpl,
     char* out,
@@ -124,7 +118,7 @@ static void wmbus_packet_formatter_format_frame_detail(
         record->dll.ci_field,
         record->dll.version);
 
-    if(wmbus_packet_formatter_show_parser(record->application.parser_id)) {
+    if(wmbus_parser_show_detail(record->application.parser_id)) {
         furi_string_cat_printf(
             out, "Parser: %s\n", wmbus_parser_id_name(record->application.parser_id));
     }

@@ -52,6 +52,7 @@ struct WmBusApp {
     Widget* detail_widget;
     WmBusRxView* rx_view;
 
+    WmBusCaptureProcessor* capture_processor;
     WmBusRadioRxService* rx_service;
     FuriMutex* keyring_mutex;
 

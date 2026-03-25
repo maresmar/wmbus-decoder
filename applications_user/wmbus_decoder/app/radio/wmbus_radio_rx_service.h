@@ -1,15 +1,15 @@
 #pragma once
 
+#include "../wmbus_capture_processor.h"
+
 #include "../../storage/wmbus_keyring.h"
 #include "../../storage/wmbus_settings.h"
 #include "../../ui/views/wmbus_rx_view.h"
 
-#include <storage/storage.h>
-
 typedef struct WmBusRadioRxService WmBusRadioRxService;
 
 WmBusRadioRxService* wmbus_radio_rx_service_alloc(
-    Storage* storage,
+    WmBusCaptureProcessor* capture_processor,
     WmBusRxView* rx_view,
     const WmBusSettings* settings,
     FuriMutex* keyring_mutex,

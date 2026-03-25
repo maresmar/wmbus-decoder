@@ -3,9 +3,10 @@
 #include "wmbus_selftest.h"
 
 #include "../protocol/capture/wmbus_capture.h"
+#include "../protocol/crypto/wmbus_crypto_key_store.h"
 #include "../protocol/frame/wmbus_frame.h"
 #include "../protocol/packet/wmbus_packet.h"
-#include "../storage/wmbus_keyring.h"
+#include "../storage/wmbus_paths.h"
 
 #include <furi.h>
 #include <storage/storage.h>
@@ -131,13 +132,13 @@ bool wmbus_selftest_process_capture_record(
     WmBusRxMode mode,
     const uint8_t* data,
     size_t data_len,
-    const WmBusKeyring* keyring,
+    const WmBusCryptoKeyStore* key_store,
     WmBusPacketRecord* record);
 bool wmbus_selftest_run_capture(
     WmBusRxMode mode,
     const uint8_t* data,
     size_t data_len,
-    const WmBusKeyring* keyring,
+    const WmBusCryptoKeyStore* key_store,
     WmBusSelftestResult* result);
 const char* wmbus_selftest_format_l_field(const WmBusSelftestResult* result, char out[8]);
 const char* wmbus_selftest_format_computed_len(const WmBusSelftestResult* result, char out[16]);

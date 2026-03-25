@@ -30,7 +30,7 @@ typedef struct {
 } WmBusControlEvent;
 
 struct WmBusRadioRxService {
-    Storage* storage;
+    WmBusCaptureProcessor* capture_processor;
     WmBusRxView* rx_view;
     FuriMutex* keyring_mutex;
     const WmBusKeyring* keyring;
@@ -357,11 +357,11 @@ static bool wmbus_capture_c_step(
 
 static void wmbus_radio_rx_service_copy_keyring(
     const WmBusRadioRxService* service,
-    WmBusKeyring* keyring) {
-    if(!service || !keyring || !service->keyring_mutex || !service->keyring) return;
+    WmBusCryptoKeyStore* key_store) {
+    if(!service || !key_store || !service->keyring_mutex || !service->keyring) return;
 
     furi_check(furi_mutex_acquire(service->keyring_mutex, FuriWaitForever) == FuriStatusOk);
-    *keyring = *service->keyring;
+    wmbus_keyring_copy_key_store(service->keyring, key_store);
     furi_check(furi_mutex_release(service->keyring_mutex) == FuriStatusOk);
 }
 
@@ -383,8 +383,8 @@ static int32_t wmbus_radio_rx_service_thread(void* context) {
     furi_hal_power_suppress_charge_enter();
 
     WmBusSettings runtime_settings = service->settings;
-    WmBusKeyring runtime_keyring;
-    wmbus_radio_rx_service_copy_keyring(service, &runtime_keyring);
+    WmBusCryptoKeyStore runtime_key_store = {0};
+    wmbus_radio_rx_service_copy_keyring(service, &runtime_key_store);
     WmBusRxMode mode = runtime_settings.mode;
     wmbus_radio_apply_mode(mode);
 
@@ -414,7 +414,7 @@ static int32_t wmbus_radio_rx_service_thread(void* context) {
             if(event.cmd == WmBusControlCmdApplyConfig) {
                 bool mode_changed = (runtime_settings.mode != event.settings.mode);
                 runtime_settings = event.settings;
-                wmbus_radio_rx_service_copy_keyring(service, &runtime_keyring);
+                wmbus_radio_rx_service_copy_keyring(service, &runtime_key_store);
                 if(mode_changed) {
                     mode = runtime_settings.mode;
                     wmbus_radio_apply_mode(mode);
@@ -438,10 +438,9 @@ static int32_t wmbus_radio_rx_service_thread(void* context) {
             led_pulse_on = true;
             led_pulse_off_tick = pulse_now + led_pulse_ticks;
             wmbus_capture_processor_handle(
-                service->storage,
-                service->rx_view,
+                service->capture_processor,
                 &runtime_settings,
-                &runtime_keyring,
+                &runtime_key_store,
                 &capture);
         }
 
@@ -468,12 +467,12 @@ static int32_t wmbus_radio_rx_service_thread(void* context) {
 }
 
 WmBusRadioRxService* wmbus_radio_rx_service_alloc(
-    Storage* storage,
+    WmBusCaptureProcessor* capture_processor,
     WmBusRxView* rx_view,
     const WmBusSettings* settings,
     FuriMutex* keyring_mutex,
     const WmBusKeyring* keyring) {
-    if(!storage || !rx_view || !settings || !keyring_mutex || !keyring) {
+    if(!capture_processor || !rx_view || !settings || !keyring_mutex || !keyring) {
         return NULL;
     }
 
@@ -483,7 +482,7 @@ WmBusRadioRxService* wmbus_radio_rx_service_alloc(
     }
 
     *service = (WmBusRadioRxService){
-        .storage = storage,
+        .capture_processor = capture_processor,
         .rx_view = rx_view,
         .keyring_mutex = keyring_mutex,
         .keyring = keyring,

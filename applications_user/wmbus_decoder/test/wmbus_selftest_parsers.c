@@ -165,7 +165,7 @@ static bool wmbus_selftest_check_parser_apator162_mode5_zero_key_vectors(char* d
 static bool wmbus_selftest_check_packet_process_mode5_zero_key_fallback_vector(char* detail, size_t detail_len) {
     uint8_t frame[WMBUS_SELFTEST_BUF_MAX] = {0};
     size_t frame_len = 0;
-    WmBusKeyring keyring = {0};
+    WmBusCryptoKeyStore key_store = {0};
     WmBusPacketRecord record = {0};
     char rec_desc[96] = {0};
 
@@ -173,7 +173,7 @@ static bool wmbus_selftest_check_packet_process_mode5_zero_key_fallback_vector(c
         wmbus_selftest_set_detail(detail, detail_len, "format-B build failed");
         return false;
     }
-    if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, &keyring, &record)) {
+    if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, &key_store, &record)) {
         wmbus_selftest_set_detail(detail, detail_len, "packet process failed");
         return false;
     }
@@ -234,9 +234,9 @@ static bool wmbus_selftest_check_packet_process_mode5_configured_zero_key_slot(c
         {wmbus_selftest_apator_encrypted_mode5_gold, 345654U, "02991056"},
         {wmbus_selftest_apator_encrypted_mode5_field_02991035, 200257U, "02991035"},
     };
-    WmBusKeyring keyring = {0};
+    WmBusCryptoKeyStore key_store = {0};
 
-    keyring.count = 1U;
+    key_store.count = 1U;
     for(size_t i = 0; i < COUNT_OF(vectors); i++) {
         uint8_t frame[WMBUS_SELFTEST_BUF_MAX] = {0};
         size_t frame_len = 0;
@@ -247,7 +247,7 @@ static bool wmbus_selftest_check_packet_process_mode5_configured_zero_key_slot(c
             wmbus_selftest_set_detail(detail, detail_len, "vector %s format-B build failed", vectors[i].id);
             return false;
         }
-        if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, &keyring, &record)) {
+        if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, &key_store, &record)) {
             wmbus_selftest_set_detail(detail, detail_len, "vector %s packet process failed", vectors[i].id);
             return false;
         }
@@ -273,10 +273,10 @@ static bool wmbus_selftest_check_packet_process_mode5_wrong_key_falls_back_to_ze
         {wmbus_selftest_apator_encrypted_mode5_gold, 345654U, "02991056"},
         {wmbus_selftest_apator_encrypted_mode5_field_02991035, 200257U, "02991035"},
     };
-    WmBusKeyring keyring = {0};
+    WmBusCryptoKeyStore key_store = {0};
 
-    memset(keyring.entries[0].key, 0xA5, sizeof(keyring.entries[0].key));
-    keyring.count = 1U;
+    memset(key_store.entries[0].bytes, 0xA5, sizeof(key_store.entries[0].bytes));
+    key_store.count = 1U;
 
     for(size_t i = 0; i < COUNT_OF(vectors); i++) {
         uint8_t frame[WMBUS_SELFTEST_BUF_MAX] = {0};
@@ -288,7 +288,7 @@ static bool wmbus_selftest_check_packet_process_mode5_wrong_key_falls_back_to_ze
             wmbus_selftest_set_detail(detail, detail_len, "vector %s format-B build failed", vectors[i].id);
             return false;
         }
-        if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, &keyring, &record)) {
+        if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, &key_store, &record)) {
             wmbus_selftest_set_detail(detail, detail_len, "vector %s packet process failed", vectors[i].id);
             return false;
         }

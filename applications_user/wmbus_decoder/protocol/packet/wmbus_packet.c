@@ -58,7 +58,7 @@ const char* wmbus_packet_csv_logging_str(WmBusCsvLogging logging) {
 
 bool wmbus_packet_process_capture(
     const WmBusCaptureFrame* capture,
-    const WmBusKeyring* keyring,
+    const WmBusCryptoKeyStore* key_store,
     WmBusPacketRecord* record) {
     if(!capture || !record) return false;
 
@@ -80,7 +80,7 @@ bool wmbus_packet_process_capture(
     if(record->plausible && decode.frame && decode.frame_len > 0U) {
         wmbus_packet_store_frame(record, decode.frame, decode.frame_len);
         wmbus_packet_select_application(
-            decode.frame, decode.frame_len, record, &parse_context, keyring);
+            decode.frame, decode.frame_len, record, &parse_context, key_store);
         wmbus_packet_finalize_parser(record);
     } else {
         record->packet_is_frame = false;

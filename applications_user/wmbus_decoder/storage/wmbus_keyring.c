@@ -83,6 +83,24 @@ const WmBusKeyEntry* wmbus_keyring_get(const WmBusKeyring* keyring, uint8_t inde
     return &keyring->entries[index];
 }
 
+void wmbus_keyring_copy_key_store(
+    const WmBusKeyring* keyring,
+    WmBusCryptoKeyStore* out_key_store) {
+    if(!out_key_store) {
+        return;
+    }
+
+    memset(out_key_store, 0, sizeof(*out_key_store));
+    if(!keyring) {
+        return;
+    }
+
+    out_key_store->count = keyring->count;
+    for(uint8_t i = 0; i < keyring->count; i++) {
+        memcpy(out_key_store->entries[i].bytes, keyring->entries[i].key, WMBUS_KEY_BYTES);
+    }
+}
+
 bool wmbus_keyring_load(Storage* storage, WmBusKeyring* keyring) {
     if(!storage || !keyring) return false;
 

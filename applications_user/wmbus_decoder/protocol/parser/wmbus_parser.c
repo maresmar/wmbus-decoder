@@ -1,4 +1,6 @@
 #include "wmbus_parser.h"
+#include "wmbus_device_parser.h"
+
 #include "../crypto/wmbus_aes.h"
 
 #include "../../core/wmbus_types.h"
@@ -8,22 +10,59 @@
 #define WMBUS_AES_BLOCK_LEN    16U
 #define WMBUS_SHORT_TPL_POS    15U
 
-const char* wmbus_parser_id_name(WmBusParserId parser_id) {
-    switch(parser_id) {
-    case WmBusParserIdRaw:
-        return "Raw";
-    case WmBusParserIdHeader:
-        return "Header";
-    case WmBusParserIdShortTpl:
-        return "Short TPL";
-    case WmBusParserIdDifVif:
-        return "DifVif";
-    case WmBusParserIdApator162:
-        return "Apator162";
-    case WmBusParserIdUnknown:
-    default:
-        return "Unknown";
+static const WmBusParserInfo wmbus_builtin_parsers[] = {
+    {
+        .parser_id = WmBusParserIdUnknown,
+        .name = "Unknown",
+        .validates_decrypt = false,
+        .show_detail = false,
+    },
+    {
+        .parser_id = WmBusParserIdRaw,
+        .name = "Raw",
+        .validates_decrypt = false,
+        .show_detail = false,
+    },
+    {
+        .parser_id = WmBusParserIdHeader,
+        .name = "Header",
+        .validates_decrypt = false,
+        .show_detail = false,
+    },
+    {
+        .parser_id = WmBusParserIdShortTpl,
+        .name = "Short TPL",
+        .validates_decrypt = false,
+        .show_detail = false,
+    },
+};
+
+const WmBusParserInfo* wmbus_parser_get_info(WmBusParserId parser_id) {
+    const WmBusDeviceParser* device_parser = wmbus_device_parser_get(parser_id);
+    if(device_parser) {
+        return &device_parser->info;
     }
+
+    for(size_t i = 0; i < (sizeof(wmbus_builtin_parsers) / sizeof(wmbus_builtin_parsers[0]));
+        i++) {
+        if(wmbus_builtin_parsers[i].parser_id == parser_id) {
+            return &wmbus_builtin_parsers[i];
+        }
+    }
+
+    return &wmbus_builtin_parsers[0];
+}
+
+const char* wmbus_parser_id_name(WmBusParserId parser_id) {
+    return wmbus_parser_get_info(parser_id)->name;
+}
+
+bool wmbus_parser_validates_decrypt(WmBusParserId parser_id) {
+    return wmbus_parser_get_info(parser_id)->validates_decrypt;
+}
+
+bool wmbus_parser_show_detail(WmBusParserId parser_id) {
+    return wmbus_parser_get_info(parser_id)->show_detail;
 }
 
 uint8_t wmbus_parser_short_tpl_security_mode(uint16_t cfg) {

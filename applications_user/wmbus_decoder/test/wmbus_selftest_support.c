@@ -366,7 +366,7 @@ bool wmbus_selftest_process_capture_record(
     WmBusRxMode mode,
     const uint8_t* data,
     size_t data_len,
-    const WmBusKeyring* keyring,
+    const WmBusCryptoKeyStore* key_store,
     WmBusPacketRecord* record) {
     WmBusCaptureFrame capture = {0};
 
@@ -379,19 +379,19 @@ bool wmbus_selftest_process_capture_record(
     capture.rssi = -60;
     capture.mode = mode;
 
-    return wmbus_packet_process_capture(&capture, keyring, record);
+    return wmbus_packet_process_capture(&capture, key_store, record);
 }
 
 bool wmbus_selftest_run_capture(
     WmBusRxMode mode,
     const uint8_t* data,
     size_t data_len,
-    const WmBusKeyring* keyring,
+    const WmBusCryptoKeyStore* key_store,
     WmBusSelftestResult* result) {
     WmBusPacketRecord record = {0};
 
     if(!data || !result) return false;
-    if(!wmbus_selftest_process_capture_record(mode, data, data_len, keyring, &record)) {
+    if(!wmbus_selftest_process_capture_record(mode, data, data_len, key_store, &record)) {
         wmbus_selftest_result_reset(result);
         return false;
     }

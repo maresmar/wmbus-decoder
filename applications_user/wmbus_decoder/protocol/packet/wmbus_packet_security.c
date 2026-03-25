@@ -130,19 +130,6 @@ static void wmbus_packet_set_payload_packet_slice(
     record->payload.packet_len = (uint16_t)payload_len;
 }
 
-static bool wmbus_packet_parser_validates_decrypt(const WmBusPacketApplicationData* application) {
-    if(!application) {
-        return false;
-    }
-
-    switch(application->parser_id) {
-    case WmBusParserIdApator162:
-        return true;
-    default:
-        return false;
-    }
-}
-
 static bool wmbus_packet_try_key(
     const uint8_t* frame,
     size_t frame_len,
@@ -171,7 +158,7 @@ static bool wmbus_packet_try_key(
     wmbus_packet_parse_context_copy_payload(
         parse_context, decrypt_frame, frame_len, record->tpl.header_len);
     if((wmbus_device_parser_apply(&parser_packet, parse_context, &record->application) &&
-        wmbus_packet_parser_validates_decrypt(&record->application)) ||
+        wmbus_parser_validates_decrypt(record->application.parser_id)) ||
        decrypt.has_check_bytes) {
         return true;
     }
@@ -185,7 +172,7 @@ bool wmbus_packet_select_application(
     size_t frame_len,
     WmBusPacketRecord* record,
     WmBusPacketParseContext* parse_context,
-    const WmBusKeyring* keyring) {
+    const WmBusCryptoKeyStore* key_store) {
     static const uint8_t wmbus_zero_key[WMBUS_MODE5_KEY_LEN] = {0};
 
     if(!frame || !record || !parse_context) {
@@ -234,12 +221,14 @@ bool wmbus_packet_select_application(
 
     uint8_t decrypt_frame[WMBUS_DECODE_MAX] = {0};
 
-    for(uint8_t i = 0; keyring && i < keyring->count; i++) {
-        const WmBusKeyEntry* entry = wmbus_keyring_get(keyring, i);
-        if(!entry) continue;
+    for(uint8_t i = 0; key_store && i < key_store->count; i++) {
+        const WmBusCryptoKey* entry = wmbus_crypto_key_store_get(key_store, i);
+        if(!entry) {
+            continue;
+        }
 
         if(wmbus_packet_try_key(
-               frame, frame_len, entry->key, record, parse_context, decrypt_frame)) {
+               frame, frame_len, entry->bytes, record, parse_context, decrypt_frame)) {
             record->tpl.decrypted = true;
             record->tpl.key_index = i + 1U;
             return true;
