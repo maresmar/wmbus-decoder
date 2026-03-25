@@ -311,11 +311,9 @@ bool wmbus_parser_parse_apator162_payload_total(
  * version 0x05, device type 0x06 or 0x07, and manufacturer "APA" or legacy 0x8614.
  */
 bool wmbus_parser_apator162_probe(
-    const WmBusParserPacketView* packet,
-    const WmBusPacketParseContext* parse_context) {
-    if(!packet || !packet->dll || !packet->tpl || !packet->identity || !parse_context ||
-       !parse_context->has_application_payload ||
-       parse_context->application_len == 0U) {
+    const WmBusParserPacketView* packet) {
+    if(!packet || !packet->dll || !packet->tpl || !packet->identity || !packet->payload ||
+       !packet->payload->has_application_payload || packet->payload->application_len == 0U) {
         return false;
     }
     if(!packet->tpl->has_short_tpl || packet->dll->ci_field != 0x7AU) {
@@ -337,9 +335,8 @@ bool wmbus_parser_apator162_probe(
  */
 bool wmbus_parser_apator162_parse(
     const WmBusParserPacketView* packet,
-    const WmBusPacketParseContext* parse_context,
     WmBusPacketApplicationData* out_application) {
-    if(!wmbus_parser_apator162_probe(packet, parse_context) || !out_application) {
+    if(!wmbus_parser_apator162_probe(packet) || !out_application) {
         return false;
     }
 
@@ -347,15 +344,15 @@ bool wmbus_parser_apator162_parse(
     out_application->parser_id = WmBusParserIdApator162;
     WmBusApator162Layout layout = {0};
     if(!wmbus_parser_apator162_locate_layout(
-           parse_context->application_payload, parse_context->application_len, &layout)) {
+           packet->payload->application_bytes, packet->payload->application_len, &layout)) {
         return false;
     }
 
     uint32_t total_m3_x1000 = 0U;
     bool found_total = false;
     if(!wmbus_parser_apator162_scan_stream(
-           parse_context->application_payload,
-           parse_context->application_len,
+           packet->payload->application_bytes,
+           packet->payload->application_len,
            &layout,
            &total_m3_x1000,
            &found_total) ||
@@ -366,7 +363,7 @@ bool wmbus_parser_apator162_parse(
     if(layout.has_status) {
         wmbus_parser_apator162_store_status_record(
             out_application,
-            &parse_context->application_payload[layout.status_pos],
+            &packet->payload->application_bytes[layout.status_pos],
             layout.status_len);
     }
     wmbus_parser_apator162_store_total_record(out_application, total_m3_x1000);

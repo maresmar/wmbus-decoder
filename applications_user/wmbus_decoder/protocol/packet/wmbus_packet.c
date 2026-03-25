@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "wmbus_packet_decode.h"
+#include "wmbus_packet_parser.h"
 #include "wmbus_packet_security.h"
 
 const char* wmbus_packet_status_str(WmBusStatus status) {
@@ -72,15 +73,14 @@ bool wmbus_packet_process_capture(
 
     uint8_t normalized[256] = {0};
     WmBusPacketDecodeState decode = {0};
-    WmBusPacketParseContext parse_context = {0};
     if(!wmbus_packet_decode_capture(capture, record, normalized, sizeof(normalized), &decode)) {
         return false;
     }
 
     if(record->plausible && decode.frame && decode.frame_len > 0U) {
         wmbus_packet_store_frame(record, decode.frame, decode.frame_len);
-        wmbus_packet_select_application(
-            decode.frame, decode.frame_len, record, &parse_context, key_store);
+        wmbus_packet_resolve_application_payload(decode.frame, decode.frame_len, record, key_store);
+        wmbus_packet_parse_application(record);
         wmbus_packet_finalize_parser(record);
     } else {
         record->packet_is_frame = false;

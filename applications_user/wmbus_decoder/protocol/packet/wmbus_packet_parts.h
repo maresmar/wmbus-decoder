@@ -5,6 +5,8 @@
 
 #include "../frame/wmbus_frame.h"
 
+#define WMBUS_PACKET_APPLICATION_MAX 256U
+
 typedef struct {
     uint8_t l_field;
     uint8_t c_field;
@@ -29,6 +31,9 @@ typedef struct {
 typedef struct {
     uint16_t packet_offset;
     uint16_t packet_len;
+    bool has_application_payload;
+    uint16_t application_len;
+    uint8_t application_bytes[WMBUS_PACKET_APPLICATION_MAX];
 } WmBusPacketPayloadData;
 
 typedef struct {

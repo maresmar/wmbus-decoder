@@ -38,11 +38,12 @@ const WmBusDeviceParser* wmbus_device_parser_get(WmBusParserId parser_id) {
     return NULL;
 }
 
-bool wmbus_device_parser_apply(
+static bool wmbus_device_parser_try(
     const WmBusParserPacketView* packet,
-    const WmBusPacketParseContext* parse_context,
+    bool validate_decrypt_only,
+    WmBusParserId* out_parser_id,
     WmBusPacketApplicationData* out_application) {
-    if(!packet || !out_application) {
+    if(!packet) {
         return false;
     }
 
@@ -51,15 +52,40 @@ bool wmbus_device_parser_apply(
         if(!parser->probe || !parser->parse) {
             continue;
         }
-        if(!parser->probe(packet, parse_context)) {
+        if(validate_decrypt_only && !parser->info.validates_decrypt) {
             continue;
         }
+        if(!parser->probe(packet)) {
+            continue;
+        }
+
         WmBusPacketApplicationData application = {.parser_id = parser->info.parser_id};
-        if(parser->parse(packet, parse_context, &application)) {
-            *out_application = application;
+        if(parser->parse(packet, &application)) {
+            if(out_application) {
+                *out_application = application;
+            }
+            if(out_parser_id) {
+                *out_parser_id = parser->info.parser_id;
+            }
             return true;
         }
     }
 
     return false;
+}
+
+bool wmbus_device_parser_apply(
+    const WmBusParserPacketView* packet,
+    WmBusPacketApplicationData* out_application) {
+    if(!out_application) {
+        return false;
+    }
+
+    return wmbus_device_parser_try(packet, false, NULL, out_application);
+}
+
+bool wmbus_device_parser_validate_decrypt(
+    const WmBusParserPacketView* packet,
+    WmBusParserId* out_parser_id) {
+    return wmbus_device_parser_try(packet, true, out_parser_id, NULL);
 }

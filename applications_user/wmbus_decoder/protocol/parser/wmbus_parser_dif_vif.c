@@ -324,17 +324,15 @@ uint8_t wmbus_packet_count_meaningful_records(
 }
 
 bool wmbus_parser_dif_vif_probe(
-    const WmBusParserPacketView* packet,
-    const WmBusPacketParseContext* parse_context) {
-    return packet && parse_context && parse_context->has_application_payload &&
-           parse_context->application_len > 0U;
+    const WmBusParserPacketView* packet) {
+    return packet && packet->payload && packet->payload->has_application_payload &&
+           packet->payload->application_len > 0U;
 }
 
 bool wmbus_parser_dif_vif_parse(
     const WmBusParserPacketView* packet,
-    const WmBusPacketParseContext* parse_context,
     WmBusPacketApplicationData* out_application) {
-    if(!wmbus_parser_dif_vif_probe(packet, parse_context) || !out_application) {
+    if(!wmbus_parser_dif_vif_probe(packet) || !out_application) {
         return false;
     }
 
@@ -342,8 +340,8 @@ bool wmbus_parser_dif_vif_parse(
     out_application->parser_id = WmBusParserIdDifVif;
     uint8_t record_count = 0U;
     if(!wmbus_packet_decode_application_records(
-           parse_context->application_payload,
-           parse_context->application_len,
+           packet->payload->application_bytes,
+           packet->payload->application_len,
            out_application->records,
            (uint8_t)(sizeof(out_application->records) / sizeof(out_application->records[0])),
            &record_count)) {

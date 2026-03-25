@@ -131,18 +131,19 @@ flowchart TD
 
     G --> H["decode by mode<br/>T: 3-of-6 decode<br/>C: direct bytes"]
     H --> I["normalize frame<br/>length fit + CRC state"]
-    I --> J["populate WmBusPacketRecord<br/>DLL / TPL / payload / identity"]
+    I --> J["populate WmBusPacketRecord<br/>DLL / TPL / packet slice / identity"]
     J --> K{"short TPL<br/>encrypted?"}
-    K -->|no| L["parser payload view"]
+    K -->|no| L["resolve application payload"]
     K -->|yes, mode 5| M["try keyring keys<br/>then legacy zero key"]
-    K -->|yes, unsupported mode| N["leave payload undecoded"]
-    L --> O["wmbus_device_parser_apply()<br/>finalize parser + status"]
+    K -->|yes, unsupported mode| N["leave application payload unresolved"]
+    L --> O["wmbus_packet_parse_application()<br/>registered parsers"]
     M --> O
     N --> O
 
-    O --> P["WmBusPacketRecord"]
-    P --> Q["app/sink<br/>wmbus_csv_sink"]
-    P --> R["app/sink<br/>wmbus_history_sink"]
+    O --> P["finalize parser + status"]
+    P --> QA["WmBusPacketRecord"]
+    QA --> Q["app/sink<br/>wmbus_csv_sink"]
+    QA --> R["app/sink<br/>wmbus_history_sink"]
 
     Q -->|csv enabled and<br/>status >= csv threshold| S["storage<br/>wmbus_log_append()<br/>basic/full CSV"]
     Q -->|otherwise| T["skip CSV write"]
