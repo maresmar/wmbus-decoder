@@ -32,6 +32,7 @@ static const char* const wmbus_status_threshold_text[] = {
     "CRC bad",
     "Weak RSSI",
     "OK",
+    "Parsed",
 };
 
 static uint8_t wmbus_status_threshold_index(WmBusStatus status) {

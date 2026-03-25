@@ -16,6 +16,7 @@ typedef enum {
     WmBusStatusCrcBad,
     WmBusStatusWeakRssi,
     WmBusStatusOk,
+    WmBusStatusParsed,
     WmBusStatusCount,
 } WmBusStatus;
 
@@ -44,7 +45,8 @@ typedef uint32_t WmBusStatusMask;
 #define WMBUS_STATUS_MASK_ALL                                                                \
     (WMBUS_STATUS_MASK(WmBusStatusDecodeFail) | WMBUS_STATUS_MASK(WmBusStatusNotPlausible) | \
      WMBUS_STATUS_MASK(WmBusStatusFramingError) | WMBUS_STATUS_MASK(WmBusStatusCrcBad) |     \
-     WMBUS_STATUS_MASK(WmBusStatusWeakRssi) | WMBUS_STATUS_MASK(WmBusStatusOk))
+     WMBUS_STATUS_MASK(WmBusStatusWeakRssi) | WMBUS_STATUS_MASK(WmBusStatusOk) |              \
+     WMBUS_STATUS_MASK(WmBusStatusParsed))
 
 #define WMBUS_PACKET_PREVIEW_MAX 48U
 #define WMBUS_PACKET_DETAIL_MAX  320U
@@ -59,7 +61,7 @@ static inline bool wmbus_status_mask_test(WmBusStatusMask mask, WmBusStatus stat
 
 static inline WmBusStatus wmbus_status_threshold_clamp(WmBusStatus status) {
     if(status < WmBusStatusDecodeFail) return WmBusStatusDecodeFail;
-    if(status >= WmBusStatusCount) return WmBusStatusOk;
+    if(status >= WmBusStatusCount) return WmBusStatusParsed;
     return status;
 }
 

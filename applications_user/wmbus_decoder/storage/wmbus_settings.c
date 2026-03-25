@@ -25,7 +25,8 @@ void wmbus_settings_reset(WmBusSettings* settings) {
     settings->memory_threshold = WmBusStatusDecodeFail;
     settings->csv_threshold = WmBusStatusCrcBad;
     settings->memory_status_mask = WMBUS_STATUS_MASK_ALL;
-    settings->csv_status_mask = WMBUS_STATUS_MASK(WmBusStatusOk) |
+    settings->csv_status_mask = WMBUS_STATUS_MASK(WmBusStatusParsed) |
+                                WMBUS_STATUS_MASK(WmBusStatusOk) |
                                 WMBUS_STATUS_MASK(WmBusStatusWeakRssi) |
                                 WMBUS_STATUS_MASK(WmBusStatusCrcBad);
     settings->debug_overlay = false;
@@ -87,7 +88,8 @@ bool wmbus_settings_load(Storage* storage, WmBusSettings* settings) {
             }
 
             settings->memory_status_mask = WMBUS_STATUS_MASK_ALL;
-            settings->csv_status_mask = WMBUS_STATUS_MASK(WmBusStatusOk) |
+            settings->csv_status_mask = WMBUS_STATUS_MASK(WmBusStatusParsed) |
+                                        WMBUS_STATUS_MASK(WmBusStatusOk) |
                                         WMBUS_STATUS_MASK(WmBusStatusWeakRssi) |
                                         WMBUS_STATUS_MASK(WmBusStatusCrcBad);
             settings->debug_overlay = debug_overlay;

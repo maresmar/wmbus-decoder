@@ -24,8 +24,6 @@ void wmbus_packet_summary_format_security_text(
     char* out,
     size_t out_size);
 void wmbus_packet_summary_format_bottom_line(
-    WmBusRxMode mode,
-    int rssi,
     bool packet_is_frame,
     uint16_t packet_len,
     const WmBusPacketDllData* dll,

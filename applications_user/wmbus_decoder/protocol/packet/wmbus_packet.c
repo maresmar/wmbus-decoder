@@ -21,6 +21,8 @@ const char* wmbus_packet_status_str(WmBusStatus status) {
         return "Weak RSSI";
     case WmBusStatusOk:
         return "OK";
+    case WmBusStatusParsed:
+        return "Parsed";
     default:
         return "--";
     }
@@ -40,6 +42,8 @@ const char* wmbus_packet_status_short_label(WmBusStatus status) {
         return "Weak RSSI";
     case WmBusStatusOk:
         return "OK";
+    case WmBusStatusParsed:
+        return "Parsed";
     default:
         return "--";
     }
@@ -99,6 +103,8 @@ bool wmbus_packet_process_capture(
         record->status = WmBusStatusFramingError;
     } else if(record->crc_known && !record->crc_ok) {
         record->status = WmBusStatusCrcBad;
+    } else if(record->application.record_count > 0U) {
+        record->status = WmBusStatusParsed;
     } else if(!record->strong_rssi) {
         record->status = WmBusStatusWeakRssi;
     } else {

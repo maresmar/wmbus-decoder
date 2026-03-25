@@ -101,8 +101,6 @@ void wmbus_packet_summary_format_security_text(
 }
 
 void wmbus_packet_summary_format_bottom_line(
-    WmBusRxMode mode,
-    int rssi,
     bool packet_is_frame,
     uint16_t packet_len,
     const WmBusPacketDllData* dll,
@@ -124,48 +122,21 @@ void wmbus_packet_summary_format_bottom_line(
             snprintf(
                 out,
                 out_size,
-                "M:%c R:%d C:%s %lu.%03lum3",
-                mode == WmBusRxModeT ? 'T' : 'C',
-                rssi,
-                crypto,
+                "Vol:%lu.%03lum3 %s",
                 (unsigned long)whole,
-                (unsigned long)frac);
+                (unsigned long)frac,
+                crypto);
         } else {
             snprintf(
-                out,
-                out_size,
-                "M:%c R:%d %lu.%03lum3",
-                mode == WmBusRxModeT ? 'T' : 'C',
-                rssi,
-                (unsigned long)whole,
-                (unsigned long)frac);
+                out, out_size, "Vol:%lu.%03lum3", (unsigned long)whole, (unsigned long)frac);
         }
     } else if(packet_is_frame && dll) {
         if(crypto[0] != '\0') {
-            snprintf(
-                out,
-                out_size,
-                "M:%c R:%d %s CI:%02X",
-                mode == WmBusRxModeT ? 'T' : 'C',
-                rssi,
-                crypto,
-                dll->ci_field);
+            snprintf(out, out_size, "CI:%02X %s", dll->ci_field, crypto);
         } else {
-            snprintf(
-                out,
-                out_size,
-                "M:%c R:%d CI:%02X",
-                mode == WmBusRxModeT ? 'T' : 'C',
-                rssi,
-                dll->ci_field);
+            snprintf(out, out_size, "CI:%02X", dll->ci_field);
         }
     } else {
-        snprintf(
-            out,
-            out_size,
-            "M:%c R:%d Len:%u",
-            mode == WmBusRxModeT ? 'T' : 'C',
-            rssi,
-            (unsigned int)packet_len);
+        snprintf(out, out_size, "Len:%u bytes", (unsigned int)packet_len);
     }
 }

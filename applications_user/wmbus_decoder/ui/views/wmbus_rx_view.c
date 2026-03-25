@@ -41,17 +41,15 @@ typedef struct {
     WmBusRxMode mode;
     int rssi;
     WmBusStatus last_status;
-    uint32_t rate_last_tick;
-    uint32_t rate_last_seen;
-    uint16_t packets_per_sec;
-
-    uint32_t packets_seen;
     uint32_t packets_decoded;
     uint32_t packets_strong;
     uint32_t packets_crc_ok;
     uint32_t packets_crc_bad;
     bool last_crc_valid;
     bool last_crc_ok;
+
+    WmBusRxHistoryEntry latest;
+    bool has_latest;
 
     WmBusRxHistoryEntry hist[WMBUS_HIST_MAX];
     uint8_t hist_count;
@@ -68,10 +66,6 @@ struct WmBusRxView {
     View* view;
     WmBusRxViewContext context;
 };
-
-static const char* wmbus_rx_mode_label(WmBusRxMode mode) {
-    return (mode == WmBusRxModeC) ? "C" : "T";
-}
 
 static bool wmbus_rx_send_event(WmBusRxViewContext* context, WmBusRxViewEvent event) {
     if(!context || !context->view_dispatcher) {
@@ -93,6 +87,22 @@ static const WmBusRxHistoryEntry*
 static uint16_t wmbus_rx_history_preview_len(const WmBusRxHistoryEntry* entry) {
     if(!entry) return 0U;
     return entry->packet_preview_len;
+}
+
+static const WmBusRxHistoryEntry* wmbus_rx_display_entry_get(const WmBusRxViewModel* model) {
+    if(!model) {
+        return NULL;
+    }
+
+    if(model->freeze_display) {
+        return wmbus_rx_history_get(model, model->hist_cursor);
+    }
+
+    if(model->has_latest) {
+        return &model->latest;
+    }
+
+    return wmbus_rx_history_get(model, 0U);
 }
 
 static void wmbus_rx_format_age(const WmBusRxHistoryEntry* entry, char* out, size_t out_size) {
@@ -133,26 +143,34 @@ static void
 }
 
 static void
-    wmbus_rx_format_bottom_line(const WmBusRxHistoryEntry* entry, char* out, size_t out_size) {
+    wmbus_rx_format_footer_left(const WmBusRxHistoryEntry* entry, char* out, size_t out_size) {
+    if(!out || out_size == 0U) return;
+    out[0] = '\0';
+    if(!entry) return;
+
+    char crypto[12] = {0};
+    wmbus_packet_summary_format_crypto_tag(&entry->tpl, crypto, sizeof(crypto));
+    if(crypto[0] != '\0') {
+        snprintf(out, out_size, "%s REC:%u", crypto, (unsigned int)entry->application.record_count);
+    } else {
+        snprintf(out, out_size, "REC:%u", (unsigned int)entry->application.record_count);
+    }
+}
+
+static void
+    wmbus_rx_format_footer_right(const WmBusRxHistoryEntry* entry, char* out, size_t out_size) {
     if(!out || out_size == 0U) return;
     out[0] = '\0';
     if(!entry) return;
 
     uint32_t total_m3_x1000 = 0U;
-    bool has_total_volume =
-        wmbus_packet_summary_find_total_m3(&entry->application, &total_m3_x1000);
+    if(!wmbus_packet_summary_find_total_m3(&entry->application, &total_m3_x1000)) {
+        return;
+    }
 
-    wmbus_packet_summary_format_bottom_line(
-        entry->mode,
-        entry->rssi,
-        entry->packet_is_frame,
-        entry->packet_len,
-        &entry->dll,
-        &entry->tpl,
-        has_total_volume,
-        total_m3_x1000,
-        out,
-        out_size);
+    char volume[WMBUS_PACKET_VALUE_MAX] = {0};
+    wmbus_packet_summary_format_total_m3(total_m3_x1000, volume, sizeof(volume), false);
+    snprintf(out, out_size, "%sm3", volume);
 }
 
 static void wmbus_rx_draw(Canvas* canvas, void* model) {
@@ -161,13 +179,13 @@ static void wmbus_rx_draw(Canvas* canvas, void* model) {
     char age[12];
     char header[16];
 
-    uint8_t display_cursor = m->hist_cursor;
-    if(display_cursor >= m->hist_count && !m->freeze_display && m->hist_count > 0U) {
-        display_cursor = (uint8_t)(m->hist_count - 1U);
-    }
-    const WmBusRxHistoryEntry* entry = wmbus_rx_history_get(m, display_cursor);
+    const WmBusRxHistoryEntry* entry = wmbus_rx_display_entry_get(m);
 
     if(m->freeze_display) {
+        uint8_t display_cursor = m->hist_cursor;
+        if(display_cursor >= m->hist_count && m->hist_count > 0U) {
+            display_cursor = (uint8_t)(m->hist_count - 1U);
+        }
         if(entry) {
             snprintf(header, sizeof(header), "H:%u/%u", display_cursor + 1U, m->hist_count);
         } else {
@@ -206,22 +224,16 @@ static void wmbus_rx_draw(Canvas* canvas, void* model) {
     snprintf(
         line,
         sizeof(line),
-        "Lst M:%s R:%u/s RSSI:%d",
-        wmbus_rx_mode_label(m->mode),
-        (unsigned int)m->packets_per_sec,
-        m->rssi);
-    canvas_draw_str(canvas, 0, 28, line);
-
-    snprintf(
-        line,
-        sizeof(line),
-        "%s %s",
-        m->freeze_display ? "Pkt" : "Last",
+        "Status:%s",
         wmbus_packet_status_str(entry ? entry->status : m->last_status));
     canvas_draw_str(canvas, 0, 38, line);
+
+    snprintf(line, sizeof(line), "RSSI:%d", entry ? entry->rssi : m->rssi);
+    canvas_draw_str_aligned(canvas, canvas_width(canvas), 38, AlignRight, AlignBottom, line);
+
     if(age[0] != '\0') {
         snprintf(line, sizeof(line), "A:%s", age);
-        canvas_draw_str_aligned(canvas, canvas_width(canvas), 38, AlignRight, AlignBottom, line);
+        canvas_draw_str_aligned(canvas, canvas_width(canvas), 28, AlignRight, AlignBottom, line);
     }
 
     if(!entry) {
@@ -242,15 +254,31 @@ static void wmbus_rx_draw(Canvas* canvas, void* model) {
         canvas_draw_str(canvas, 0, 48, line);
         snprintf(line, sizeof(line), "Hex:%s%s", hex, (entry->packet_len > 8U) ? "..." : "");
         canvas_draw_str(canvas, 0, 58, line);
+    } else if(!entry->packet_is_frame) {
+        char footer_left[24];
+        canvas_draw_str(canvas, 0, 48, "Raw packet");
+        wmbus_rx_format_footer_left(entry, footer_left, sizeof(footer_left));
+        canvas_draw_str(canvas, 0, 58, footer_left);
     } else {
         char right[20];
+        char footer_left[24];
+        char footer_right[24];
         snprintf(
-            line, sizeof(line), "MF:%s DT:%02X", entry->identity.manufacturer, entry->dll.dev_type);
+            line,
+            sizeof(line),
+            "MFC:%s DT:%02X",
+            entry->identity.manufacturer,
+            entry->dll.dev_type);
         canvas_draw_str(canvas, 0, 48, line);
         snprintf(right, sizeof(right), "ID:%s", entry->identity.meter_id);
         canvas_draw_str_aligned(canvas, canvas_width(canvas), 48, AlignRight, AlignBottom, right);
-        wmbus_rx_format_bottom_line(entry, line, sizeof(line));
-        canvas_draw_str(canvas, 0, 58, line);
+        wmbus_rx_format_footer_left(entry, footer_left, sizeof(footer_left));
+        wmbus_rx_format_footer_right(entry, footer_right, sizeof(footer_right));
+        canvas_draw_str(canvas, 0, 58, footer_left);
+        if(footer_right[0] != '\0') {
+            canvas_draw_str_aligned(
+                canvas, canvas_width(canvas), 58, AlignRight, AlignBottom, footer_right);
+        }
     }
 
     if(m->rssi_hist_count > 0U) {
@@ -455,9 +483,10 @@ void wmbus_rx_view_push_packet(
         rx_view->view,
         WmBusRxViewModel * model,
         {
-            model->packets_seen++;
             model->rssi = record->rssi;
             model->last_status = record->status;
+            wmbus_rx_history_fill_entry(&model->latest, record);
+            model->has_latest = true;
 
             if(record->strong_rssi) {
                 model->packets_strong++;
@@ -477,19 +506,6 @@ void wmbus_rx_view_push_packet(
             } else {
                 model->last_crc_valid = false;
                 model->last_crc_ok = false;
-            }
-
-            uint32_t tick_freq = furi_kernel_get_tick_frequency();
-            if(model->rate_last_tick == 0U) {
-                model->rate_last_tick = record->rx_tick;
-                model->rate_last_seen = model->packets_seen;
-                model->packets_per_sec = 0U;
-            } else if((record->rx_tick - model->rate_last_tick) >= tick_freq) {
-                uint32_t elapsed = record->rx_tick - model->rate_last_tick;
-                uint32_t diff = model->packets_seen - model->rate_last_seen;
-                model->packets_per_sec = (uint16_t)((diff * tick_freq) / (elapsed ? elapsed : 1U));
-                model->rate_last_tick = record->rx_tick;
-                model->rate_last_seen = model->packets_seen;
             }
 
             wmbus_rx_rssi_hist_push(model, record->rssi);
@@ -525,7 +541,7 @@ bool wmbus_rx_view_has_selected_packet(WmBusRxView* rx_view) {
     with_view_model(
         rx_view->view,
         WmBusRxViewModel * model,
-        { has_packet = (wmbus_rx_history_get(model, model->hist_cursor) != NULL); },
+        { has_packet = (wmbus_rx_display_entry_get(model) != NULL); },
         false);
     return has_packet;
 }
@@ -539,7 +555,7 @@ bool wmbus_rx_view_build_selected_detail_text(WmBusRxView* rx_view, FuriString* 
         rx_view->view,
         WmBusRxViewModel * model,
         {
-            const WmBusRxHistoryEntry* entry = wmbus_rx_history_get(model, model->hist_cursor);
+            const WmBusRxHistoryEntry* entry = wmbus_rx_display_entry_get(model);
             if(entry) {
                 WmBusPacketRecord record = {0};
                 wmbus_rx_history_entry_to_record(entry, &record);
