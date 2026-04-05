@@ -18,7 +18,7 @@ static const char* wmbus_log_path(WmBusCsvLogging logging) {
 static const char* wmbus_log_header(WmBusCsvLogging logging) {
     return (logging == WmBusCsvLoggingFull) ?
                "tick,mode,status,plausible,crc_ok,mfg,id,version,device_type,ci,rssi,parser,"
-               "security_mode,decrypted,key_index,total_m3,fields,packet_hex\n" :
+               "security_mode,decrypted,key_index,total_m3,fields,capture_hex,packet_hex\n" :
                "tick,mode,status,mfg,id,version,device_type,ci,rssi,parser,total_m3\n";
 }
 
@@ -92,6 +92,7 @@ bool wmbus_log_append(Storage* storage, WmBusCsvLogging logging, const WmBusPack
         }
 
         char packet_hex[513] = {0};
+        char capture_hex[513] = {0};
         char total_m3[24] = {0};
         FuriString* fields = furi_string_alloc();
         if(!fields) {
@@ -100,13 +101,15 @@ bool wmbus_log_append(Storage* storage, WmBusCsvLogging logging, const WmBusPack
         wmbus_record_formatter_format_joined(
             record->application.records, record->application.record_count, ';', fields);
         wmbus_log_format_hex(
+            record->capture_bytes, record->capture_len, capture_hex, sizeof(capture_hex));
+        wmbus_log_format_hex(
             record->packet_bytes, record->packet_len, packet_hex, sizeof(packet_hex));
         wmbus_log_format_total_m3(record, total_m3, sizeof(total_m3));
 
         if(logging == WmBusCsvLoggingFull) {
             written = wmbus_log_write_line(
                 file,
-                "%lu,%c,%s,%s,%s,%s,%s,%02X,%02X,%02X,%d,%s,%02X,%s,%u,%s,%s,%s\n",
+                "%lu,%c,%s,%s,%s,%s,%s,%02X,%02X,%02X,%d,%s,%02X,%s,%u,%s,%s,%s,%s\n",
                 (unsigned long)record->rx_tick,
                 record->mode == WmBusRxModeT ? 'T' : 'C',
                 wmbus_packet_status_str(record->status),
@@ -124,6 +127,7 @@ bool wmbus_log_append(Storage* storage, WmBusCsvLogging logging, const WmBusPack
                 record->tpl.key_index,
                 total_m3,
                 furi_string_get_cstr(fields),
+                capture_hex,
                 packet_hex);
         } else {
             written = wmbus_log_write_line(

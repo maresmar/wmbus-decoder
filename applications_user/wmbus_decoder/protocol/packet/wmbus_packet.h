@@ -23,12 +23,14 @@ typedef struct {
     bool crc_ok;
     bool strong_rssi;
     uint16_t raw_len;
+    uint16_t capture_len;
     uint16_t
         packet_len; /**< Stored byte count of `packet_bytes`, not the same as `dll.l_field`. */
     bool packet_is_frame;
     int best_offset;
     int rssi;
     uint32_t rx_tick;
+    uint8_t capture_bytes[256];
     uint8_t packet_bytes[256];
     WmBusPacketDllData dll;
     WmBusPacketTplData tpl;

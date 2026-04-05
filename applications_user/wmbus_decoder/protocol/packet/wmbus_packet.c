@@ -70,10 +70,14 @@ bool wmbus_packet_process_capture(
     memset(record, 0, sizeof(*record));
     record->mode = capture->mode;
     record->raw_len = (uint16_t)capture->raw_len;
+    record->capture_len =
+        (uint16_t)((capture->len > sizeof(record->capture_bytes)) ? sizeof(record->capture_bytes) :
+                                                                capture->len);
     record->best_offset = -1;
     record->rssi = capture->rssi;
     record->rx_tick = furi_get_tick();
     record->strong_rssi = (capture->rssi >= -70);
+    memcpy(record->capture_bytes, capture->data, record->capture_len);
 
     uint8_t normalized[256] = {0};
     WmBusPacketDecodeState decode = {0};

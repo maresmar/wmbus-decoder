@@ -85,6 +85,7 @@ static void wmbus_radio_reload_rx_preset(void) {
 }
 
 static bool wmbus_radio_validate_c_mode_regs(void) {
+    uint8_t iocfg0 = wmbus_radio_read_reg(CC1101_IOCFG0);
     uint8_t pktctrl0 = wmbus_radio_read_reg(CC1101_PKTCTRL0);
     uint8_t pktctrl1 = wmbus_radio_read_reg(CC1101_PKTCTRL1);
     uint8_t mdmcfg2 = wmbus_radio_read_reg(CC1101_MDMCFG2);
@@ -93,21 +94,24 @@ static bool wmbus_radio_validate_c_mode_regs(void) {
 
     FURI_LOG_D(
         TAG,
-        "C cfg SYNC=%02X%02X PKTCTRL0=%02X PKTCTRL1=%02X MDMCFG2=%02X",
+        "C cfg SYNC=%02X%02X IOCFG0=%02X PKTCTRL0=%02X PKTCTRL1=%02X MDMCFG2=%02X",
         sync1,
         sync0,
+        iocfg0,
         pktctrl0,
         pktctrl1,
         mdmcfg2);
 
-    bool ok = (pktctrl0 == 0x42U) && (pktctrl1 == 0x00U) && (mdmcfg2 == 0x01U) &&
+    bool ok = (iocfg0 == 0x00U) && (pktctrl0 == 0x00U) && (pktctrl1 == 0x04U) &&
+              (mdmcfg2 == 0x05U) &&
               (sync1 == 0x54U) && (sync0 == 0x3DU);
     if(!ok) {
         FURI_LOG_W(
             TAG,
-            "C cfg mismatch (SYNC=%02X%02X PKTCTRL0=%02X PKTCTRL1=%02X MDMCFG2=%02X)",
+            "C cfg mismatch (SYNC=%02X%02X IOCFG0=%02X PKTCTRL0=%02X PKTCTRL1=%02X MDMCFG2=%02X)",
             sync1,
             sync0,
+            iocfg0,
             pktctrl0,
             pktctrl1,
             mdmcfg2);
@@ -115,24 +119,24 @@ static bool wmbus_radio_validate_c_mode_regs(void) {
     return ok;
 }
 
-static void wmbus_radio_apply_t_mode(void) {
+static void wmbus_radio_apply_link_b_rx_base(void) {
     wmbus_preset_set_reg(CC1101_SYNC1, 0x54);
     wmbus_preset_set_reg(CC1101_SYNC0, 0x3D);
     wmbus_preset_set_reg(CC1101_IOCFG0, 0x00);
     wmbus_preset_set_reg(CC1101_MDMCFG2, 0x05);
     wmbus_preset_set_reg(CC1101_MCSM1, 0x00);
+    wmbus_preset_set_reg(CC1101_PKTCTRL1, 0x04);
+    wmbus_preset_set_reg(CC1101_PKTCTRL0, 0x00);
+}
+
+static void wmbus_radio_apply_t_mode(void) {
+    wmbus_radio_apply_link_b_rx_base();
     wmbus_preset_set_reg(CC1101_PKTCTRL1, 0x00);
     wmbus_preset_set_reg(CC1101_PKTCTRL0, 0x02);
 }
 
 static void wmbus_radio_apply_c_mode(void) {
-    wmbus_preset_set_reg(CC1101_SYNC1, 0x54);
-    wmbus_preset_set_reg(CC1101_SYNC0, 0x3D);
-    wmbus_preset_set_reg(CC1101_IOCFG0, 0x06);
-    wmbus_preset_set_reg(CC1101_MCSM1, 0x00);
-    wmbus_preset_set_reg(CC1101_MDMCFG2, 0x01);
-    wmbus_preset_set_reg(CC1101_PKTCTRL1, 0x00);
-    wmbus_preset_set_reg(CC1101_PKTCTRL0, 0x42);
+    wmbus_radio_apply_link_b_rx_base();
 }
 
 static void wmbus_radio_apply_mode(WmBusRxMode mode) {
@@ -534,7 +538,7 @@ static uint8_t wmbus_cc1101_preset_regs[] = {
     // IOCFG2 is register 0x00 and cannot appear in this table because the
     // Flipper preset loader uses 0x00 as the end-of-table sentinel.
     CC1101_IOCFG1, 0x2E, CC1101_IOCFG0, 0x00, CC1101_FIFOTHR, 0x07, CC1101_SYNC1, 0x54,
-    CC1101_SYNC0, 0x3D, CC1101_PKTLEN, 0xFF, CC1101_PKTCTRL1, 0x04, CC1101_PKTCTRL0, 0x02,
+    CC1101_SYNC0, 0x3D, CC1101_PKTLEN, 0xFF, CC1101_PKTCTRL1, 0x04, CC1101_PKTCTRL0, 0x00,
     CC1101_ADDR, 0x00, CC1101_CHANNR, 0x00, CC1101_FSCTRL1, 0x08, CC1101_FSCTRL0, 0x00,
     CC1101_FREQ2, 0x21, CC1101_FREQ1, 0x65, CC1101_FREQ0, 0x6A, CC1101_MDMCFG4, 0x5C,
     CC1101_MDMCFG3, 0x04, CC1101_MDMCFG2, 0x05, CC1101_MDMCFG1, 0x22, CC1101_MDMCFG0, 0xF8,

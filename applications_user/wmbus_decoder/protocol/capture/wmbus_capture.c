@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "../decode/wmbus_decode.h"
+#include "../frame/wmbus_frame.h"
 
 #define WMBUS_C_SIGNAL_BYTE 0x54U
 
@@ -152,7 +153,24 @@ bool wmbus_capture_estimate_c_expected_len(
     if(frame_offset == SIZE_MAX) return false;
 
     uint8_t l_field = raw[frame_offset];
-    size_t expected = frame_offset + wmbus_capture_frame_len_format_a(l_field);
+    size_t expected_a = frame_offset + wmbus_capture_frame_len_format_a(l_field);
+    size_t expected_b = frame_offset + wmbus_capture_frame_len_format_b(l_field);
+
+    if(expected_b <= raw_max && raw_len >= expected_b &&
+       wmbus_frame_crc_check(WmBusFrameFormatB, &raw[frame_offset], expected_b - frame_offset)) {
+        *expected_len = expected_b;
+        return true;
+    }
+
+    if(expected_a <= raw_max && raw_len >= expected_a &&
+       wmbus_frame_crc_check(WmBusFrameFormatA, &raw[frame_offset], expected_a - frame_offset)) {
+        *expected_len = expected_a;
+        return true;
+    }
+
+    // When the format is still unknown, prefer the longer format-A expectation so
+    // we never truncate a valid long frame before CRC disambiguation is possible.
+    size_t expected = expected_a;
     if(expected > raw_max) expected = raw_max;
     *expected_len = expected;
     return true;

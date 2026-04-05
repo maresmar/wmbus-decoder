@@ -341,6 +341,36 @@ static bool wmbus_selftest_check_capture_c_expected_len_real_l_field_54(char* de
     return true;
 }
 
+static bool
+    wmbus_selftest_check_capture_c_expected_len_estimate_format_b_crc_match(
+        char* detail,
+        size_t detail_len) {
+    uint8_t frame[WMBUS_SELFTEST_BUF_MAX] = {0};
+    size_t frame_len = 0;
+    size_t expected_len = 0;
+
+    if(!wmbus_frame_build_format_b(wmbus_apator_c, WMBUS_APATOR_C_LEN, frame, sizeof(frame), &frame_len)) {
+        wmbus_selftest_set_detail(detail, detail_len, "build format-B failed");
+        return false;
+    }
+    if(!wmbus_capture_estimate_c_expected_len(frame, frame_len, sizeof(frame), &expected_len)) {
+        wmbus_selftest_set_detail(detail, detail_len, "estimate failed");
+        return false;
+    }
+    if(expected_len != frame_len) {
+        wmbus_selftest_set_detail(
+            detail,
+            detail_len,
+            "unexpected expected_len=%u frame_len=%u",
+            (unsigned int)expected_len,
+            (unsigned int)frame_len);
+        return false;
+    }
+
+    wmbus_selftest_set_detail(detail, detail_len, "expected_len=%u", (unsigned int)frame_len);
+    return true;
+}
+
 static bool wmbus_selftest_check_frame_normalize_format_a_wire_frame(char* detail, size_t detail_len) {
     uint8_t frame[WMBUS_SELFTEST_BUF_MAX] = {0};
     size_t frame_len = 0;
@@ -446,6 +476,7 @@ static const WmBusSelftestCheck wmbus_selftest_checks_modes[] = {
     {"check_capture_c_expected_len_estimate", wmbus_selftest_check_capture_c_expected_len_estimate},
     {"check_capture_c_expected_len_estimate_with_signal_byte", wmbus_selftest_check_capture_c_expected_len_estimate_with_signal_byte},
     {"check_capture_c_expected_len_real_l_field_54", wmbus_selftest_check_capture_c_expected_len_real_l_field_54},
+    {"check_capture_c_expected_len_estimate_format_b_crc_match", wmbus_selftest_check_capture_c_expected_len_estimate_format_b_crc_match},
     {"check_frame_normalize_format_a_wire_frame", wmbus_selftest_check_frame_normalize_format_a_wire_frame},
     {"check_frame_normalize_c_mode_format_a_wire_frame", wmbus_selftest_check_frame_normalize_c_mode_format_a_wire_frame},
     {"check_frame_normalize_format_b_wire_frame", wmbus_selftest_check_frame_normalize_format_b_wire_frame},
