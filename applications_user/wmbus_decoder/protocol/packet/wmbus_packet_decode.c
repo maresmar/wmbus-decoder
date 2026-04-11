@@ -14,8 +14,10 @@ typedef struct {
     bool length_ok;
     bool crc_known;
     bool crc_ok;
+    bool normalize_format_known;
     size_t frame_len;
     int best_offset;
+    WmBusFrameFormat normalize_format;
     uint8_t frame[WMBUS_DECODE_MAX];
 } WmBusTDecodeResult;
 
@@ -115,6 +117,8 @@ static bool wmbus_try_decode_t_candidate(
            WmBusRxModeT, decoded, decoded_len, normalized, sizeof(normalized), &normalized_result)) {
         frame = normalized;
         frame_len = normalized_result.normalized_len;
+        result->normalize_format_known = true;
+        result->normalize_format = normalized_result.format;
     }
 
     result->length_ok = normalized_result.length_ok;
@@ -186,6 +190,8 @@ bool wmbus_packet_decode_capture(
         record->length_ok = t_result.length_ok;
         record->crc_known = t_result.crc_known;
         record->crc_ok = t_result.crc_ok;
+        record->normalize_format_known = t_result.normalize_format_known;
+        record->normalize_format = t_result.normalize_format;
         record->best_offset = t_result.best_offset;
 
         if(t_result.plausible) {
@@ -212,6 +218,8 @@ bool wmbus_packet_decode_capture(
                &normalized_result)) {
             frame = frame_buf;
             frame_len = normalized_result.normalized_len;
+            record->normalize_format_known = true;
+            record->normalize_format = normalized_result.format;
         }
         record->length_ok = normalized_result.length_ok;
         record->crc_known = normalized_result.crc_known;

@@ -21,6 +21,7 @@ typedef struct {
     bool length_ok;
     bool crc_known;
     bool crc_ok;
+    bool normalize_format_known;
     bool strong_rssi;
     uint16_t raw_len;
     uint16_t capture_len;
@@ -30,6 +31,7 @@ typedef struct {
     int best_offset;
     int rssi;
     uint32_t rx_tick;
+    WmBusFrameFormat normalize_format;
     uint8_t capture_bytes[256];
     uint8_t packet_bytes[256];
     WmBusPacketDllData dll;

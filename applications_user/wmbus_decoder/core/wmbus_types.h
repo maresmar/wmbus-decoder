@@ -9,6 +9,11 @@ typedef enum {
 } WmBusRxMode;
 
 typedef enum {
+    WmBusFrameFormatA = 0,
+    WmBusFrameFormatB = 1,
+} WmBusFrameFormat;
+
+typedef enum {
     WmBusStatusNone = 0,
     WmBusStatusDecodeFail,
     WmBusStatusNotPlausible,

@@ -9,11 +9,6 @@
 #define WMBUS_MFG_STR_LEN 4U
 #define WMBUS_ID_STR_LEN  9U
 
-typedef enum {
-    WmBusFrameFormatA = 0,
-    WmBusFrameFormatB = 1,
-} WmBusFrameFormat;
-
 typedef struct {
     bool length_ok;
     bool crc_known;
