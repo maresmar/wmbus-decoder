@@ -299,10 +299,10 @@ bool wmbus_frame_normalize(
         ordered_formats[0] = WmBusFrameFormatA;
         ordered_formats[1] = WmBusFrameFormatB;
     } else {
-        // The runtime C path now captures dewhitened wire bytes, so format A is the
-        // primary candidate and format B is retained as a fallback.
-        ordered_formats[0] = WmBusFrameFormatA;
-        ordered_formats[1] = WmBusFrameFormatB;
+        // The runtime C path captures raw Link B wire bytes after sync handling.
+        // When CRC disambiguation fails, prefer the lighter format-B trim as fallback.
+        ordered_formats[0] = WmBusFrameFormatB;
+        ordered_formats[1] = WmBusFrameFormatA;
     }
 
     bool fallback_ready = false;
