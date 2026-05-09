@@ -46,12 +46,42 @@ static const char* wmbus_packet_summary_security_mode_name(uint8_t security_mode
     }
 }
 
+static const char* wmbus_packet_summary_ell_security_mode_name(uint8_t security_mode) {
+    switch(security_mode) {
+    case 0x00:
+        return "Clear";
+    case 0x01:
+        return "AES-CTR";
+    default:
+        return NULL;
+    }
+}
+
 void wmbus_packet_summary_format_crypto_tag(
+    const WmBusPacketEllData* ell,
     const WmBusPacketTplData* tpl,
     char* out,
     size_t out_size) {
     if(!out || out_size == 0U) return;
     out[0] = '\0';
+
+    if(ell && ell->has_ell && ell->has_session) {
+        if(ell->decrypted) {
+            if(ell->key_index != 0U) {
+                snprintf(out, out_size, "EDEC#%u", (unsigned int)ell->key_index);
+            } else {
+                snprintf(out, out_size, "EDEC0");
+            }
+        } else if(wmbus_parser_ell_security_likely_encrypted(ell->sn)) {
+            snprintf(out, out_size, "EENC");
+        } else if(ell->security_mode == 0x00U) {
+            snprintf(out, out_size, "ECLR");
+        } else {
+            snprintf(out, out_size, "ES:%02X", ell->security_mode);
+        }
+        return;
+    }
+
     if(!tpl || !tpl->has_short_tpl) return;
 
     if(tpl->decrypted) {
@@ -72,11 +102,41 @@ void wmbus_packet_summary_format_crypto_tag(
 }
 
 void wmbus_packet_summary_format_security_text(
+    const WmBusPacketEllData* ell,
     const WmBusPacketTplData* tpl,
     char* out,
     size_t out_size) {
     if(!out || out_size == 0U) return;
     out[0] = '\0';
+
+    if(ell && ell->has_ell) {
+        if(!ell->has_session) {
+            snprintf(out, out_size, "ELL");
+            return;
+        }
+
+        char mode[20] = {0};
+        const char* known_mode = wmbus_packet_summary_ell_security_mode_name(ell->security_mode);
+        if(known_mode) {
+            snprintf(mode, sizeof(mode), "%s", known_mode);
+        } else {
+            snprintf(mode, sizeof(mode), "Mode %02X", ell->security_mode);
+        }
+
+        if(ell->decrypted) {
+            if(ell->key_index != 0U) {
+                snprintf(out, out_size, "ELL %s, decrypted key #%u", mode, (unsigned int)ell->key_index);
+            } else {
+                snprintf(out, out_size, "ELL %s, decrypted zero key", mode);
+            }
+        } else if(wmbus_parser_ell_security_likely_encrypted(ell->sn)) {
+            snprintf(out, out_size, "ELL %s, encrypted", mode);
+        } else {
+            snprintf(out, out_size, "ELL %s", mode);
+        }
+        return;
+    }
+
     if(!tpl || !tpl->has_short_tpl) return;
 
     char mode[20] = {0};
@@ -104,6 +164,7 @@ void wmbus_packet_summary_format_bottom_line(
     bool packet_is_frame,
     uint16_t packet_len,
     const WmBusPacketDllData* dll,
+    const WmBusPacketEllData* ell,
     const WmBusPacketTplData* tpl,
     bool has_total_volume,
     uint32_t total_m3_x1000,
@@ -113,7 +174,7 @@ void wmbus_packet_summary_format_bottom_line(
     out[0] = '\0';
 
     char crypto[12] = {0};
-    wmbus_packet_summary_format_crypto_tag(tpl, crypto, sizeof(crypto));
+    wmbus_packet_summary_format_crypto_tag(ell, tpl, crypto, sizeof(crypto));
 
     if(has_total_volume) {
         uint32_t whole = total_m3_x1000 / 1000U;

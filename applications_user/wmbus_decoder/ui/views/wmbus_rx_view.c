@@ -31,6 +31,7 @@ typedef struct {
     uint8_t packet_preview[WMBUS_RX_DEBUG_PACKET_MAX];
     WmBusPacketDllData dll;
     WmBusPacketIdentityData identity;
+    WmBusPacketEllData ell;
     WmBusPacketTplData tpl;
     WmBusPacketApplicationData application;
 } WmBusRxHistoryEntry;
@@ -149,7 +150,7 @@ static void
     if(!entry) return;
 
     char crypto[12] = {0};
-    wmbus_packet_summary_format_crypto_tag(&entry->tpl, crypto, sizeof(crypto));
+    wmbus_packet_summary_format_crypto_tag(&entry->ell, &entry->tpl, crypto, sizeof(crypto));
     if(crypto[0] != '\0') {
         snprintf(out, out_size, "%s REC:%u", crypto, (unsigned int)entry->application.record_count);
     } else {
@@ -449,6 +450,7 @@ static void wmbus_rx_history_fill_entry(
     memcpy(entry->packet_preview, record->packet_bytes, entry->packet_preview_len);
     entry->dll = record->dll;
     entry->identity = record->identity;
+    entry->ell = record->ell;
     entry->tpl = record->tpl;
     entry->application = record->application;
 }
@@ -469,6 +471,7 @@ static void wmbus_rx_history_entry_to_record(
     record->packet_len = entry->packet_len;
     record->dll = entry->dll;
     record->identity = entry->identity;
+    record->ell = entry->ell;
     record->tpl = entry->tpl;
     record->application = entry->application;
 }

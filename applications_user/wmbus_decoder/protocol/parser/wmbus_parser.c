@@ -25,6 +25,12 @@ static const WmBusParserInfo wmbus_builtin_parsers[] = {
         .show_detail = false,
     },
     {
+        .parser_id = WmBusParserIdEll,
+        .name = "ELL",
+        .validates_decrypt = false,
+        .show_detail = false,
+    },
+    {
         .parser_id = WmBusParserIdShortTpl,
         .name = "Short TPL",
         .validates_decrypt = false,
@@ -58,6 +64,30 @@ bool wmbus_parser_validates_decrypt(WmBusParserId parser_id) {
 
 bool wmbus_parser_show_detail(WmBusParserId parser_id) {
     return wmbus_parser_get_info(parser_id)->show_detail;
+}
+
+bool wmbus_parser_ci_has_ell(uint8_t ci) {
+    switch(ci) {
+    case 0x8C:
+    case 0x8D:
+    case 0x8E:
+    case 0x8F:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool wmbus_parser_ell_has_session_fields(uint8_t ci) {
+    return ci == 0x8DU || ci == 0x8FU;
+}
+
+uint8_t wmbus_parser_ell_security_mode(uint32_t sn) {
+    return (uint8_t)((sn >> 29) & 0x07U);
+}
+
+bool wmbus_parser_ell_security_likely_encrypted(uint32_t sn) {
+    return wmbus_parser_ell_security_mode(sn) == 0x01U;
 }
 
 uint8_t wmbus_parser_short_tpl_security_mode(uint16_t cfg) {

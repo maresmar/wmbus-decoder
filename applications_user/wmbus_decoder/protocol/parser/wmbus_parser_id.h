@@ -10,6 +10,7 @@ typedef enum {
     WmBusParserIdUnknown = 0,
     WmBusParserIdRaw,
     WmBusParserIdHeader,
+    WmBusParserIdEll,
     WmBusParserIdShortTpl,
     WmBusParserIdDifVif,
     WmBusParserIdApator162,

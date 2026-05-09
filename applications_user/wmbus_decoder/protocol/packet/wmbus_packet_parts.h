@@ -18,6 +18,20 @@ typedef struct {
 } WmBusPacketDllData;
 
 typedef struct {
+    bool has_ell;
+    uint8_t header_len;
+    uint8_t ci_field;
+    uint8_t cc;
+    uint8_t acc;
+    bool has_session;
+    uint32_t sn;
+    uint8_t security_mode;
+    uint16_t payload_crc;
+    bool decrypted;
+    uint8_t key_index;
+} WmBusPacketEllData;
+
+typedef struct {
     bool has_short_tpl;
     uint8_t header_len;
     uint8_t acc;

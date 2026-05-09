@@ -29,9 +29,13 @@ void wmbus_packet_finalize_parser(WmBusPacketRecord* record) {
     if(!record) return;
 
     if(record->application.parser_id == WmBusParserIdUnknown) {
-        record->application.parser_id = record->tpl.has_short_tpl ? WmBusParserIdShortTpl :
-                                                                     (record->packet_is_frame ?
-                                                                          WmBusParserIdHeader :
-                                                                          WmBusParserIdRaw);
+        if(record->tpl.has_short_tpl) {
+            record->application.parser_id = WmBusParserIdShortTpl;
+        } else if(record->ell.has_ell) {
+            record->application.parser_id = WmBusParserIdEll;
+        } else {
+            record->application.parser_id =
+                record->packet_is_frame ? WmBusParserIdHeader : WmBusParserIdRaw;
+        }
     }
 }

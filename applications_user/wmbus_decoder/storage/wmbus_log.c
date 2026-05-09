@@ -85,6 +85,36 @@ static const char* wmbus_log_normalize_format(const WmBusPacketRecord* record) {
     }
 }
 
+static uint8_t wmbus_log_security_mode(const WmBusPacketRecord* record) {
+    if(!record) {
+        return 0U;
+    }
+    if(record->ell.has_ell && record->ell.has_session) {
+        return record->ell.security_mode;
+    }
+    return record->tpl.security_mode;
+}
+
+static const char* wmbus_log_decrypted(const WmBusPacketRecord* record) {
+    if(!record) {
+        return "no";
+    }
+    if(record->ell.has_ell && record->ell.has_session) {
+        return record->ell.decrypted ? "yes" : "no";
+    }
+    return record->tpl.decrypted ? "yes" : "no";
+}
+
+static uint8_t wmbus_log_key_index(const WmBusPacketRecord* record) {
+    if(!record) {
+        return 0U;
+    }
+    if(record->ell.has_ell && record->ell.has_session) {
+        return record->ell.key_index;
+    }
+    return record->tpl.key_index;
+}
+
 bool wmbus_log_append(Storage* storage, WmBusCsvLogging logging, const WmBusPacketRecord* record) {
     if(!storage || !record || logging == WmBusCsvLoggingNone) return false;
 
@@ -141,9 +171,9 @@ bool wmbus_log_append(Storage* storage, WmBusCsvLogging logging, const WmBusPack
                 record->packet_is_frame ? record->dll.ci_field : 0U,
                 record->rssi,
                 wmbus_parser_id_name(record->application.parser_id),
-                record->tpl.security_mode,
-                record->tpl.decrypted ? "yes" : "no",
-                record->tpl.key_index,
+                wmbus_log_security_mode(record),
+                wmbus_log_decrypted(record),
+                wmbus_log_key_index(record),
                 total_m3,
                 furi_string_get_cstr(fields),
                 capture_hex,

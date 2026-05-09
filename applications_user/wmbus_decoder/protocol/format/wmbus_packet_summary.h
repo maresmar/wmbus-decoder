@@ -16,10 +16,12 @@ void wmbus_packet_summary_format_total_m3(
     size_t out_size,
     bool with_unit);
 void wmbus_packet_summary_format_crypto_tag(
+    const WmBusPacketEllData* ell,
     const WmBusPacketTplData* tpl,
     char* out,
     size_t out_size);
 void wmbus_packet_summary_format_security_text(
+    const WmBusPacketEllData* ell,
     const WmBusPacketTplData* tpl,
     char* out,
     size_t out_size);
@@ -27,6 +29,7 @@ void wmbus_packet_summary_format_bottom_line(
     bool packet_is_frame,
     uint16_t packet_len,
     const WmBusPacketDllData* dll,
+    const WmBusPacketEllData* ell,
     const WmBusPacketTplData* tpl,
     bool has_total_volume,
     uint32_t total_m3_x1000,

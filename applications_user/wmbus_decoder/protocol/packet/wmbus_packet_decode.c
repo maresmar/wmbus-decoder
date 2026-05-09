@@ -48,6 +48,20 @@ static bool wmbus_packet_ci_has_short_tpl(uint8_t ci) {
     }
 }
 
+static uint8_t wmbus_packet_header_payload_offset(const WmBusPacketRecord* record) {
+    uint8_t offset = 11U;
+    if(!record) {
+        return offset;
+    }
+    if(record->ell.has_ell && record->ell.header_len > offset) {
+        offset = record->ell.header_len;
+    }
+    if(record->tpl.has_short_tpl && record->tpl.header_len > offset) {
+        offset = record->tpl.header_len;
+    }
+    return offset;
+}
+
 static void wmbus_packet_extract_dll_tpl_info(
     const uint8_t* frame,
     size_t frame_len,
@@ -64,6 +78,41 @@ static void wmbus_packet_extract_dll_tpl_info(
     wmbus_packet_populate_identity(record);
     record->tpl.header_len = 11U;
     record->tpl.security_mode = 0U;
+    record->ell.header_len = 11U;
+
+    if(frame_len >= 13U && wmbus_parser_ci_has_ell(frame[10])) {
+        size_t pos = 10U;
+        record->ell.has_ell = true;
+        record->ell.ci_field = frame[pos++];
+        record->ell.cc = frame[pos++];
+        record->ell.acc = frame[pos++];
+
+        if(record->ell.ci_field == 0x8EU || record->ell.ci_field == 0x8FU) {
+            if(frame_len < pos + 8U) {
+                return;
+            }
+            pos += 8U;
+        }
+
+        if(wmbus_parser_ell_has_session_fields(record->ell.ci_field)) {
+            if(frame_len < pos + 6U) {
+                return;
+            }
+            record->ell.has_session = true;
+            record->ell.sn = (uint32_t)frame[pos] | ((uint32_t)frame[pos + 1U] << 8U) |
+                             ((uint32_t)frame[pos + 2U] << 16U) |
+                             ((uint32_t)frame[pos + 3U] << 24U);
+            record->ell.security_mode = wmbus_parser_ell_security_mode(record->ell.sn);
+            pos += 4U;
+            record->ell.payload_crc =
+                (uint16_t)frame[pos] | ((uint16_t)frame[pos + 1U] << 8U);
+            pos += 2U;
+        }
+
+        if(pos <= UINT8_MAX) {
+            record->ell.header_len = (uint8_t)pos;
+        }
+    }
 
     if(frame_len >= 15U && wmbus_packet_ci_has_short_tpl(frame[10])) {
         record->tpl.has_short_tpl = true;
@@ -73,6 +122,8 @@ static void wmbus_packet_extract_dll_tpl_info(
         record->tpl.cfg = (uint16_t)frame[13] | ((uint16_t)frame[14] << 8);
         record->tpl.security_mode = wmbus_parser_short_tpl_security_mode(record->tpl.cfg);
     }
+
+    record->tpl.header_len = wmbus_packet_header_payload_offset(record);
 }
 
 static int wmbus_score_t_decode_candidate(const WmBusTDecodeResult* candidate) {

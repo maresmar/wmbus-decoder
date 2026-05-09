@@ -47,6 +47,42 @@ static void wmbus_packet_formatter_format_tpl_fields(
     }
 }
 
+static void wmbus_packet_formatter_format_ell_fields(
+    const WmBusPacketEllData* ell,
+    char* out,
+    size_t out_size) {
+    if(!ell || !out || out_size == 0U) return;
+    out[0] = '\0';
+    if(!ell->has_ell) return;
+
+    size_t write = 0U;
+    int len = snprintf(&out[write], out_size - write, "CC=%02X;ACC=%02X", ell->cc, ell->acc);
+    if(len < 0 || (size_t)len >= (out_size - write)) return;
+    write += (size_t)len;
+
+    if(ell->has_session) {
+        len = snprintf(&out[write], out_size - write, ";SN=%08lX;SEC=%02X",
+                       (unsigned long)ell->sn, ell->security_mode);
+        if(len < 0 || (size_t)len >= (out_size - write)) return;
+        write += (size_t)len;
+
+        len = snprintf(
+            &out[write], out_size - write, ";CRC=%04X", (unsigned int)ell->payload_crc);
+        if(len < 0 || (size_t)len >= (out_size - write)) return;
+        write += (size_t)len;
+
+        if(ell->decrypted) {
+            if(ell->key_index != 0U) {
+                snprintf(&out[write], out_size - write, ";Key=#%u", (unsigned int)ell->key_index);
+            } else {
+                snprintf(&out[write], out_size - write, ";Key=zero");
+            }
+        } else if(wmbus_parser_ell_security_likely_encrypted(ell->sn)) {
+            snprintf(&out[write], out_size - write, ";Payload=Encrypted");
+        }
+    }
+}
+
 static void wmbus_packet_formatter_append_line(
     FuriString* out,
     const char* line,
@@ -124,6 +160,7 @@ static void wmbus_packet_formatter_format_application_detail(
     FuriString* out) {
     FuriString* fields = furi_string_alloc();
     FuriString* status_field = furi_string_alloc();
+    char ell_fields[96] = {0};
     char tpl_fields[96] = {0};
     char line[96] = {0};
     char total[WMBUS_PACKET_VALUE_MAX] = {0};
@@ -164,6 +201,15 @@ static void wmbus_packet_formatter_format_application_detail(
         fields, wrote_status, wrote_volume, out, &wrote_any);
 
     if(!wrote_any) {
+        wmbus_packet_formatter_format_ell_fields(&record->ell, ell_fields, sizeof(ell_fields));
+        if(ell_fields[0] != '\0') {
+            wmbus_packet_formatter_append_line(out, "ELL:", &wrote_any);
+            furi_string_cat_str(out, " ");
+            furi_string_cat_str(out, ell_fields);
+        }
+    }
+
+    if(!wrote_any) {
         wmbus_packet_formatter_format_tpl_fields(&record->tpl, tpl_fields, sizeof(tpl_fields));
         if(tpl_fields[0] != '\0') {
             wmbus_packet_formatter_append_line(out, "TPL:", &wrote_any);
@@ -190,7 +236,7 @@ static void wmbus_packet_formatter_format_frame_detail(
     }
 
     char security[48] = {0};
-    wmbus_packet_summary_format_security_text(&record->tpl, security, sizeof(security));
+    wmbus_packet_summary_format_security_text(&record->ell, &record->tpl, security, sizeof(security));
     if(security[0] == '\0') {
         snprintf(security, sizeof(security), "-");
     }

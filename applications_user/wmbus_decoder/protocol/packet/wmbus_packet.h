@@ -35,6 +35,7 @@ typedef struct {
     uint8_t capture_bytes[256];
     uint8_t packet_bytes[256];
     WmBusPacketDllData dll;
+    WmBusPacketEllData ell;
     WmBusPacketTplData tpl;
     WmBusPacketPayloadData payload;
     WmBusPacketIdentityData identity;

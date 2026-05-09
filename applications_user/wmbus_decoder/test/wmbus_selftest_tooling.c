@@ -138,6 +138,36 @@ static bool wmbus_selftest_check_short_tpl_security_modes(char* detail, size_t d
     return true;
 }
 
+static bool wmbus_selftest_check_ell_security_modes(char* detail, size_t detail_len) {
+    uint32_t clear_sn = 0x01234567UL;
+    uint32_t aes_ctr_sn = 0x21234567UL;
+
+    if(!wmbus_parser_ci_has_ell(0x8DU) || !wmbus_parser_ci_has_ell(0x8EU) ||
+       !wmbus_parser_ci_has_ell(0x8FU) || wmbus_parser_ci_has_ell(0x7AU)) {
+        wmbus_selftest_set_detail(detail, detail_len, "ci detection mismatch");
+        return false;
+    }
+
+    if(!wmbus_parser_ell_has_session_fields(0x8DU) ||
+       wmbus_parser_ell_has_session_fields(0x8EU) ||
+       !wmbus_parser_ell_has_session_fields(0x8FU)) {
+        wmbus_selftest_set_detail(detail, detail_len, "session-field detection mismatch");
+        return false;
+    }
+
+    if(wmbus_parser_ell_security_mode(clear_sn) != 0U ||
+       wmbus_parser_ell_security_mode(aes_ctr_sn) != 1U ||
+       wmbus_parser_ell_security_likely_encrypted(clear_sn) ||
+       !wmbus_parser_ell_security_likely_encrypted(aes_ctr_sn)) {
+        wmbus_selftest_set_detail(detail, detail_len, "security heuristic mismatch clear=%u aes=%u", (unsigned int)wmbus_parser_ell_security_mode(clear_sn), (unsigned int)wmbus_parser_ell_security_mode(aes_ctr_sn));
+        return false;
+    }
+
+    wmbus_selftest_set_detail(
+        detail, detail_len, "8D/8F session AES-CTR mode=%u", (unsigned int)wmbus_parser_ell_security_mode(aes_ctr_sn));
+    return true;
+}
+
 static bool wmbus_selftest_check_dif_vif_decode_basic(char* detail, size_t detail_len) {
     static const uint8_t payload[] = {
         0x04, 0x13, 0x40, 0xE2, 0x01, 0x00, 0x0C, 0x03, 0x56, 0x34, 0x12, 0x00,
@@ -305,6 +335,7 @@ static const WmBusSelftestCheck wmbus_selftest_checks_tooling[] = {
     {"check_parser_plausibility", wmbus_selftest_check_parser_plausibility},
     {"check_apator162_register_sizes", wmbus_selftest_check_apator162_register_sizes},
     {"check_short_tpl_security_modes", wmbus_selftest_check_short_tpl_security_modes},
+    {"check_ell_security_modes", wmbus_selftest_check_ell_security_modes},
     {"check_dif_vif_decode_basic", wmbus_selftest_check_dif_vif_decode_basic},
     {"check_dif_vif_decode_reject_malformed", wmbus_selftest_check_dif_vif_decode_reject_malformed},
     {"check_format_fields_text_prefers_primary_records",
