@@ -3,6 +3,7 @@
 
 #include "../protocol/format/wmbus_packet_summary.h"
 #include "../protocol/format/wmbus_record_formatter.h"
+#include "../protocol/format/wmbus_hex_utils.h"
 #include "../protocol/model/wmbus_application_record.h"
 #include "../protocol/parser/wmbus_parser.h"
 
@@ -60,20 +61,7 @@ static bool wmbus_log_write_line(File* file, const char* format, ...) {
     return storage_file_write(file, line, to_write) == to_write;
 }
 
-static void
-    wmbus_log_format_hex(const uint8_t* data, size_t data_len, char* out, size_t out_size) {
-    if(!out || out_size == 0U) return;
-    out[0] = '\0';
-
-    if(!data) return;
-
-    size_t write = 0;
-    for(size_t i = 0; i < data_len && (write + 2U) < out_size; i++) {
-        snprintf(&out[write], out_size - write, "%02X", data[i]);
-        write += 2U;
-    }
-    out[write] = '\0';
-}
+// Hex encoding now handled by wmbus_hex_utils
 
 static void
     wmbus_log_format_total_m3(const WmBusPacketRecord* record, char* out, size_t out_size) {
@@ -146,10 +134,10 @@ bool wmbus_log_append(Storage* storage, WmBusCsvLogging logging, const WmBusPack
         wmbus_record_formatter_format_joined(
             record->application.records, record->application.record_count, ';', fields);
         if(record->crc_known && record->crc_ok) {
-            wmbus_log_format_hex(
+            wmbus_hex_encode(
                 record->packet_bytes, record->packet_len, hex, sizeof(hex));
         } else {
-            wmbus_log_format_hex(
+            wmbus_hex_encode(
                 record->capture_bytes, record->capture_len, hex, sizeof(hex));
         }
         wmbus_log_format_total_m3(record, total_m3, sizeof(total_m3));

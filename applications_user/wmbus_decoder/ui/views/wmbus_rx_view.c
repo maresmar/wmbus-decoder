@@ -23,8 +23,6 @@ typedef struct {
 typedef struct {
     bool packet_is_frame;
     WmBusStatus status;
-    WmBusPacketQuality quality;
-    WmBusRxMode mode;
     bool has_capture;
     bool header_ok;
     bool length_ok;
@@ -457,8 +455,6 @@ static void wmbus_rx_history_fill_entry(
     memset(entry, 0, sizeof(*entry));
     entry->packet_is_frame = record->packet_is_frame;
     entry->status = record->status;
-    entry->quality = record->quality;
-    entry->mode = record->mode;
     entry->has_capture = record->has_capture;
     entry->header_ok = record->header_ok;
     entry->length_ok = record->length_ok;
@@ -490,8 +486,6 @@ static void wmbus_rx_history_entry_to_record(
     memset(record, 0, sizeof(*record));
     record->packet_is_frame = entry->packet_is_frame;
     record->status = entry->status;
-    record->quality = entry->quality;
-    record->mode = entry->mode;
     record->has_capture = entry->has_capture;
     record->header_ok = entry->header_ok;
     record->length_ok = entry->length_ok;

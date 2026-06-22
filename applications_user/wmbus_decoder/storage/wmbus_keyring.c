@@ -9,6 +9,8 @@
 #include <toolbox/stream/file_stream.h>
 #include <toolbox/stream/stream.h>
 
+#include "../protocol/format/wmbus_hex_utils.h"
+
 #define WMBUS_KEYRING_LINE_MAX  (WMBUS_KEY_BYTES * 2U + 2U)
 
 static void wmbus_keyring_set_status(WmBusKeyring* keyring, const char* format, ...) {
@@ -63,11 +65,11 @@ static void wmbus_keyring_format_hex_key(
     char out[WMBUS_KEYRING_LINE_MAX]) {
     if(!key || !out) return;
 
-    for(size_t i = 0; i < WMBUS_KEY_BYTES; i++) {
-        snprintf(&out[i * 2U], 3U, "%02X", key[i]);
-    }
-    out[WMBUS_KEY_BYTES * 2U] = '\n';
-    out[WMBUS_KEY_BYTES * 2U + 1U] = '\0';
+    wmbus_hex_encode(key, WMBUS_KEY_BYTES, out, WMBUS_KEYRING_LINE_MAX - 1U);
+    size_t len = 0;
+    while(out[len] != '\0') len++;
+    out[len] = '\n';
+    out[len + 1U] = '\0';
 }
 
 void wmbus_keyring_init(WmBusKeyring* keyring) {

@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "wmbus_hex_utils.h"
 #include "../model/wmbus_application_record.h"
 
 static uint64_t wmbus_record_formatter_pow10_u64(uint8_t power) {
@@ -41,27 +42,7 @@ static void wmbus_record_formatter_scaled_unsigned(
         (unsigned long long)frac);
 }
 
-static bool wmbus_record_formatter_raw_hex_le(
-    uint64_t value,
-    uint8_t data_len,
-    char* out,
-    size_t out_size) {
-    if(!out || out_size == 0U || data_len == 0U || data_len > 8U) return false;
-    out[0] = '\0';
-
-    size_t write = 0U;
-    for(uint8_t i = 0; i < data_len; i++) {
-        int len = snprintf(
-            &out[write], out_size - write, "%02X", (unsigned int)((value >> (8U * i)) & 0xFFU));
-        if(len < 0 || (size_t)len >= (out_size - write)) {
-            out[0] = '\0';
-            return false;
-        }
-        write += (size_t)len;
-    }
-
-    return true;
-}
+// Hex encoding now handled by wmbus_hex_utils
 
 static const char* wmbus_record_formatter_unit(const WmBusApplicationRecord* record) {
     if(!record) return NULL;
@@ -220,7 +201,7 @@ static bool wmbus_record_formatter_format_value_buf(
         return true;
     case WmBusApplicationValueRaw:
         if(record->quantity == WmBusApplicationQuantityStatus) {
-            return wmbus_record_formatter_raw_hex_le(
+            return wmbus_hex_encode_le(
                 record->value_unsigned, record->data_len, out, out_size);
         }
         return false;
