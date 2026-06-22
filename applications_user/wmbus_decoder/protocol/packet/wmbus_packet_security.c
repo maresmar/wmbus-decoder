@@ -150,7 +150,6 @@ bool wmbus_packet_resolve_application_payload(
     size_t frame_len,
     WmBusPacketRecord* record,
     const WmBusCryptoKeyStore* key_store) {
-    static const uint8_t wmbus_zero_key[WMBUS_MODE5_KEY_LEN] = {0};
 
     if(!frame || !record) {
         return false;
@@ -199,16 +198,9 @@ bool wmbus_packet_resolve_application_payload(
         if(wmbus_packet_try_key(
                frame, frame_len, entry->bytes, record, &record->payload, decrypt_frame)) {
             record->tpl.decrypted = true;
-            record->tpl.key_index = i + 1U;
+            record->tpl.key_index = i;
             return true;
         }
-    }
-
-    if(wmbus_packet_try_key(
-           frame, frame_len, wmbus_zero_key, record, &record->payload, decrypt_frame)) {
-        record->tpl.decrypted = true;
-        record->tpl.key_index = 0U;
-        return true;
     }
 
     return false;

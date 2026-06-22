@@ -87,7 +87,7 @@ const char* wmbus_packet_quality_short_label(WmBusPacketQuality quality) {
     case WmBusPacketQualityFrameComplete:
         return "LEN";
     case WmBusPacketQualityCrcOk:
-        return "CRC"
+        return "CRC";
     case WmBusPacketQualityParsed:
         return "DEC";
     default:

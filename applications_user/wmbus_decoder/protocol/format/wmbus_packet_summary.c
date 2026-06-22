@@ -67,11 +67,7 @@ void wmbus_packet_summary_format_crypto_tag(
 
     if(ell && ell->has_ell && ell->has_session) {
         if(ell->decrypted) {
-            if(ell->key_index != 0U) {
                 snprintf(out, out_size, "EDEC#%u", (unsigned int)ell->key_index);
-            } else {
-                snprintf(out, out_size, "EDEC0");
-            }
         } else if(wmbus_parser_ell_security_likely_encrypted(ell->sn)) {
             snprintf(out, out_size, "EENC");
         } else if(ell->security_mode == 0x00U) {
@@ -85,11 +81,7 @@ void wmbus_packet_summary_format_crypto_tag(
     if(!tpl || !tpl->has_short_tpl) return;
 
     if(tpl->decrypted) {
-        if(tpl->key_index != 0U) {
             snprintf(out, out_size, "DEC#%u", (unsigned int)tpl->key_index);
-        } else {
-            snprintf(out, out_size, "DEC0");
-        }
     } else if(wmbus_parser_short_tpl_security_likely_encrypted(tpl->cfg)) {
         snprintf(out, out_size, "ENC");
     } else if(tpl->security_mode == 0x00U) {
@@ -124,11 +116,7 @@ void wmbus_packet_summary_format_security_text(
         }
 
         if(ell->decrypted) {
-            if(ell->key_index != 0U) {
                 snprintf(out, out_size, "ELL %s, decrypted key #%u", mode, (unsigned int)ell->key_index);
-            } else {
-                snprintf(out, out_size, "ELL %s, decrypted zero key", mode);
-            }
         } else if(wmbus_parser_ell_security_likely_encrypted(ell->sn)) {
             snprintf(out, out_size, "ELL %s, encrypted", mode);
         } else {
@@ -148,11 +136,7 @@ void wmbus_packet_summary_format_security_text(
     }
 
     if(tpl->decrypted) {
-        if(tpl->key_index != 0U) {
             snprintf(out, out_size, "%s, decrypted key #%u", mode, (unsigned int)tpl->key_index);
-        } else {
-            snprintf(out, out_size, "%s, decrypted zero key", mode);
-        }
     } else if(wmbus_parser_short_tpl_security_likely_encrypted(tpl->cfg)) {
         snprintf(out, out_size, "%s, encrypted", mode);
     } else {

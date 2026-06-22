@@ -36,11 +36,7 @@ static void wmbus_packet_formatter_format_tpl_fields(
     write += (size_t)len;
 
     if(tpl->decrypted) {
-        if(tpl->key_index != 0U) {
             snprintf(key_desc, sizeof(key_desc), "#%u", (unsigned int)tpl->key_index);
-        } else {
-            snprintf(key_desc, sizeof(key_desc), "zero");
-        }
         snprintf(&out[write], out_size - write, ";Key=%s", key_desc);
     } else if(wmbus_parser_short_tpl_security_likely_encrypted(tpl->cfg)) {
         snprintf(&out[write], out_size - write, ";Payload=Encrypted");
@@ -72,11 +68,7 @@ static void wmbus_packet_formatter_format_ell_fields(
         write += (size_t)len;
 
         if(ell->decrypted) {
-            if(ell->key_index != 0U) {
                 snprintf(&out[write], out_size - write, ";Key=#%u", (unsigned int)ell->key_index);
-            } else {
-                snprintf(&out[write], out_size - write, ";Key=zero");
-            }
         } else if(wmbus_parser_ell_security_likely_encrypted(ell->sn)) {
             snprintf(&out[write], out_size - write, ";Payload=Encrypted");
         }
