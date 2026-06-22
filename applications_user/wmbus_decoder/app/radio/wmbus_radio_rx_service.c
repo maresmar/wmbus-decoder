@@ -102,7 +102,7 @@ static bool wmbus_radio_validate_c_mode_regs(void) {
         pktctrl1,
         mdmcfg2);
 
-    bool ok = (iocfg0 == 0x00U) && (pktctrl0 == 0x00U) && (pktctrl1 == 0x04U) &&
+    bool ok = (iocfg0 == 0x00U) && (pktctrl0 == 0x02U) && (pktctrl1 == 0x00U) &&
               (mdmcfg2 == 0x05U) &&
               (sync1 == 0x54U) && (sync0 == 0x3DU);
     if(!ok) {
@@ -125,8 +125,8 @@ static void wmbus_radio_apply_link_b_rx_base(void) {
     wmbus_preset_set_reg(CC1101_IOCFG0, 0x00);
     wmbus_preset_set_reg(CC1101_MDMCFG2, 0x05);
     wmbus_preset_set_reg(CC1101_MCSM1, 0x00);
-    wmbus_preset_set_reg(CC1101_PKTCTRL1, 0x04);
-    wmbus_preset_set_reg(CC1101_PKTCTRL0, 0x00);
+    wmbus_preset_set_reg(CC1101_PKTCTRL1, 0x00);
+    wmbus_preset_set_reg(CC1101_PKTCTRL0, 0x02);
 }
 
 static void wmbus_radio_apply_t_mode(void) {
@@ -339,9 +339,15 @@ static bool wmbus_capture_c_step(
 
     size_t frame_offset = wmbus_capture_c_frame_offset(state->raw, frame_len);
     if(frame_offset == SIZE_MAX || frame_len <= frame_offset) {
+        memcpy(frame->data, state->raw, frame_len);
+        frame->len = frame_len;
+        frame->raw_len = frame_len;
+        frame->rssi = (int)furi_hal_subghz_get_rssi();
+        frame->mode = WmBusRxModeC;
+
         wmbus_capture_state_c_reset(state);
         wmbus_radio_recover_rx();
-        return false;
+        return true;
     }
 
     memcpy(frame->data, &state->raw[frame_offset], frame_len - frame_offset);
@@ -538,7 +544,7 @@ static uint8_t wmbus_cc1101_preset_regs[] = {
     // IOCFG2 is register 0x00 and cannot appear in this table because the
     // Flipper preset loader uses 0x00 as the end-of-table sentinel.
     CC1101_IOCFG1, 0x2E, CC1101_IOCFG0, 0x00, CC1101_FIFOTHR, 0x07, CC1101_SYNC1, 0x54,
-    CC1101_SYNC0, 0x3D, CC1101_PKTLEN, 0xFF, CC1101_PKTCTRL1, 0x04, CC1101_PKTCTRL0, 0x00,
+    CC1101_SYNC0, 0x3D, CC1101_PKTLEN, 0xFF, CC1101_PKTCTRL1, 0x00, CC1101_PKTCTRL0, 0x02,
     CC1101_ADDR, 0x00, CC1101_CHANNR, 0x00, CC1101_FSCTRL1, 0x08, CC1101_FSCTRL0, 0x00,
     CC1101_FREQ2, 0x21, CC1101_FREQ1, 0x65, CC1101_FREQ0, 0x6A, CC1101_MDMCFG4, 0x5C,
     CC1101_MDMCFG3, 0x04, CC1101_MDMCFG2, 0x05, CC1101_MDMCFG1, 0x22, CC1101_MDMCFG0, 0xF8,

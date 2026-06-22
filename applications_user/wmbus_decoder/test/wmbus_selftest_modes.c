@@ -263,6 +263,60 @@ static bool wmbus_selftest_check_capture_t_expected_raw_len_reject_invalid(char*
     return true;
 }
 
+static bool wmbus_selftest_check_packet_process_t_sync_after_fifo_prefix(
+    char* detail,
+    size_t detail_len) {
+    uint8_t frame[WMBUS_SELFTEST_BUF_MAX] = {0};
+    size_t frame_len = 0;
+    uint8_t raw[WMBUS_SELFTEST_BUF_MAX] = {0};
+    size_t raw_len = 0;
+    size_t raw_bit_len = 0;
+    uint8_t capture[WMBUS_SELFTEST_BUF_MAX] = {0};
+    WmBusPacketRecord record = {0};
+
+    if(!wmbus_frame_build_format_a(wmbus_apator_b, WMBUS_APATOR_B_LEN, frame, sizeof(frame), &frame_len)) {
+        wmbus_selftest_set_detail(detail, detail_len, "build format-A failed");
+        return false;
+    }
+    if(!wmbus_selftest_generate_t_3of6_raw_with_offset(
+           frame, frame_len, 0U, raw, sizeof(raw), &raw_len, &raw_bit_len)) {
+        wmbus_selftest_set_detail(detail, detail_len, "generate raw failed");
+        return false;
+    }
+    if(raw_len + 2U > sizeof(capture)) {
+        wmbus_selftest_set_detail(detail, detail_len, "capture overflow raw_len=%u", (unsigned int)raw_len);
+        return false;
+    }
+
+    capture[0] = 0x3CU;
+    capture[1] = 0x94U;
+    memcpy(&capture[2], raw, raw_len);
+
+    if(!wmbus_selftest_process_capture_record(WmBusRxModeT, capture, raw_len + 2U, NULL, &record)) {
+        wmbus_selftest_set_detail(detail, detail_len, "process failed");
+        return false;
+    }
+    if(!record.plausible || !record.crc_ok || record.best_offset != 16 ||
+       strcmp(record.identity.meter_id, "21202020") != 0) {
+        wmbus_selftest_set_detail(
+            detail,
+            detail_len,
+            "unexpected plausible=%u crc=%u best_offset=%d id=%s",
+            record.plausible ? 1U : 0U,
+            record.crc_ok ? 1U : 0U,
+            record.best_offset,
+            record.identity.meter_id);
+        return false;
+    }
+
+    wmbus_selftest_set_detail(
+        detail,
+        detail_len,
+        "fifo_prefix=3C94 best_offset=16 id=%s",
+        record.identity.meter_id);
+    return true;
+}
+
 static bool wmbus_selftest_check_capture_c_frame_offset_waits_for_disambiguation(char* detail, size_t detail_len) {
     const uint8_t raw[] = {0x54, 0x3E};
     size_t frame_offset = wmbus_capture_c_frame_offset(raw, sizeof(raw));
@@ -293,6 +347,38 @@ static bool wmbus_selftest_check_capture_c_frame_offset_l_field_54(char* detail,
         return false;
     }
     wmbus_selftest_set_detail(detail, detail_len, "frame_offset=0");
+    return true;
+}
+
+static bool wmbus_selftest_check_packet_process_c_bad_header_keeps_raw_diagnostic(
+    char* detail,
+    size_t detail_len) {
+    const uint8_t raw[] = {0x24, 0x99, 0x00, 0x00, 0xA5, 0x5A};
+    WmBusPacketRecord record = {0};
+
+    if(!wmbus_selftest_process_capture_record(WmBusRxModeC, raw, sizeof(raw), NULL, &record)) {
+        wmbus_selftest_set_detail(detail, detail_len, "process failed");
+        return false;
+    }
+
+    if(!record.has_capture || record.header_ok || record.length_ok || record.crc_ok ||
+       record.quality != WmBusPacketQualityAnyCapture || record.status != WmBusStatusNotPlausible ||
+       record.packet_len != sizeof(raw) || memcmp(record.packet_bytes, raw, sizeof(raw)) != 0) {
+        wmbus_selftest_set_detail(
+            detail,
+            detail_len,
+            "unexpected has=%u hdr=%u len=%u crc=%u quality=%u status=%u packet_len=%u",
+            record.has_capture ? 1U : 0U,
+            record.header_ok ? 1U : 0U,
+            record.length_ok ? 1U : 0U,
+            record.crc_ok ? 1U : 0U,
+            (unsigned int)record.quality,
+            (unsigned int)record.status,
+            (unsigned int)record.packet_len);
+        return false;
+    }
+
+    wmbus_selftest_set_detail(detail, detail_len, "quality=Any capture status=Not plausible");
     return true;
 }
 
@@ -524,9 +610,11 @@ static const WmBusSelftestCheck wmbus_selftest_checks_modes[] = {
     {"check_capture_t_expected_raw_len_estimate", wmbus_selftest_check_capture_t_expected_raw_len_estimate},
     {"check_capture_t_expected_raw_len_clamp", wmbus_selftest_check_capture_t_expected_raw_len_clamp},
     {"check_capture_t_expected_raw_len_reject_invalid", wmbus_selftest_check_capture_t_expected_raw_len_reject_invalid},
+    {"check_packet_process_t_sync_after_fifo_prefix", wmbus_selftest_check_packet_process_t_sync_after_fifo_prefix},
     {"check_capture_c_frame_offset_waits_for_disambiguation", wmbus_selftest_check_capture_c_frame_offset_waits_for_disambiguation},
     {"check_capture_c_frame_offset_with_signal_byte", wmbus_selftest_check_capture_c_frame_offset_with_signal_byte},
     {"check_capture_c_frame_offset_l_field_54", wmbus_selftest_check_capture_c_frame_offset_l_field_54},
+    {"check_packet_process_c_bad_header_keeps_raw_diagnostic", wmbus_selftest_check_packet_process_c_bad_header_keeps_raw_diagnostic},
     {"check_capture_c_expected_len_estimate", wmbus_selftest_check_capture_c_expected_len_estimate},
     {"check_capture_c_expected_len_estimate_with_signal_byte", wmbus_selftest_check_capture_c_expected_len_estimate_with_signal_byte},
     {"check_capture_c_expected_len_real_l_field_54", wmbus_selftest_check_capture_c_expected_len_real_l_field_54},

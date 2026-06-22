@@ -6,8 +6,8 @@
 
 - WM-Bus receive pipeline with `T` and `C` mode capture paths
 - packet validation with plausibility, length, and CRC checks
-- packet history on device with status-based retention threshold
-- optional CSV logging with status-based logging threshold
+- packet history on device with quality-based retention threshold and optional RSSI gate
+- optional dated CSV logging with quality-based CSV threshold
 - optional AES key loading from `keys.txt`
 - generic DIF/VIF parsing for standard application records
 - targeted device parsing for supported telegram families
@@ -22,6 +22,7 @@
 5. optional decrypt attempts run before application parsing when the packet indicates supported security
 6. registered parsers inspect the packet and populate application-level fields
 7. the result is routed to live view, history storage, and optional CSV logging
+8. history and CSV retention apply optional RSSI and packet-quality gates
 
 ## Current Limitations
 
@@ -68,9 +69,10 @@ Parser inputs come through `WmBusParserPacketView`, which exposes DLL, TPL, payl
 Available settings:
 
 - RX mode: `T` / `C`
-- CSV logging: `None` / `Basic` / `Full`
-- memory threshold: `Store if >=`
-- CSV threshold: `Log if >=`
+- CSV logging: `Off` / `Basic` / `Full`
+- memory quality threshold: `MEM gate >=`
+- CSV quality threshold: `CSV gate >=`
+- RSSI gate: `Off` or a negative dBm threshold
 - keyring status and key entry
 
 Files used by the app:
@@ -78,8 +80,9 @@ Files used by the app:
 - settings: `/ext/apps_data/wmbus_decoder/settings.txt`
 - keys: `/ext/apps_data/wmbus_decoder/keys.txt`
 - selftest report: `/ext/apps_data/wmbus_decoder/selftest.txt`
-- CSV basic: `/ext/apps_data/wmbus_decoder/packets_basic.csv`
-- CSV full: `/ext/apps_data/wmbus_decoder/packets_full.csv`
+- CSV basic: `/ext/apps_data/wmbus_decoder/packets_YYYYMMDD_basic.csv`
+- CSV full: `/ext/apps_data/wmbus_decoder/packets_YYYYMMDD_full.csv`
+- CSV falls back to `packets_undated_basic.csv` or `packets_undated_full.csv` if the RTC date is not usable
 
 ## Key File
 

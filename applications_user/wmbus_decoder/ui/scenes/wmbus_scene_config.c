@@ -3,8 +3,9 @@
 enum WmBusConfigItem {
     WmBusConfigItemMode = 0,
     WmBusConfigItemCsvLogging,
-    WmBusConfigItemMemoryThreshold,
-    WmBusConfigItemCsvThreshold,
+    WmBusConfigItemMemoryQuality,
+    WmBusConfigItemCsvQuality,
+    WmBusConfigItemMinRssi,
     WmBusConfigItemDebugOverlay,
     WmBusConfigItemKeyring,
 };
@@ -15,7 +16,7 @@ static const char* const wmbus_mode_text[] = {
 };
 
 static const char* const wmbus_csv_logging_text[] = {
-    "None",
+    "Off",
     "Basic",
     "Full",
 };
@@ -25,27 +26,37 @@ static const char* const wmbus_toggle_text[] = {
     "On",
 };
 
-static const char* const wmbus_status_threshold_text[] = {
-    "Decode fail",
-    "Not plausible",
-    "Framing error",
-    "CRC bad",
-    "Weak RSSI",
-    "OK",
-    "Parsed",
+static const char* const wmbus_quality_text[] = {
+    "RX",
+    "HDR OK",
+    "LEN OK",
+    "CRC OK",
+    "DECODED",
 };
 
-static uint8_t wmbus_status_threshold_index(WmBusStatus status) {
-    status = wmbus_status_threshold_clamp(status);
-    return (uint8_t)(status - WmBusStatusDecodeFail);
+static const int32_t wmbus_min_rssi_values[] = {
+    0, -100, -95, -90, -85, -80, -75, -70, -65, -60, -55, -50,
+};
+
+static const char* const wmbus_min_rssi_text[] = {
+    "Off", "-100 dBm", "-95 dBm", "-90 dBm", "-85 dBm", "-80 dBm",
+    "-75 dBm", "-70 dBm", "-65 dBm", "-60 dBm", "-55 dBm", "-50 dBm",
+};
+
+static uint8_t wmbus_quality_index(WmBusPacketQuality quality) {
+    return (uint8_t)wmbus_packet_quality_clamp(quality);
 }
 
-static WmBusStatus wmbus_status_threshold_from_index(uint8_t index) {
-    if(index >= COUNT_OF(wmbus_status_threshold_text)) {
-        index = 0U;
-    }
+static WmBusPacketQuality wmbus_quality_from_index(uint8_t index) {
+    if(index >= COUNT_OF(wmbus_quality_text)) index = 0U;
+    return (WmBusPacketQuality)index;
+}
 
-    return (WmBusStatus)(WmBusStatusDecodeFail + index);
+static uint8_t wmbus_min_rssi_index(int32_t min_rssi_dbm) {
+    for(uint8_t i = 0; i < COUNT_OF(wmbus_min_rssi_values); i++) {
+        if(wmbus_min_rssi_values[i] == min_rssi_dbm) return i;
+    }
+    return 0U;
 }
 
 static void wmbus_scene_config_enter_callback(void* context, uint32_t index) {
@@ -74,25 +85,36 @@ static void wmbus_scene_config_csv_logging_changed(VariableItem* item) {
     wmbus_app_apply_runtime_config(app, true);
 }
 
-static void wmbus_scene_config_memory_threshold_changed(VariableItem* item) {
+static void wmbus_scene_config_memory_quality_changed(VariableItem* item) {
     WmBusApp* app = variable_item_get_context(item);
     uint8_t index = variable_item_get_current_value_index(item);
-    if(index >= COUNT_OF(wmbus_status_threshold_text)) {
+    if(index >= COUNT_OF(wmbus_quality_text)) {
         index = 0U;
     }
-    variable_item_set_current_value_text(item, wmbus_status_threshold_text[index]);
-    app->settings.memory_threshold = wmbus_status_threshold_from_index(index);
+    variable_item_set_current_value_text(item, wmbus_quality_text[index]);
+    app->settings.memory_quality = wmbus_quality_from_index(index);
     wmbus_app_apply_runtime_config(app, true);
 }
 
-static void wmbus_scene_config_csv_threshold_changed(VariableItem* item) {
+static void wmbus_scene_config_csv_quality_changed(VariableItem* item) {
     WmBusApp* app = variable_item_get_context(item);
     uint8_t index = variable_item_get_current_value_index(item);
-    if(index >= COUNT_OF(wmbus_status_threshold_text)) {
+    if(index >= COUNT_OF(wmbus_quality_text)) {
         index = 0U;
     }
-    variable_item_set_current_value_text(item, wmbus_status_threshold_text[index]);
-    app->settings.csv_threshold = wmbus_status_threshold_from_index(index);
+    variable_item_set_current_value_text(item, wmbus_quality_text[index]);
+    app->settings.csv_quality = wmbus_quality_from_index(index);
+    wmbus_app_apply_runtime_config(app, true);
+}
+
+static void wmbus_scene_config_min_rssi_changed(VariableItem* item) {
+    WmBusApp* app = variable_item_get_context(item);
+    uint8_t index = variable_item_get_current_value_index(item);
+    if(index >= COUNT_OF(wmbus_min_rssi_values)) {
+        index = 0U;
+    }
+    variable_item_set_current_value_text(item, wmbus_min_rssi_text[index]);
+    app->settings.min_rssi_dbm = wmbus_min_rssi_values[index];
     wmbus_app_apply_runtime_config(app, true);
 }
 
@@ -124,20 +146,32 @@ static void wmbus_scene_config_add_csv_logging_item(WmBusApp* app) {
     variable_item_set_current_value_text(item, wmbus_csv_logging_text[app->settings.csv_logging]);
 }
 
-static void wmbus_scene_config_add_threshold_item(
+static void wmbus_scene_config_add_quality_item(
     WmBusApp* app,
     const char* label,
-    WmBusStatus current,
+    WmBusPacketQuality current,
     VariableItemChangeCallback callback) {
     VariableItem* item = variable_item_list_add(
         app->config_list,
         label,
-        COUNT_OF(wmbus_status_threshold_text),
+        COUNT_OF(wmbus_quality_text),
         callback,
         app);
-    uint8_t index = wmbus_status_threshold_index(current);
+    uint8_t index = wmbus_quality_index(current);
     variable_item_set_current_value_index(item, index);
-    variable_item_set_current_value_text(item, wmbus_status_threshold_text[index]);
+    variable_item_set_current_value_text(item, wmbus_quality_text[index]);
+}
+
+static void wmbus_scene_config_add_min_rssi_item(WmBusApp* app) {
+    VariableItem* item = variable_item_list_add(
+        app->config_list,
+        "RSSI gate >=",
+        COUNT_OF(wmbus_min_rssi_values),
+        wmbus_scene_config_min_rssi_changed,
+        app);
+    uint8_t index = wmbus_min_rssi_index(app->settings.min_rssi_dbm);
+    variable_item_set_current_value_index(item, index);
+    variable_item_set_current_value_text(item, wmbus_min_rssi_text[index]);
 }
 
 static void wmbus_scene_config_add_debug_overlay_item(WmBusApp* app) {
@@ -167,16 +201,17 @@ void wmbus_scene_config_on_enter(void* context) {
         app->config_list, wmbus_scene_config_enter_callback, app);
     wmbus_scene_config_add_mode_item(app);
     wmbus_scene_config_add_csv_logging_item(app);
-    wmbus_scene_config_add_threshold_item(
+    wmbus_scene_config_add_quality_item(
         app,
-        "Store if >=",
-        app->settings.memory_threshold,
-        wmbus_scene_config_memory_threshold_changed);
-    wmbus_scene_config_add_threshold_item(
+        "MEM gate >=",
+        app->settings.memory_quality,
+        wmbus_scene_config_memory_quality_changed);
+    wmbus_scene_config_add_quality_item(
         app,
-        "Log if >=",
-        app->settings.csv_threshold,
-        wmbus_scene_config_csv_threshold_changed);
+        "CSV gate >=",
+        app->settings.csv_quality,
+        wmbus_scene_config_csv_quality_changed);
+    wmbus_scene_config_add_min_rssi_item(app);
     wmbus_scene_config_add_debug_overlay_item(app);
     wmbus_scene_config_add_keyring_item(app);
 

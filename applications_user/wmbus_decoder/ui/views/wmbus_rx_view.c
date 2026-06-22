@@ -23,7 +23,15 @@ typedef struct {
 typedef struct {
     bool packet_is_frame;
     WmBusStatus status;
+    WmBusPacketQuality quality;
     WmBusRxMode mode;
+    bool has_capture;
+    bool header_ok;
+    bool length_ok;
+    bool crc_known;
+    bool crc_ok;
+    bool parsed_ok;
+    bool rssi_ok;
     int8_t rssi;
     uint32_t rx_tick;
     uint16_t packet_len;
@@ -42,12 +50,9 @@ typedef struct {
     WmBusRxMode mode;
     int rssi;
     WmBusStatus last_status;
+    uint32_t packets_rx;
     uint32_t packets_decoded;
-    uint32_t packets_strong;
     uint32_t packets_crc_ok;
-    uint32_t packets_crc_bad;
-    bool last_crc_valid;
-    bool last_crc_ok;
 
     WmBusRxHistoryEntry latest;
     bool has_latest;
@@ -174,6 +179,26 @@ static void
     snprintf(out, out_size, "%sm3", volume);
 }
 
+static void wmbus_rx_format_quality_flags(
+    const WmBusRxHistoryEntry* entry,
+    char* out,
+    size_t out_size) {
+    if(!out || out_size == 0U) return;
+    out[0] = '\0';
+    if(!entry) return;
+
+    snprintf(
+        out,
+        out_size,
+        "%s %s %s %s %s %s",
+        entry->has_capture ? "RX" : "--",
+        entry->header_ok ? "HDR" : "--",
+        entry->length_ok ? "LEN" : "--",
+        (entry->crc_known && entry->crc_ok) ? "CRC" : "--",
+        entry->parsed_ok ? "DEC" : "--",
+        entry->rssi_ok ? "RSSI" : "rssi");
+}
+
 static void wmbus_rx_draw(Canvas* canvas, void* model) {
     const WmBusRxViewModel* m = model;
     char line[64];
@@ -200,7 +225,8 @@ static void wmbus_rx_draw(Canvas* canvas, void* model) {
 
     canvas_set_color(canvas, ColorBlack);
     canvas_set_font(canvas, FontPrimary);
-    canvas_draw_str(canvas, 0, 8, "WM-Bus RX");
+    snprintf(line, sizeof(line), "WM-Bus RX %c", m->mode == WmBusRxModeC ? 'C' : 'T');
+    canvas_draw_str(canvas, 0, 8, line);
     canvas_draw_str_aligned(canvas, canvas_width(canvas), 8, AlignRight, AlignBottom, header);
 
     canvas_set_font(canvas, FontSecondary);
@@ -214,13 +240,11 @@ static void wmbus_rx_draw(Canvas* canvas, void* model) {
     snprintf(
         line,
         sizeof(line),
-        "DEC:%lu OK:%lu BAD:%lu",
-        m->packets_decoded,
+        "RX:%lu OK:%lu DEC:%lu",
+        m->packets_rx,
         m->packets_crc_ok,
-        m->packets_crc_bad);
+        m->packets_decoded);
     canvas_draw_str(canvas, 0, 18, line);
-    snprintf(line, sizeof(line), "Rhi:%lu", m->packets_strong);
-    canvas_draw_str_aligned(canvas, canvas_width(canvas), 18, AlignRight, AlignBottom, line);
 
     snprintf(
         line,
@@ -244,14 +268,7 @@ static void wmbus_rx_draw(Canvas* canvas, void* model) {
         char hex[WMBUS_PACKET_VALUE_MAX];
         wmbus_rx_preview_hex(
             entry->packet_preview, wmbus_rx_history_preview_len(entry), hex, sizeof(hex));
-        snprintf(
-            line,
-            sizeof(line),
-            "L:%02X C:%02X CI:%02X V:%02X",
-            entry->dll.l_field,
-            entry->dll.c_field,
-            entry->dll.ci_field,
-            entry->dll.version);
+        wmbus_rx_format_quality_flags(entry, line, sizeof(line));
         canvas_draw_str(canvas, 0, 48, line);
         snprintf(line, sizeof(line), "Hex:%s%s", hex, (entry->packet_len > 8U) ? "..." : "");
         canvas_draw_str(canvas, 0, 58, line);
@@ -440,7 +457,15 @@ static void wmbus_rx_history_fill_entry(
     memset(entry, 0, sizeof(*entry));
     entry->packet_is_frame = record->packet_is_frame;
     entry->status = record->status;
+    entry->quality = record->quality;
     entry->mode = record->mode;
+    entry->has_capture = record->has_capture;
+    entry->header_ok = record->header_ok;
+    entry->length_ok = record->length_ok;
+    entry->crc_known = record->crc_known;
+    entry->crc_ok = record->crc_ok;
+    entry->parsed_ok = record->parsed_ok;
+    entry->rssi_ok = record->rssi_ok;
     entry->rssi = (int8_t)record->rssi;
     entry->rx_tick = record->rx_tick;
     entry->packet_len = record->packet_len;
@@ -465,7 +490,15 @@ static void wmbus_rx_history_entry_to_record(
     memset(record, 0, sizeof(*record));
     record->packet_is_frame = entry->packet_is_frame;
     record->status = entry->status;
+    record->quality = entry->quality;
     record->mode = entry->mode;
+    record->has_capture = entry->has_capture;
+    record->header_ok = entry->header_ok;
+    record->length_ok = entry->length_ok;
+    record->crc_known = entry->crc_known;
+    record->crc_ok = entry->crc_ok;
+    record->parsed_ok = entry->parsed_ok;
+    record->rssi_ok = entry->rssi_ok;
     record->rssi = entry->rssi;
     record->rx_tick = entry->rx_tick;
     record->packet_len = entry->packet_len;
@@ -491,24 +524,16 @@ void wmbus_rx_view_push_packet(
             wmbus_rx_history_fill_entry(&model->latest, record);
             model->has_latest = true;
 
-            if(record->strong_rssi) {
-                model->packets_strong++;
+            if(record->has_capture) {
+                model->packets_rx++;
             }
 
-            if(record->plausible) {
+            if(record->parsed_ok) {
                 model->packets_decoded++;
-                if(record->crc_known) {
-                    if(record->crc_ok) {
-            model->packets_crc_ok++;
-                    } else {
-                        model->packets_crc_bad++;
-                    }
-                }
-                model->last_crc_valid = record->crc_known;
-                model->last_crc_ok = record->crc_ok;
-            } else {
-                model->last_crc_valid = false;
-                model->last_crc_ok = false;
+            }
+
+            if(record->crc_known && record->crc_ok) {
+                model->packets_crc_ok++;
             }
 
             wmbus_rx_rssi_hist_push(model, record->rssi);

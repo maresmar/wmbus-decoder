@@ -142,21 +142,6 @@ bool wmbus_app_ensure_key_input_view(WmBusApp* app) {
     return true;
 }
 
-bool wmbus_app_ensure_status_mask_view(WmBusApp* app) {
-    if(!app) return false;
-    if(app->status_mask_list) return true;
-
-    wmbus_app_log_step("alloc status mask view");
-    app->status_mask_list = variable_item_list_alloc();
-    if(!app->status_mask_list) return false;
-
-    view_dispatcher_add_view(
-        app->view_dispatcher,
-        WmBusAppViewStatusMask,
-        variable_item_list_get_view(app->status_mask_list));
-    return true;
-}
-
 bool wmbus_app_ensure_detail_view(WmBusApp* app) {
     if(!app) return false;
     if(app->detail_widget) return true;
@@ -253,10 +238,6 @@ static void wmbus_app_free(WmBusApp* app) {
     if(app->detail_widget) {
         view_dispatcher_remove_view(app->view_dispatcher, WmBusAppViewPacketDetail);
         widget_free(app->detail_widget);
-    }
-    if(app->status_mask_list) {
-        view_dispatcher_remove_view(app->view_dispatcher, WmBusAppViewStatusMask);
-        variable_item_list_free(app->status_mask_list);
     }
     if(app->config_list) {
         view_dispatcher_remove_view(app->view_dispatcher, WmBusAppViewConfig);

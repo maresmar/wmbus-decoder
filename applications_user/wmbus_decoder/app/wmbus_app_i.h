@@ -23,22 +23,14 @@ typedef enum {
     WmBusAppViewRx = 0,
     WmBusAppViewConfig,
     WmBusAppViewKeyInput,
-    WmBusAppViewStatusMask,
     WmBusAppViewPacketDetail,
 } WmBusAppView;
-
-typedef enum {
-    WmBusMaskTargetMemory = 0,
-    WmBusMaskTargetCsv,
-} WmBusMaskTarget;
 
 typedef enum {
     WmBusCustomEventOpenConfig = WmBusRxViewEventOpenConfig,
     WmBusCustomEventOpenDetails = WmBusRxViewEventOpenDetails,
     WmBusCustomEventToggleDebug = WmBusRxViewEventToggleDebug,
-    WmBusCustomEventConfigMemoryMask = 100,
-    WmBusCustomEventConfigCsvMask,
-    WmBusCustomEventConfigOpenKeyInput,
+    WmBusCustomEventConfigOpenKeyInput = 100,
     WmBusCustomEventConfigKeyInputDone,
 } WmBusCustomEvent;
 
@@ -51,7 +43,6 @@ struct WmBusApp {
     SceneManager* scene_manager;
     VariableItemList* config_list;
     ByteInput* key_input;
-    VariableItemList* status_mask_list;
     Widget* detail_widget;
     WmBusRxView* rx_view;
 
@@ -63,7 +54,6 @@ struct WmBusApp {
 
     WmBusSettings settings;
     WmBusKeyring keyring;
-    WmBusMaskTarget mask_target;
     uint8_t key_input_bytes[WMBUS_KEY_BYTES];
 };
 
@@ -72,5 +62,4 @@ bool wmbus_app_reload_keys(WmBusApp* app);
 bool wmbus_app_add_key(WmBusApp* app, const uint8_t key[WMBUS_KEY_BYTES]);
 bool wmbus_app_ensure_config_view(WmBusApp* app);
 bool wmbus_app_ensure_key_input_view(WmBusApp* app);
-bool wmbus_app_ensure_status_mask_view(WmBusApp* app);
 bool wmbus_app_ensure_detail_view(WmBusApp* app);

@@ -7,20 +7,39 @@
 #include "../protocol/parser/wmbus_parser.h"
 
 #include <furi.h>
+#include <furi_hal.h>
 #include <stdarg.h>
 #include <stdio.h>
 #define WMBUS_LOG_LINE_MAX 1024U
 
-static const char* wmbus_log_path(WmBusCsvLogging logging) {
-    return (logging == WmBusCsvLoggingFull) ? WMBUS_PACKET_LOG_FULL_PATH :
-                                              WMBUS_PACKET_LOG_BASIC_PATH;
-}
-
 static const char* wmbus_log_header(WmBusCsvLogging logging) {
     return (logging == WmBusCsvLoggingFull) ?
-               "tick,mode,status,normalize_format,crc_ok,mfg,id,version,device_type,ci,rssi,parser,"
+               "tick,mode,status,quality,flags,normalize_format,crc_ok,mfg,id,version,device_type,ci,rssi,parser,"
                "security_mode,decrypted,key_index,total_m3,fields,capture_hex,packet_hex\n" :
-               "tick,mode,status,mfg,id,version,device_type,ci,rssi,parser,total_m3\n";
+               "tick,mode,status,quality,mfg,id,version,device_type,ci,rssi,parser,total_m3\n";
+}
+
+static void wmbus_log_format_path(WmBusCsvLogging logging, char* path, size_t path_size) {
+    if(!path || path_size == 0U) return;
+
+    DateTime now = {0};
+    furi_hal_rtc_get_datetime(&now);
+    const char* kind = (logging == WmBusCsvLoggingFull) ? "full" : "basic";
+
+    if(now.year >= 2020U && now.month >= 1U && now.month <= 12U && now.day >= 1U &&
+       now.day <= 31U) {
+        snprintf(
+            path,
+            path_size,
+            "%s/packets_%04u%02u%02u_%s.csv",
+            WMBUS_APP_FOLDER,
+            (unsigned int)now.year,
+            (unsigned int)now.month,
+            (unsigned int)now.day,
+            kind);
+    } else {
+        snprintf(path, path_size, "%s/packets_undated_%s.csv", WMBUS_APP_FOLDER, kind);
+    }
 }
 
 static bool wmbus_log_write_line(File* file, const char* format, ...) {
@@ -115,6 +134,23 @@ static uint8_t wmbus_log_key_index(const WmBusPacketRecord* record) {
     return record->tpl.key_index;
 }
 
+static void wmbus_log_format_flags(const WmBusPacketRecord* record, char* out, size_t out_size) {
+    if(!out || out_size == 0U) return;
+    out[0] = '\0';
+    if(!record) return;
+
+    snprintf(
+        out,
+        out_size,
+        "%s;%s;%s;%s;%s;%s",
+        record->has_capture ? "RX" : "",
+        record->header_ok ? "HDR" : "",
+        record->length_ok ? "LEN" : "",
+        (record->crc_known && record->crc_ok) ? "CRC" : "",
+        record->parsed_ok ? "DECODED" : "",
+        record->rssi_ok ? "RSSI" : "RSSI_WEAK");
+}
+
 bool wmbus_log_append(Storage* storage, WmBusCsvLogging logging, const WmBusPacketRecord* record) {
     if(!storage || !record || logging == WmBusCsvLoggingNone) return false;
 
@@ -126,7 +162,8 @@ bool wmbus_log_append(Storage* storage, WmBusCsvLogging logging, const WmBusPack
     bool written = false;
 
     do {
-        const char* path = wmbus_log_path(logging);
+        char path[WMBUS_PACKET_LOG_PATH_MAX] = {0};
+        wmbus_log_format_path(logging, path, sizeof(path));
         if(!storage_file_open(file, path, FSAM_READ_WRITE, FSOM_OPEN_APPEND)) {
             break;
         }
@@ -140,28 +177,32 @@ bool wmbus_log_append(Storage* storage, WmBusCsvLogging logging, const WmBusPack
         char packet_hex[513] = {0};
         char capture_hex[513] = {0};
         char total_m3[24] = {0};
+        char flags[48] = {0};
         FuriString* fields = furi_string_alloc();
         if(!fields) {
             break;
         }
         wmbus_record_formatter_format_joined(
             record->application.records, record->application.record_count, ';', fields);
-        if(record->crc_known && !record->crc_ok) {
-            wmbus_log_format_hex(
-                record->capture_bytes, record->capture_len, capture_hex, sizeof(capture_hex));
-        } else if(record->crc_known && record->crc_ok) {
+        if(record->crc_known && record->crc_ok) {
             wmbus_log_format_hex(
                 record->packet_bytes, record->packet_len, packet_hex, sizeof(packet_hex));
+        } else {
+            wmbus_log_format_hex(
+                record->capture_bytes, record->capture_len, capture_hex, sizeof(capture_hex));
         }
         wmbus_log_format_total_m3(record, total_m3, sizeof(total_m3));
+        wmbus_log_format_flags(record, flags, sizeof(flags));
 
         if(logging == WmBusCsvLoggingFull) {
             written = wmbus_log_write_line(
                 file,
-                "%lu,%c,%s,%s,%s,%s,%s,%02X,%02X,%02X,%d,%s,%02X,%s,%u,%s,%s,%s,%s\n",
+                "%lu,%c,%s,%s,%s,%s,%s,%s,%s,%02X,%02X,%02X,%d,%s,%02X,%s,%u,%s,%s,%s,%s\n",
                 (unsigned long)record->rx_tick,
                 record->mode == WmBusRxModeT ? 'T' : 'C',
                 wmbus_packet_status_str(record->status),
+                wmbus_packet_quality_str(record->quality),
+                flags,
                 wmbus_log_normalize_format(record),
                 record->crc_known ? (record->crc_ok ? "yes" : "no") : "",
                 record->packet_is_frame ? record->identity.manufacturer : "",
@@ -181,10 +222,11 @@ bool wmbus_log_append(Storage* storage, WmBusCsvLogging logging, const WmBusPack
         } else {
             written = wmbus_log_write_line(
                 file,
-                "%lu,%c,%s,%s,%s,%02X,%02X,%02X,%d,%s,%s\n",
+                "%lu,%c,%s,%s,%s,%s,%02X,%02X,%02X,%d,%s,%s\n",
                 (unsigned long)record->rx_tick,
                 record->mode == WmBusRxModeT ? 'T' : 'C',
                 wmbus_packet_status_str(record->status),
+                wmbus_packet_quality_str(record->quality),
                 record->packet_is_frame ? record->identity.manufacturer : "",
                 record->packet_is_frame ? record->identity.meter_id : "",
                 record->packet_is_frame ? record->dll.version : 0U,

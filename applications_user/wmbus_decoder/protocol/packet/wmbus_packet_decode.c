@@ -7,6 +7,7 @@
 #include "../parser/wmbus_parser.h"
 
 #define WMBUS_DECODE_MAX 256U
+#define WMBUS_T_SYNC_SEARCH_BITS 64U
 
 typedef struct {
     bool decoded_ok;
@@ -137,7 +138,7 @@ static int wmbus_score_t_decode_candidate(const WmBusTDecodeResult* candidate) {
 
 static bool wmbus_try_decode_t_candidate(
     const WmBusCaptureFrame* capture,
-    uint8_t bit_offset,
+    size_t bit_offset,
     uint8_t tail_pad,
     WmBusTDecodeResult* result) {
     if(!capture || !result) return false;
@@ -147,7 +148,7 @@ static bool wmbus_try_decode_t_candidate(
     raw_bit_len -= tail_pad;
 
     memset(result, 0, sizeof(*result));
-    result->best_offset = bit_offset;
+    result->best_offset = (int)bit_offset;
 
     uint8_t decoded[WMBUS_DECODE_MAX] = {0};
     size_t decoded_len = 0;
@@ -189,7 +190,16 @@ static void wmbus_decode_t_capture(const WmBusCaptureFrame* capture, WmBusTDecod
     int best_score = -1;
     uint8_t best_tail_pad = 0xFFU;
 
-    for(uint8_t bit_offset = 0; bit_offset < 8U; bit_offset++) {
+    size_t raw_bit_len = capture->len * 8U;
+    // Decode from the first bit position that behaves like a T-mode 3-of-6 frame
+    // start. This handles short pre-frame FIFO prefixes without accepting them as
+    // packet bytes; candidates still have to pass header/length/CRC scoring.
+    size_t scan_bits = raw_bit_len;
+    if(scan_bits > WMBUS_T_SYNC_SEARCH_BITS) {
+        scan_bits = WMBUS_T_SYNC_SEARCH_BITS;
+    }
+
+    for(size_t bit_offset = 0; bit_offset < scan_bits; bit_offset++) {
         for(uint8_t tail_pad = 0; tail_pad < 8U; tail_pad++) {
             WmBusTDecodeResult candidate = {0};
             if(!wmbus_try_decode_t_candidate(capture, bit_offset, tail_pad, &candidate)) {

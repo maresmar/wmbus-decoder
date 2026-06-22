@@ -53,11 +53,11 @@ static uint8_t wmbus_decode_get_bits_msb(const uint8_t* data, size_t bit_pos, si
 bool wmbus_decode_3of6_bits(
     const uint8_t* raw,
     size_t raw_bit_len,
-    uint8_t bit_offset,
+    size_t bit_offset,
     uint8_t* out,
     size_t out_max,
     size_t* out_len) {
-    if(!raw || !out || !out_len || bit_offset > 7U) return false;
+    if(!raw || !out || !out_len) return false;
     if(raw_bit_len <= bit_offset) return false;
 
     size_t bit_pos = bit_offset;

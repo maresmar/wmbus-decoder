@@ -3,18 +3,16 @@
 #include <flipper_format/flipper_format.h>
 
 #define WMBUS_SETTINGS_FILE_TYPE "WM-Bus Decoder Settings"
-#define WMBUS_SETTINGS_VERSION   2U
+#define WMBUS_SETTINGS_VERSION   3U
 
-static WmBusStatus wmbus_settings_mask_to_threshold(
-    WmBusStatusMask mask,
-    WmBusStatus fallback) {
-    for(WmBusStatus status = WmBusStatusDecodeFail; status < WmBusStatusCount; status++) {
-        if(wmbus_status_mask_test(mask, status)) {
-            return status;
-        }
-    }
+static int32_t wmbus_settings_normalize_min_rssi(int32_t min_rssi_dbm) {
+    if(min_rssi_dbm >= 0) return 0;
 
-    return fallback;
+    int32_t magnitude = -min_rssi_dbm;
+    int32_t rounded = -(((magnitude + 2) / 5) * 5);
+    if(rounded < -100) return -100;
+    if(rounded > -50) return -50;
+    return rounded;
 }
 
 void wmbus_settings_reset(WmBusSettings* settings) {
@@ -22,13 +20,9 @@ void wmbus_settings_reset(WmBusSettings* settings) {
 
     settings->mode = WmBusRxModeT;
     settings->csv_logging = WmBusCsvLoggingBasic;
-    settings->memory_threshold = WmBusStatusDecodeFail;
-    settings->csv_threshold = WmBusStatusCrcBad;
-    settings->memory_status_mask = WMBUS_STATUS_MASK_ALL;
-    settings->csv_status_mask = WMBUS_STATUS_MASK(WmBusStatusParsed) |
-                                WMBUS_STATUS_MASK(WmBusStatusOk) |
-                                WMBUS_STATUS_MASK(WmBusStatusWeakRssi) |
-                                WMBUS_STATUS_MASK(WmBusStatusCrcBad);
+    settings->min_rssi_dbm = 0;
+    settings->memory_quality = WmBusPacketQualityAnyCapture;
+    settings->csv_quality = WmBusPacketQualityCrcOk;
     settings->debug_overlay = false;
 }
 
@@ -44,10 +38,9 @@ bool wmbus_settings_load(Storage* storage, WmBusSettings* settings) {
     uint32_t version = 0;
     uint32_t mode = 0;
     uint32_t csv_logging = 0;
-    uint32_t memory_threshold = 0;
-    uint32_t csv_threshold = 0;
-    uint32_t memory_mask = 0;
-    uint32_t csv_mask = 0;
+    int32_t min_rssi_dbm = 0;
+    uint32_t memory_quality = 0;
+    uint32_t csv_quality = 0;
     bool debug_overlay = false;
 
     if(flipper_format_file_open_existing(fff, WMBUS_SETTINGS_PATH)) {
@@ -63,35 +56,31 @@ bool wmbus_settings_load(Storage* storage, WmBusSettings* settings) {
             settings->mode = (WmBusRxMode)mode;
             settings->csv_logging = (WmBusCsvLogging)csv_logging;
 
-            if(version >= 2U) {
-                if(!flipper_format_read_uint32(fff, "memory_threshold", &memory_threshold, 1)) break;
-                if(!flipper_format_read_uint32(fff, "csv_threshold", &csv_threshold, 1)) break;
+            if(version >= 3U) {
+                if(!flipper_format_read_int32(fff, "min_rssi_dbm", &min_rssi_dbm, 1)) break;
+                if(!flipper_format_read_uint32(fff, "memory_quality", &memory_quality, 1)) break;
+                if(!flipper_format_read_uint32(fff, "csv_quality", &csv_quality, 1)) break;
                 if(!flipper_format_read_bool(fff, "debug_overlay", &debug_overlay, 1)) break;
 
-                settings->memory_threshold =
-                    wmbus_status_threshold_clamp((WmBusStatus)memory_threshold);
-                settings->csv_threshold =
-                    wmbus_status_threshold_clamp((WmBusStatus)csv_threshold);
+                settings->min_rssi_dbm = wmbus_settings_normalize_min_rssi(min_rssi_dbm);
+                settings->memory_quality =
+                    wmbus_packet_quality_clamp((WmBusPacketQuality)memory_quality);
+                settings->csv_quality =
+                    wmbus_packet_quality_clamp((WmBusPacketQuality)csv_quality);
+            } else if(version == 2U) {
+                uint32_t legacy_threshold = 0;
+                if(!flipper_format_read_uint32(fff, "memory_threshold", &legacy_threshold, 1)) break;
+                if(!flipper_format_read_uint32(fff, "csv_threshold", &legacy_threshold, 1)) break;
+                if(!flipper_format_read_bool(fff, "debug_overlay", &debug_overlay, 1)) break;
             } else if(version == 1U) {
-                if(!flipper_format_read_uint32(fff, "memory_status_mask", &memory_mask, 1)) break;
-                if(!flipper_format_read_uint32(fff, "csv_status_mask", &csv_mask, 1)) break;
+                uint32_t legacy_mask = 0;
+                if(!flipper_format_read_uint32(fff, "memory_status_mask", &legacy_mask, 1)) break;
+                if(!flipper_format_read_uint32(fff, "csv_status_mask", &legacy_mask, 1)) break;
                 if(!flipper_format_read_bool(fff, "debug_overlay", &debug_overlay, 1)) break;
-
-                settings->memory_status_mask = memory_mask ? memory_mask : WMBUS_STATUS_MASK_ALL;
-                settings->csv_status_mask = csv_mask ? csv_mask : WMBUS_STATUS_MASK(WmBusStatusOk);
-                settings->memory_threshold = wmbus_settings_mask_to_threshold(
-                    settings->memory_status_mask, WmBusStatusDecodeFail);
-                settings->csv_threshold = wmbus_settings_mask_to_threshold(
-                    settings->csv_status_mask, WmBusStatusCrcBad);
             } else {
                 break;
             }
 
-            settings->memory_status_mask = WMBUS_STATUS_MASK_ALL;
-            settings->csv_status_mask = WMBUS_STATUS_MASK(WmBusStatusParsed) |
-                                        WMBUS_STATUS_MASK(WmBusStatusOk) |
-                                        WMBUS_STATUS_MASK(WmBusStatusWeakRssi) |
-                                        WMBUS_STATUS_MASK(WmBusStatusCrcBad);
             settings->debug_overlay = debug_overlay;
             loaded = true;
         } while(false);
@@ -113,8 +102,9 @@ bool wmbus_settings_save(Storage* storage, const WmBusSettings* settings) {
         do {
             uint32_t mode = settings->mode;
             uint32_t csv_logging = settings->csv_logging;
-            uint32_t memory_threshold = settings->memory_threshold;
-            uint32_t csv_threshold = settings->csv_threshold;
+            int32_t min_rssi_dbm = wmbus_settings_normalize_min_rssi(settings->min_rssi_dbm);
+            uint32_t memory_quality = settings->memory_quality;
+            uint32_t csv_quality = settings->csv_quality;
             bool debug_overlay = settings->debug_overlay;
 
             if(!flipper_format_write_header_cstr(
@@ -122,8 +112,9 @@ bool wmbus_settings_save(Storage* storage, const WmBusSettings* settings) {
                 break;
             if(!flipper_format_write_uint32(fff, "mode", &mode, 1)) break;
             if(!flipper_format_write_uint32(fff, "csv_logging", &csv_logging, 1)) break;
-            if(!flipper_format_write_uint32(fff, "memory_threshold", &memory_threshold, 1)) break;
-            if(!flipper_format_write_uint32(fff, "csv_threshold", &csv_threshold, 1)) break;
+            if(!flipper_format_write_int32(fff, "min_rssi_dbm", &min_rssi_dbm, 1)) break;
+            if(!flipper_format_write_uint32(fff, "memory_quality", &memory_quality, 1)) break;
+            if(!flipper_format_write_uint32(fff, "csv_quality", &csv_quality, 1)) break;
             if(!flipper_format_write_bool(fff, "debug_overlay", &debug_overlay, 1)) break;
 
             saved = true;

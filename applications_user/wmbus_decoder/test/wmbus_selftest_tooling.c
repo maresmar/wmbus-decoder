@@ -327,6 +327,53 @@ static bool wmbus_selftest_check_format_fields_text_prefers_primary_records(
     return true;
 }
 
+static bool wmbus_selftest_check_packet_quality_policy(char* detail, size_t detail_len) {
+    WmBusPacketRecord record = {
+        .has_capture = true,
+        .header_ok = true,
+        .plausible = true,
+        .length_ok = true,
+        .crc_known = true,
+        .crc_ok = true,
+        .rssi = -82,
+    };
+    record.quality = wmbus_packet_quality_from_record(&record);
+
+    if(record.quality != WmBusPacketQualityCrcOk) {
+        wmbus_selftest_set_detail(
+            detail, detail_len, "unexpected quality=%u", (unsigned int)record.quality);
+        return false;
+    }
+    if(!wmbus_packet_record_passes_policy(&record, WmBusPacketQualityCrcOk, 0)) {
+        wmbus_selftest_set_detail(detail, detail_len, "disabled RSSI gate rejected record");
+        return false;
+    }
+    if(!wmbus_packet_record_passes_policy(&record, WmBusPacketQualityHeaderOk, -85)) {
+        wmbus_selftest_set_detail(detail, detail_len, "enabled RSSI gate rejected strong-enough record");
+        return false;
+    }
+    if(wmbus_packet_record_passes_policy(&record, WmBusPacketQualityHeaderOk, -80)) {
+        wmbus_selftest_set_detail(detail, detail_len, "enabled RSSI gate accepted weak record");
+        return false;
+    }
+    if(wmbus_packet_record_passes_policy(&record, WmBusPacketQualityParsed, 0)) {
+        wmbus_selftest_set_detail(detail, detail_len, "quality gate accepted unparsed record");
+        return false;
+    }
+
+    record.parsed_ok = true;
+    record.quality = wmbus_packet_quality_from_record(&record);
+    if(record.quality != WmBusPacketQualityParsed ||
+       !wmbus_packet_record_passes_policy(&record, WmBusPacketQualityParsed, 0)) {
+        wmbus_selftest_set_detail(
+            detail, detail_len, "parsed quality failed quality=%u", (unsigned int)record.quality);
+        return false;
+    }
+
+    wmbus_selftest_set_detail(detail, detail_len, "policy rssi_off=YES rssi_gate=YES quality=YES");
+    return true;
+}
+
 static const WmBusSelftestCheck wmbus_selftest_checks_tooling[] = {
     {"check_3of6_valid_single_byte", wmbus_selftest_check_3of6_valid_single_byte},
     {"check_3of6_valid_single_byte_offset_1", wmbus_selftest_check_3of6_valid_single_byte_offset_1},
@@ -340,6 +387,7 @@ static const WmBusSelftestCheck wmbus_selftest_checks_tooling[] = {
     {"check_dif_vif_decode_reject_malformed", wmbus_selftest_check_dif_vif_decode_reject_malformed},
     {"check_format_fields_text_prefers_primary_records",
      wmbus_selftest_check_format_fields_text_prefers_primary_records},
+    {"check_packet_quality_policy", wmbus_selftest_check_packet_quality_policy},
 };
 
 const WmBusSelftestCheck* wmbus_selftest_tooling_checks(size_t* count) {

@@ -10,10 +10,9 @@
 typedef struct {
     WmBusRxMode mode;
     WmBusCsvLogging csv_logging;
-    WmBusStatus memory_threshold;
-    WmBusStatus csv_threshold;
-    WmBusStatusMask memory_status_mask;
-    WmBusStatusMask csv_status_mask;
+    int32_t min_rssi_dbm;
+    WmBusPacketQuality memory_quality;
+    WmBusPacketQuality csv_quality;
     bool debug_overlay;
 } WmBusSettings;
 

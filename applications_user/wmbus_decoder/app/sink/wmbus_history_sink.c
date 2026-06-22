@@ -10,8 +10,8 @@ static void wmbus_history_sink_consume(
         return;
     }
 
-    bool store_in_history =
-        wmbus_status_meets_threshold(record->status, settings->memory_threshold);
+    bool store_in_history = wmbus_packet_record_passes_policy(
+        record, settings->memory_quality, settings->min_rssi_dbm);
     wmbus_rx_view_push_packet(history_sink->rx_view, record, store_in_history);
 }
 

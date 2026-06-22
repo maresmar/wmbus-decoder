@@ -15,7 +15,12 @@
 
 typedef struct {
     WmBusStatus status;
+    WmBusPacketQuality quality;
     WmBusRxMode mode;
+    bool has_capture;
+    bool header_ok;
+    bool parsed_ok;
+    bool rssi_ok;
     bool decoded_ok;
     bool plausible;
     bool length_ok;
@@ -46,6 +51,14 @@ bool wmbus_packet_process_capture(
     const WmBusCaptureFrame* capture,
     const WmBusCryptoKeyStore* key_store,
     WmBusPacketRecord* record);
+
+WmBusPacketQuality wmbus_packet_quality_from_record(const WmBusPacketRecord* record);
+const char* wmbus_packet_quality_str(WmBusPacketQuality quality);
+const char* wmbus_packet_quality_short_label(WmBusPacketQuality quality);
+bool wmbus_packet_record_passes_policy(
+    const WmBusPacketRecord* record,
+    WmBusPacketQuality min_quality,
+    int32_t min_rssi_dbm);
 
 const char* wmbus_packet_status_str(WmBusStatus status);
 const char* wmbus_packet_status_short_label(WmBusStatus status);

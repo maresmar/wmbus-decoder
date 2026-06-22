@@ -6,6 +6,7 @@
 #include "../frame/wmbus_frame.h"
 
 #define WMBUS_C_SIGNAL_BYTE 0x54U
+#define WMBUS_T_SYNC_SEARCH_BITS 64U
 
 void wmbus_capture_state_t_reset(WmBusCaptureStateT* state) {
     if(!state) return;
@@ -104,15 +105,24 @@ bool wmbus_capture_estimate_t_expected_raw_len(
     int best_score = -1;
     size_t best_expected = 0;
 
-    for(uint8_t bit_offset = 0; bit_offset < 8U; bit_offset++) {
+    size_t raw_bit_len = raw_len * 8U;
+    // The CC1101 FIFO can include pre-frame bits before the first T-mode 3-of-6
+    // symbol. Do not discard bytes blindly; search for a symbol boundary that
+    // decodes to a credible L-field/header and use that to estimate frame length.
+    size_t scan_bits = raw_bit_len;
+    if(scan_bits > WMBUS_T_SYNC_SEARCH_BITS) {
+        scan_bits = WMBUS_T_SYNC_SEARCH_BITS;
+    }
+
+    for(size_t bit_offset = 0; bit_offset < scan_bits; bit_offset++) {
         for(uint8_t tail_pad = 0; tail_pad < 8U; tail_pad++) {
-            size_t raw_bit_len = raw_len * 8U;
-            if(raw_bit_len <= tail_pad) continue;
-            raw_bit_len -= tail_pad;
+            size_t candidate_bit_len = raw_len * 8U;
+            if(candidate_bit_len <= tail_pad) continue;
+            candidate_bit_len -= tail_pad;
 
             size_t decoded_len = 0;
             if(!wmbus_decode_3of6_bits(
-                   raw, raw_bit_len, bit_offset, decoded, sizeof(decoded), &decoded_len) ||
+                   raw, candidate_bit_len, bit_offset, decoded, sizeof(decoded), &decoded_len) ||
                decoded_len < 1) {
                 continue;
             }

@@ -13,7 +13,8 @@ static void wmbus_csv_sink_consume(
     }
 
     if(settings->csv_logging == WmBusCsvLoggingNone ||
-       !wmbus_status_meets_threshold(record->status, settings->csv_threshold)) {
+       !wmbus_packet_record_passes_policy(
+           record, settings->csv_quality, settings->min_rssi_dbm)) {
         return;
     }
 
@@ -38,4 +39,3 @@ void wmbus_csv_sink_init(WmBusCsvSink* csv_sink, Storage* storage) {
 const WmBusPacketSink* wmbus_csv_sink_get_packet_sink(const WmBusCsvSink* csv_sink) {
     return csv_sink ? &csv_sink->sink : NULL;
 }
-
