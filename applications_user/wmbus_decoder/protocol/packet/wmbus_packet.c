@@ -64,7 +64,7 @@ const char* wmbus_packet_csv_logging_str(WmBusCsvLogging logging) {
 const char* wmbus_packet_quality_str(WmBusPacketQuality quality) {
     switch(wmbus_packet_quality_clamp(quality)) {
     case WmBusPacketQualityAnyCapture:
-        return "Any capture";
+        return "Received";
     case WmBusPacketQualityHeaderOk:
         return "Header OK";
     case WmBusPacketQualityFrameComplete:
