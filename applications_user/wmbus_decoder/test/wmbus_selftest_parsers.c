@@ -114,12 +114,18 @@ static bool wmbus_selftest_check_parser_apator162_old_style_ci_b6_rejected(char*
     return true;
 }
 
-static bool wmbus_selftest_check_parser_apator162_mode5_zero_key_vectors(char* detail, size_t detail_len) {
+static bool
+    wmbus_selftest_check_parser_apator162_mode5_configured_zero_key_vectors(
+        char* detail,
+        size_t detail_len) {
     const WmBusSelftestApatorFieldVector vectors[] = {
         {wmbus_selftest_apator_encrypted_mode5, 4848U, "88888888"},
         {wmbus_selftest_apator_encrypted_mode5_gold, 345654U, "02991056"},
         {wmbus_selftest_apator_encrypted_mode5_field_02991035, 200257U, "02991035"},
     };
+    WmBusCryptoKeyStore key_store = {0};
+
+    key_store.count = 1U;
 
     for(size_t i = 0; i < COUNT_OF(vectors); i++) {
         uint8_t frame[WMBUS_SELFTEST_BUF_MAX] = {0};
@@ -141,7 +147,7 @@ static bool wmbus_selftest_check_parser_apator162_mode5_zero_key_vectors(char* d
             wmbus_selftest_set_detail(detail, detail_len, "vector %s unexpected cipher state", vectors[i].id);
             return false;
         }
-        if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, NULL, &record)) {
+        if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, &key_store, &record)) {
             wmbus_selftest_set_detail(detail, detail_len, "vector %s packet process failed", vectors[i].id);
             return false;
         }
@@ -158,16 +164,17 @@ static bool wmbus_selftest_check_parser_apator162_mode5_zero_key_vectors(char* d
         }
     }
 
-    wmbus_selftest_set_detail(detail, detail_len, "mode5 zero-key vectors=%u", (unsigned int)COUNT_OF(vectors));
+    wmbus_selftest_set_detail(detail, detail_len, "mode5 configured-zero vectors=%u key_index=0", (unsigned int)COUNT_OF(vectors));
     return true;
 }
 
-static bool wmbus_selftest_check_packet_process_mode5_zero_key_fallback_vector(char* detail, size_t detail_len) {
+static bool wmbus_selftest_check_packet_process_mode5_no_key_does_not_decrypt(
+    char* detail,
+    size_t detail_len) {
     uint8_t frame[WMBUS_SELFTEST_BUF_MAX] = {0};
     size_t frame_len = 0;
     WmBusCryptoKeyStore key_store = {0};
     WmBusPacketRecord record = {0};
-    char rec_desc[96] = {0};
 
     if(!wmbus_selftest_hex_to_format_b_frame(wmbus_selftest_apator_encrypted_mode5, frame, sizeof(frame), &frame_len)) {
         wmbus_selftest_set_detail(detail, detail_len, "format-B build failed");
@@ -178,25 +185,35 @@ static bool wmbus_selftest_check_packet_process_mode5_zero_key_fallback_vector(c
         return false;
     }
 
-    uint32_t total_m3_x1000 = 0U;
-    wmbus_selftest_describe_first_record(&record, rec_desc, sizeof(rec_desc));
-    if(record.application.parser_id != WmBusParserIdApator162 ||
-       !wmbus_selftest_find_total_volume(&record, &total_m3_x1000) || total_m3_x1000 != 4848U ||
-       !record.tpl.decrypted || record.tpl.key_index != 0U ||
-       strcmp(record.identity.meter_id, "88888888") != 0) {
-        wmbus_selftest_set_detail(detail, detail_len, "parser=%s total=%lu dec=%s idx=%u id=%s %s", wmbus_selftest_parser_name(&record), (unsigned long)total_m3_x1000, record.tpl.decrypted ? "YES" : "NO", (unsigned int)record.tpl.key_index, record.identity.meter_id, rec_desc);
+    if(record.application.parser_id != WmBusParserIdShortTpl || record.tpl.decrypted ||
+       record.tpl.key_index != 0U || record.application.record_count != 0U ||
+       record.payload.has_application_payload) {
+        wmbus_selftest_set_detail(
+            detail,
+            detail_len,
+            "unexpected parser=%s dec=%s idx=%u records=%u payload=%s",
+            wmbus_selftest_parser_name(&record),
+            record.tpl.decrypted ? "YES" : "NO",
+            (unsigned int)record.tpl.key_index,
+            (unsigned int)record.application.record_count,
+            record.payload.has_application_payload ? "YES" : "NO");
         return false;
     }
 
-    wmbus_selftest_set_detail(detail, detail_len, "parser=%s total=%lu fallback=zero id=%s", wmbus_selftest_parser_name(&record), (unsigned long)total_m3_x1000, record.identity.meter_id);
+    wmbus_selftest_set_detail(detail, detail_len, "no_key leaves encrypted payload closed");
     return true;
 }
 
-static bool wmbus_selftest_check_packet_process_mode5_parser_zero_key_fallback(char* detail, size_t detail_len) {
+static bool wmbus_selftest_check_packet_process_mode5_parser_configured_zero_key(
+    char* detail,
+    size_t detail_len) {
     const WmBusSelftestApatorFieldVector vectors[] = {
         {wmbus_selftest_apator_encrypted_mode5_gold, 345654U, "02991056"},
         {wmbus_selftest_apator_encrypted_mode5_field_02991035, 200257U, "02991035"},
     };
+    WmBusCryptoKeyStore key_store = {0};
+
+    key_store.count = 1U;
 
     for(size_t i = 0; i < COUNT_OF(vectors); i++) {
         uint8_t frame[WMBUS_SELFTEST_BUF_MAX] = {0};
@@ -208,7 +225,7 @@ static bool wmbus_selftest_check_packet_process_mode5_parser_zero_key_fallback(c
             wmbus_selftest_set_detail(detail, detail_len, "vector %s format-B build failed", vectors[i].id);
             return false;
         }
-        if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, NULL, &record)) {
+        if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, &key_store, &record)) {
             wmbus_selftest_set_detail(detail, detail_len, "vector %s packet process failed", vectors[i].id);
             return false;
         }
@@ -225,7 +242,7 @@ static bool wmbus_selftest_check_packet_process_mode5_parser_zero_key_fallback(c
         }
     }
 
-    wmbus_selftest_set_detail(detail, detail_len, "parser_fallback=zero vectors=%u", (unsigned int)COUNT_OF(vectors));
+    wmbus_selftest_set_detail(detail, detail_len, "configured_zero_key vectors=%u key_index=0", (unsigned int)COUNT_OF(vectors));
     return true;
 }
 
@@ -257,18 +274,65 @@ static bool wmbus_selftest_check_packet_process_mode5_configured_zero_key_slot(c
         if(record.application.parser_id != WmBusParserIdApator162 ||
            !wmbus_selftest_find_total_volume(&record, &total_m3_x1000) ||
            total_m3_x1000 != vectors[i].total_m3_x1000 || !record.tpl.decrypted ||
-           record.tpl.key_index != 1U ||
+           record.tpl.key_index != 0U ||
            strcmp(record.identity.meter_id, vectors[i].id) != 0) {
             wmbus_selftest_set_detail(detail, detail_len, "vector %s parser=%s total=%lu dec=%s idx=%u id=%s %s", vectors[i].id, wmbus_selftest_parser_name(&record), (unsigned long)total_m3_x1000, record.tpl.decrypted ? "YES" : "NO", (unsigned int)record.tpl.key_index, record.identity.meter_id, rec_desc);
             return false;
         }
     }
 
-    wmbus_selftest_set_detail(detail, detail_len, "configured_zero_key vectors=%u key_index=1", (unsigned int)COUNT_OF(vectors));
+    wmbus_selftest_set_detail(detail, detail_len, "configured_zero_key vectors=%u key_index=0", (unsigned int)COUNT_OF(vectors));
     return true;
 }
 
-static bool wmbus_selftest_check_packet_process_mode5_wrong_key_falls_back_to_zero(char* detail, size_t detail_len) {
+static bool wmbus_selftest_check_packet_process_mode5_multiple_keys_uses_matching_slot(
+    char* detail,
+    size_t detail_len) {
+    uint8_t frame[WMBUS_SELFTEST_BUF_MAX] = {0};
+    size_t frame_len = 0;
+    WmBusCryptoKeyStore key_store = {0};
+    WmBusPacketRecord record = {0};
+    uint32_t total_m3_x1000 = 0U;
+    char rec_desc[96] = {0};
+
+    memset(key_store.entries[0].bytes, 0xA5, sizeof(key_store.entries[0].bytes));
+    key_store.count = 2U;
+
+    if(!wmbus_selftest_hex_to_format_b_frame(
+           wmbus_selftest_apator_encrypted_mode5_gold, frame, sizeof(frame), &frame_len)) {
+        wmbus_selftest_set_detail(detail, detail_len, "format-B build failed");
+        return false;
+    }
+    if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, &key_store, &record)) {
+        wmbus_selftest_set_detail(detail, detail_len, "packet process failed");
+        return false;
+    }
+
+    wmbus_selftest_describe_first_record(&record, rec_desc, sizeof(rec_desc));
+    if(record.application.parser_id != WmBusParserIdApator162 ||
+       !wmbus_selftest_find_total_volume(&record, &total_m3_x1000) ||
+       total_m3_x1000 != 345654U || !record.tpl.decrypted || record.tpl.key_index != 1U ||
+       strcmp(record.identity.meter_id, "02991056") != 0) {
+        wmbus_selftest_set_detail(
+            detail,
+            detail_len,
+            "parser=%s total=%lu dec=%s idx=%u id=%s %s",
+            wmbus_selftest_parser_name(&record),
+            (unsigned long)total_m3_x1000,
+            record.tpl.decrypted ? "YES" : "NO",
+            (unsigned int)record.tpl.key_index,
+            record.identity.meter_id,
+            rec_desc);
+        return false;
+    }
+
+    wmbus_selftest_set_detail(detail, detail_len, "multiple_keys matched key_index=1");
+    return true;
+}
+
+static bool wmbus_selftest_check_packet_process_mode5_wrong_key_does_not_decrypt(
+    char* detail,
+    size_t detail_len) {
     const WmBusSelftestApatorFieldVector vectors[] = {
         {wmbus_selftest_apator_encrypted_mode5_gold, 345654U, "02991056"},
         {wmbus_selftest_apator_encrypted_mode5_field_02991035, 200257U, "02991035"},
@@ -282,7 +346,6 @@ static bool wmbus_selftest_check_packet_process_mode5_wrong_key_falls_back_to_ze
         uint8_t frame[WMBUS_SELFTEST_BUF_MAX] = {0};
         size_t frame_len = 0;
         WmBusPacketRecord record = {0};
-        char rec_desc[96] = {0};
 
         if(!wmbus_selftest_hex_to_format_b_frame(vectors[i].telegram, frame, sizeof(frame), &frame_len)) {
             wmbus_selftest_set_detail(detail, detail_len, "vector %s format-B build failed", vectors[i].id);
@@ -293,19 +356,24 @@ static bool wmbus_selftest_check_packet_process_mode5_wrong_key_falls_back_to_ze
             return false;
         }
 
-        uint32_t total_m3_x1000 = 0U;
-        wmbus_selftest_describe_first_record(&record, rec_desc, sizeof(rec_desc));
-        if(record.application.parser_id != WmBusParserIdApator162 ||
-           !wmbus_selftest_find_total_volume(&record, &total_m3_x1000) ||
-           total_m3_x1000 != vectors[i].total_m3_x1000 || !record.tpl.decrypted ||
-           record.tpl.key_index != 0U ||
-           strcmp(record.identity.meter_id, vectors[i].id) != 0) {
-            wmbus_selftest_set_detail(detail, detail_len, "vector %s parser=%s total=%lu dec=%s idx=%u id=%s %s", vectors[i].id, wmbus_selftest_parser_name(&record), (unsigned long)total_m3_x1000, record.tpl.decrypted ? "YES" : "NO", (unsigned int)record.tpl.key_index, record.identity.meter_id, rec_desc);
+        if(record.application.parser_id != WmBusParserIdShortTpl || record.tpl.decrypted ||
+           record.tpl.key_index != 0U || record.application.record_count != 0U ||
+           record.payload.has_application_payload) {
+            wmbus_selftest_set_detail(
+                detail,
+                detail_len,
+                "vector %s parser=%s dec=%s idx=%u records=%u payload=%s",
+                vectors[i].id,
+                wmbus_selftest_parser_name(&record),
+                record.tpl.decrypted ? "YES" : "NO",
+                (unsigned int)record.tpl.key_index,
+                (unsigned int)record.application.record_count,
+                record.payload.has_application_payload ? "YES" : "NO");
             return false;
         }
     }
 
-    wmbus_selftest_set_detail(detail, detail_len, "wrong_key=MISS zero=HIT vectors=%u", (unsigned int)COUNT_OF(vectors));
+    wmbus_selftest_set_detail(detail, detail_len, "wrong_key=MISS no_fallback vectors=%u", (unsigned int)COUNT_OF(vectors));
     return true;
 }
 
@@ -442,17 +510,20 @@ static bool wmbus_selftest_check_packet_sections_clear_payload(char* detail, siz
 static bool wmbus_selftest_check_packet_sections_encrypted_payload(char* detail, size_t detail_len) {
     uint8_t frame[WMBUS_SELFTEST_BUF_MAX] = {0};
     size_t frame_len = 0U;
+    WmBusCryptoKeyStore key_store = {0};
     WmBusPacketRecord record = {0};
+
+    key_store.count = 1U;
 
     if(!wmbus_selftest_hex_to_format_b_frame(wmbus_selftest_apator_encrypted_mode5, frame, sizeof(frame), &frame_len)) {
         wmbus_selftest_set_detail(detail, detail_len, "format-B build failed");
         return false;
     }
-    if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, NULL, &record)) {
+    if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, &key_store, &record)) {
         wmbus_selftest_set_detail(detail, detail_len, "packet process failed");
         return false;
     }
-    if(!record.tpl.decrypted || record.payload.packet_len == 0U ||
+    if(!record.tpl.decrypted || record.tpl.key_index != 0U || record.payload.packet_len == 0U ||
        (uint32_t)record.payload.packet_offset + (uint32_t)record.payload.packet_len >
            record.packet_len ||
        (record.packet_len >= record.payload.packet_offset + 2U &&
@@ -513,14 +584,15 @@ static bool wmbus_selftest_check_packet_sections_unsupported_decrypt(char* detai
 static const WmBusSelftestCheck wmbus_selftest_checks_parsers[] = {
     {"check_parser_apator162_public_vectors", wmbus_selftest_check_parser_apator162_public_vectors},
     {"check_parser_apator162_old_style_ci_b6_rejected", wmbus_selftest_check_parser_apator162_old_style_ci_b6_rejected},
-    {"check_parser_apator162_mode5_zero_key_vectors", wmbus_selftest_check_parser_apator162_mode5_zero_key_vectors},
+    {"check_parser_apator162_mode5_configured_zero_key_vectors", wmbus_selftest_check_parser_apator162_mode5_configured_zero_key_vectors},
     {"check_parser_apator162_payload_without_total", wmbus_selftest_check_parser_apator162_payload_without_total},
     {"check_parser_apator162_payload_total_a1", wmbus_selftest_check_parser_apator162_payload_total_a1},
     {"check_parser_apator162_invalid_payload_not_claimed", wmbus_selftest_check_parser_apator162_invalid_payload_not_claimed},
-    {"check_packet_process_mode5_zero_key_fallback_vector", wmbus_selftest_check_packet_process_mode5_zero_key_fallback_vector},
-    {"check_packet_process_mode5_parser_zero_key_fallback", wmbus_selftest_check_packet_process_mode5_parser_zero_key_fallback},
+    {"check_packet_process_mode5_no_key_does_not_decrypt", wmbus_selftest_check_packet_process_mode5_no_key_does_not_decrypt},
+    {"check_packet_process_mode5_parser_configured_zero_key", wmbus_selftest_check_packet_process_mode5_parser_configured_zero_key},
     {"check_packet_process_mode5_configured_zero_key_slot", wmbus_selftest_check_packet_process_mode5_configured_zero_key_slot},
-    {"check_packet_process_mode5_wrong_key_falls_back_to_zero", wmbus_selftest_check_packet_process_mode5_wrong_key_falls_back_to_zero},
+    {"check_packet_process_mode5_multiple_keys_uses_matching_slot", wmbus_selftest_check_packet_process_mode5_multiple_keys_uses_matching_slot},
+    {"check_packet_process_mode5_wrong_key_does_not_decrypt", wmbus_selftest_check_packet_process_mode5_wrong_key_does_not_decrypt},
     {"check_parser_apator162_mode5_corrupt_rejected", wmbus_selftest_check_parser_apator162_mode5_corrupt_rejected},
     {"check_packet_sections_clear_payload", wmbus_selftest_check_packet_sections_clear_payload},
     {"check_packet_sections_encrypted_payload", wmbus_selftest_check_packet_sections_encrypted_payload},

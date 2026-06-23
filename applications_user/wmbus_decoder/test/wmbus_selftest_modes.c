@@ -350,6 +350,56 @@ static bool wmbus_selftest_check_capture_c_frame_offset_l_field_54(char* detail,
     return true;
 }
 
+static bool wmbus_selftest_check_capture_c_select_rejects_timeout_noise(
+    char* detail,
+    size_t detail_len) {
+    const uint8_t raw[32] = {
+        0x8B, 0x12, 0xA4, 0x39, 0x71, 0x00, 0xE3, 0x5C,
+        0x9D, 0x28, 0xB6, 0x41, 0x0F, 0xD2, 0x63, 0x88,
+        0x13, 0x7A, 0xC1, 0x2E, 0x55, 0x99, 0x04, 0xF0,
+        0xAA, 0x6D, 0x31, 0xC7, 0x18, 0x82, 0x4B, 0xDE};
+    size_t frame_offset = 0U;
+    size_t frame_len = 0U;
+
+    if(wmbus_capture_select_c_frame(raw, sizeof(raw), 0U, &frame_offset, &frame_len)) {
+        wmbus_selftest_set_detail(
+            detail,
+            detail_len,
+            "timeout noise selected offset=%u len=%u",
+            (unsigned int)frame_offset,
+            (unsigned int)frame_len);
+        return false;
+    }
+
+    wmbus_selftest_set_detail(detail, detail_len, "timeout_noise=REJECT");
+    return true;
+}
+
+static bool wmbus_selftest_check_capture_c_select_signal_byte(
+    char* detail,
+    size_t detail_len) {
+    const uint8_t raw[] = {0x54, 0x3E, 0x44, 0x01, 0x06};
+    size_t frame_offset = 0U;
+    size_t frame_len = 0U;
+
+    if(!wmbus_capture_select_c_frame(raw, sizeof(raw), 74U, &frame_offset, &frame_len)) {
+        wmbus_selftest_set_detail(detail, detail_len, "select failed");
+        return false;
+    }
+    if(frame_offset != 1U || frame_len != sizeof(raw)) {
+        wmbus_selftest_set_detail(
+            detail,
+            detail_len,
+            "unexpected offset=%u len=%u",
+            (unsigned int)frame_offset,
+            (unsigned int)frame_len);
+        return false;
+    }
+
+    wmbus_selftest_set_detail(detail, detail_len, "offset=1 len=%u", (unsigned int)frame_len);
+    return true;
+}
+
 static bool wmbus_selftest_check_packet_process_c_bad_header_keeps_raw_diagnostic(
     char* detail,
     size_t detail_len) {
@@ -614,6 +664,8 @@ static const WmBusSelftestCheck wmbus_selftest_checks_modes[] = {
     {"check_capture_c_frame_offset_waits_for_disambiguation", wmbus_selftest_check_capture_c_frame_offset_waits_for_disambiguation},
     {"check_capture_c_frame_offset_with_signal_byte", wmbus_selftest_check_capture_c_frame_offset_with_signal_byte},
     {"check_capture_c_frame_offset_l_field_54", wmbus_selftest_check_capture_c_frame_offset_l_field_54},
+    {"check_capture_c_select_rejects_timeout_noise", wmbus_selftest_check_capture_c_select_rejects_timeout_noise},
+    {"check_capture_c_select_signal_byte", wmbus_selftest_check_capture_c_select_signal_byte},
     {"check_packet_process_c_bad_header_keeps_raw_diagnostic", wmbus_selftest_check_packet_process_c_bad_header_keeps_raw_diagnostic},
     {"check_capture_c_expected_len_estimate", wmbus_selftest_check_capture_c_expected_len_estimate},
     {"check_capture_c_expected_len_estimate_with_signal_byte", wmbus_selftest_check_capture_c_expected_len_estimate_with_signal_byte},
