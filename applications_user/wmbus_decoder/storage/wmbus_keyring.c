@@ -2,7 +2,6 @@
 
 #include <ctype.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include <toolbox/args.h>
@@ -80,11 +79,6 @@ void wmbus_keyring_init(WmBusKeyring* keyring) {
     wmbus_keyring_set_status(keyring, "missing");
 }
 
-const WmBusKeyEntry* wmbus_keyring_get(const WmBusKeyring* keyring, uint8_t index) {
-    if(!keyring || index >= keyring->count) return NULL;
-    return &keyring->entries[index];
-}
-
 void wmbus_keyring_copy_key_store(
     const WmBusKeyring* keyring,
     WmBusCryptoKeyStore* out_key_store) {
@@ -99,7 +93,7 @@ void wmbus_keyring_copy_key_store(
 
     out_key_store->count = keyring->count;
     for(uint8_t i = 0; i < keyring->count; i++) {
-        memcpy(out_key_store->entries[i].bytes, keyring->entries[i].key, WMBUS_KEY_BYTES);
+        memcpy(out_key_store->keys[i], keyring->keys[i], WMBUS_KEY_BYTES);
     }
 }
 
@@ -144,16 +138,13 @@ bool wmbus_keyring_load(Storage* storage, WmBusKeyring* keyring) {
             break;
         }
 
-        WmBusKeyEntry* entry = &loaded.entries[loaded.count];
-        memset(entry, 0, sizeof(*entry));
-
         if(strchr(buffer, ',') != NULL) {
             ok = false;
             wmbus_keyring_set_status(&loaded, "bad key");
             break;
         }
 
-        if(!wmbus_keyring_parse_hex_key(buffer, entry->key)) {
+        if(!wmbus_keyring_parse_hex_key(buffer, loaded.keys[loaded.count])) {
             ok = false;
             wmbus_keyring_set_status(&loaded, "bad key");
             break;

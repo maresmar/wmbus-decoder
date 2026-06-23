@@ -295,7 +295,7 @@ static bool wmbus_selftest_check_packet_process_mode5_multiple_keys_uses_matchin
     uint32_t total_m3_x1000 = 0U;
     char rec_desc[96] = {0};
 
-    memset(key_store.entries[0].bytes, 0xA5, sizeof(key_store.entries[0].bytes));
+    memset(key_store.keys[0], 0xA5, sizeof(key_store.keys[0]));
     key_store.count = 2U;
 
     if(!wmbus_selftest_hex_to_format_b_frame(
@@ -339,7 +339,7 @@ static bool wmbus_selftest_check_packet_process_mode5_wrong_key_does_not_decrypt
     };
     WmBusCryptoKeyStore key_store = {0};
 
-    memset(key_store.entries[0].bytes, 0xA5, sizeof(key_store.entries[0].bytes));
+    memset(key_store.keys[0], 0xA5, sizeof(key_store.keys[0]));
     key_store.count = 1U;
 
     for(size_t i = 0; i < COUNT_OF(vectors); i++) {

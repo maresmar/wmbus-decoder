@@ -88,15 +88,6 @@ bool wmbus_decode_3of6_bits(
     return (out_idx > 0U) && !have_high;
 }
 
-bool wmbus_decode_3of6(
-    const uint8_t* raw,
-    size_t raw_len,
-    uint8_t* out,
-    size_t out_max,
-    size_t* out_len) {
-    return wmbus_decode_3of6_bits(raw, raw_len * 8U, 0U, out, out_max, out_len);
-}
-
 static bool wmbus_decode_mfg_valid(uint16_t man) {
     uint8_t a = (man >> 10) & 0x1F;
     uint8_t b = (man >> 5) & 0x1F;

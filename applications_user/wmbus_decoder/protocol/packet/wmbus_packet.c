@@ -28,39 +28,6 @@ const char* wmbus_packet_status_str(WmBusStatus status) {
     }
 }
 
-const char* wmbus_packet_status_short_label(WmBusStatus status) {
-    switch(status) {
-    case WmBusStatusDecodeFail:
-        return "Decode";
-    case WmBusStatusNotPlausible:
-        return "Header";
-    case WmBusStatusFramingError:
-        return "Framing";
-    case WmBusStatusCrcBad:
-        return "CRC";
-    case WmBusStatusWeakRssi:
-        return "Weak RSSI";
-    case WmBusStatusOk:
-        return "OK";
-    case WmBusStatusParsed:
-        return "Decoded";
-    default:
-        return "--";
-    }
-}
-
-const char* wmbus_packet_csv_logging_str(WmBusCsvLogging logging) {
-    switch(logging) {
-    case WmBusCsvLoggingBasic:
-        return "Basic";
-    case WmBusCsvLoggingFull:
-        return "Full";
-    case WmBusCsvLoggingNone:
-    default:
-        return "Off";
-    }
-}
-
 const char* wmbus_packet_quality_str(WmBusPacketQuality quality) {
     switch(wmbus_packet_quality_clamp(quality)) {
     case WmBusPacketQualityAnyCapture:
@@ -78,29 +45,12 @@ const char* wmbus_packet_quality_str(WmBusPacketQuality quality) {
     }
 }
 
-const char* wmbus_packet_quality_short_label(WmBusPacketQuality quality) {
-    switch(wmbus_packet_quality_clamp(quality)) {
-    case WmBusPacketQualityAnyCapture:
-        return "RX";
-    case WmBusPacketQualityHeaderOk:
-        return "HDR";
-    case WmBusPacketQualityFrameComplete:
-        return "LEN";
-    case WmBusPacketQualityCrcOk:
-        return "CRC";
-    case WmBusPacketQualityParsed:
-        return "DEC";
-    default:
-        return "--";
-    }
-}
-
 WmBusPacketQuality wmbus_packet_quality_from_record(const WmBusPacketRecord* record) {
     if(!record || !record->has_capture) return WmBusPacketQualityAnyCapture;
     if(record->parsed_ok) return WmBusPacketQualityParsed;
     if(record->crc_known && record->crc_ok) return WmBusPacketQualityCrcOk;
     if(record->length_ok) return WmBusPacketQualityFrameComplete;
-    if(record->header_ok) return WmBusPacketQualityHeaderOk;
+    if(record->plausible) return WmBusPacketQualityHeaderOk;
     return WmBusPacketQualityAnyCapture;
 }
 
@@ -121,14 +71,12 @@ bool wmbus_packet_process_capture(
 
     memset(record, 0, sizeof(*record));
     record->mode = capture->mode;
-    record->raw_len = (uint16_t)capture->raw_len;
     record->capture_len =
         (uint16_t)((capture->len > sizeof(record->capture_bytes)) ? sizeof(record->capture_bytes) :
                                                                 capture->len);
     record->best_offset = -1;
     record->rssi = capture->rssi;
     record->rx_tick = furi_get_tick();
-    record->strong_rssi = true;
     record->rssi_ok = true;
     record->has_capture = (record->capture_len > 0U);
     memcpy(record->capture_bytes, capture->data, record->capture_len);
@@ -154,12 +102,11 @@ bool wmbus_packet_process_capture(
         record->application.parser_id = WmBusParserIdRaw;
     }
 
-    record->header_ok = record->plausible;
     record->parsed_ok = parser_succeeded || (record->application.record_count > 0U) ||
                         record->tpl.decrypted || record->ell.decrypted;
     record->quality = wmbus_packet_quality_from_record(record);
 
-    if(decode.used_3of6 && !record->decoded_ok) {
+    if(capture->mode == WmBusRxModeT && !record->decoded_ok) {
         record->status = WmBusStatusDecodeFail;
     } else if(!record->plausible) {
         record->status = WmBusStatusNotPlausible;

@@ -31,27 +31,17 @@ void wmbus_packet_summary_format_total_m3(
         (unsigned long)frac);
 }
 
-static const char* wmbus_packet_summary_security_mode_name(uint8_t security_mode) {
+static const char*
+    wmbus_packet_summary_security_mode_name(uint8_t security_mode, bool ell_security) {
     switch(security_mode) {
     case 0x00:
         return "Clear";
     case 0x01:
-        return "Manufacturer";
+        return ell_security ? "AES-CTR" : "Manufacturer";
     case 0x05:
-        return "AES-CBC IV";
+        return ell_security ? NULL : "AES-CBC IV";
     case 0x08:
-        return "AES-CTR CMAC";
-    default:
-        return NULL;
-    }
-}
-
-static const char* wmbus_packet_summary_ell_security_mode_name(uint8_t security_mode) {
-    switch(security_mode) {
-    case 0x00:
-        return "Clear";
-    case 0x01:
-        return "AES-CTR";
+        return ell_security ? NULL : "AES-CTR CMAC";
     default:
         return NULL;
     }
@@ -67,7 +57,7 @@ void wmbus_packet_summary_format_crypto_tag(
 
     if(ell && ell->has_ell && ell->has_session) {
         if(ell->decrypted) {
-                snprintf(out, out_size, "EDEC#%u", (unsigned int)ell->key_index);
+            snprintf(out, out_size, "EDEC#%u", (unsigned int)ell->key_index);
         } else if(wmbus_parser_ell_security_likely_encrypted(ell->sn)) {
             snprintf(out, out_size, "EENC");
         } else if(ell->security_mode == 0x00U) {
@@ -81,7 +71,7 @@ void wmbus_packet_summary_format_crypto_tag(
     if(!tpl || !tpl->has_short_tpl) return;
 
     if(tpl->decrypted) {
-            snprintf(out, out_size, "DEC#%u", (unsigned int)tpl->key_index);
+        snprintf(out, out_size, "DEC#%u", (unsigned int)tpl->key_index);
     } else if(wmbus_parser_short_tpl_security_likely_encrypted(tpl->cfg)) {
         snprintf(out, out_size, "ENC");
     } else if(tpl->security_mode == 0x00U) {
@@ -108,7 +98,8 @@ void wmbus_packet_summary_format_security_text(
         }
 
         char mode[20] = {0};
-        const char* known_mode = wmbus_packet_summary_ell_security_mode_name(ell->security_mode);
+        const char* known_mode =
+            wmbus_packet_summary_security_mode_name(ell->security_mode, true);
         if(known_mode) {
             snprintf(mode, sizeof(mode), "%s", known_mode);
         } else {
@@ -116,7 +107,7 @@ void wmbus_packet_summary_format_security_text(
         }
 
         if(ell->decrypted) {
-                snprintf(out, out_size, "ELL %s, decrypted key #%u", mode, (unsigned int)ell->key_index);
+            snprintf(out, out_size, "ELL %s, decrypted key #%u", mode, (unsigned int)ell->key_index);
         } else if(wmbus_parser_ell_security_likely_encrypted(ell->sn)) {
             snprintf(out, out_size, "ELL %s, encrypted", mode);
         } else {
@@ -128,7 +119,7 @@ void wmbus_packet_summary_format_security_text(
     if(!tpl || !tpl->has_short_tpl) return;
 
     char mode[20] = {0};
-    const char* known_mode = wmbus_packet_summary_security_mode_name(tpl->security_mode);
+    const char* known_mode = wmbus_packet_summary_security_mode_name(tpl->security_mode, false);
     if(known_mode) {
         snprintf(mode, sizeof(mode), "%s", known_mode);
     } else {
@@ -136,52 +127,10 @@ void wmbus_packet_summary_format_security_text(
     }
 
     if(tpl->decrypted) {
-            snprintf(out, out_size, "%s, decrypted key #%u", mode, (unsigned int)tpl->key_index);
+        snprintf(out, out_size, "%s, decrypted key #%u", mode, (unsigned int)tpl->key_index);
     } else if(wmbus_parser_short_tpl_security_likely_encrypted(tpl->cfg)) {
         snprintf(out, out_size, "%s, encrypted", mode);
     } else {
         snprintf(out, out_size, "%s", mode);
-    }
-}
-
-void wmbus_packet_summary_format_bottom_line(
-    bool packet_is_frame,
-    uint16_t packet_len,
-    const WmBusPacketDllData* dll,
-    const WmBusPacketEllData* ell,
-    const WmBusPacketTplData* tpl,
-    bool has_total_volume,
-    uint32_t total_m3_x1000,
-    char* out,
-    size_t out_size) {
-    if(!out || out_size == 0U) return;
-    out[0] = '\0';
-
-    char crypto[12] = {0};
-    wmbus_packet_summary_format_crypto_tag(ell, tpl, crypto, sizeof(crypto));
-
-    if(has_total_volume) {
-        uint32_t whole = total_m3_x1000 / 1000U;
-        uint32_t frac = total_m3_x1000 % 1000U;
-        if(crypto[0] != '\0') {
-            snprintf(
-                out,
-                out_size,
-                "Vol:%lu.%03lum3 %s",
-                (unsigned long)whole,
-                (unsigned long)frac,
-                crypto);
-        } else {
-            snprintf(
-                out, out_size, "Vol:%lu.%03lum3", (unsigned long)whole, (unsigned long)frac);
-        }
-    } else if(packet_is_frame && dll) {
-        if(crypto[0] != '\0') {
-            snprintf(out, out_size, "CI:%02X %s", dll->ci_field, crypto);
-        } else {
-            snprintf(out, out_size, "CI:%02X", dll->ci_field);
-        }
-    } else {
-        snprintf(out, out_size, "Len:%u bytes", (unsigned int)packet_len);
     }
 }

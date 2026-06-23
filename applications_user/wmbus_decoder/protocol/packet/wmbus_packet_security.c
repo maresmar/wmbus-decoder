@@ -8,8 +8,7 @@
 #include "../parser/wmbus_device_parser.h"
 #include "../parser/wmbus_parser.h"
 
-#define TAG                 "WmBusDecoder"
-#define WMBUS_MODE5_KEY_LEN 16U
+#define TAG "WmBusDecoder"
 
 static const char* wmbus_packet_decrypt_result_str(WmBusDecryptResult result) {
     switch(result) {
@@ -33,7 +32,7 @@ static const char* wmbus_packet_log_id(const WmBusPacketRecord* record) {
 
 static void wmbus_packet_log_decrypt_failure_reason(
     const WmBusPacketRecord* record,
-    const uint8_t key[WMBUS_MODE5_KEY_LEN],
+    const uint8_t key[WMBUS_CRYPTO_KEY_BYTES],
     const char* reason) {
     if(!record || !key || !reason || reason[0] == '\0') return;
 
@@ -50,7 +49,7 @@ static void wmbus_packet_log_decrypt_failure_reason(
 
 static void wmbus_packet_log_decrypt_failure(
     const WmBusPacketRecord* record,
-    const uint8_t key[WMBUS_MODE5_KEY_LEN],
+    const uint8_t key[WMBUS_CRYPTO_KEY_BYTES],
     WmBusDecryptResult result) {
     if(!record || !key || result == WmBusDecryptResultOk) return;
 
@@ -109,7 +108,7 @@ static void wmbus_packet_set_payload_packet_slice(
 static bool wmbus_packet_try_key(
     const uint8_t* frame,
     size_t frame_len,
-    const uint8_t key[WMBUS_MODE5_KEY_LEN],
+    const uint8_t key[WMBUS_CRYPTO_KEY_BYTES],
     WmBusPacketRecord* record,
     WmBusPacketPayloadData* out_payload,
     uint8_t decrypt_frame[WMBUS_PACKET_APPLICATION_MAX]) {
@@ -150,7 +149,6 @@ bool wmbus_packet_resolve_application_payload(
     size_t frame_len,
     WmBusPacketRecord* record,
     const WmBusCryptoKeyStore* key_store) {
-
     if(!frame || !record) {
         return false;
     }
@@ -190,13 +188,13 @@ bool wmbus_packet_resolve_application_payload(
     uint8_t decrypt_frame[WMBUS_PACKET_APPLICATION_MAX] = {0};
 
     for(uint8_t i = 0; key_store && i < key_store->count; i++) {
-        const WmBusCryptoKey* entry = wmbus_crypto_key_store_get(key_store, i);
-        if(!entry) {
+        const uint8_t* key = wmbus_crypto_key_store_get(key_store, i);
+        if(!key) {
             continue;
         }
 
         if(wmbus_packet_try_key(
-               frame, frame_len, entry->bytes, record, &record->payload, decrypt_frame)) {
+               frame, frame_len, key, record, &record->payload, decrypt_frame)) {
             record->tpl.decrypted = true;
             record->tpl.key_index = i;
             return true;

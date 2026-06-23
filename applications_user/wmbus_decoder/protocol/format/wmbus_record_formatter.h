@@ -3,14 +3,6 @@
 #include <furi.h>
 
 #include "../model/wmbus_application_types.h"
-#include "../packet/wmbus_packet.h"
-
-/**
- * Format the display label for one application record.
- * Resets `out`. Empty output is valid when the record has no known label.
- * The caller owns `out`.
- */
-bool wmbus_record_formatter_format_label(const WmBusApplicationRecord* record, FuriString* out);
 
 /**
  * Format the display value for one application record.

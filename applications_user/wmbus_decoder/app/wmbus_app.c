@@ -4,16 +4,7 @@
 #include <string.h>
 
 #define TAG "WmBusDecoder"
-static void wmbus_app_log_step(const char* step);
 static void wmbus_app_free(WmBusApp* app);
-static void wmbus_app_copy_key_store(const WmBusApp* app, WmBusCryptoKeyStore* out_key_store);
-static void wmbus_app_handle_capture(
-    void* context,
-    const WmBusSettings* settings,
-    const WmBusCryptoKeyStore* key_store,
-    const WmBusCaptureFrame* capture);
-static void wmbus_app_set_freq_valid(void* context, bool freq_valid);
-static void wmbus_app_set_live_rssi(void* context, int rssi);
 
 static void wmbus_app_log_step(const char* step) {
     if(step) {
@@ -94,15 +85,6 @@ bool wmbus_app_apply_runtime_config(WmBusApp* app, bool persist) {
     return app->rx_service ?
                wmbus_radio_rx_service_apply_config(app->rx_service, &app->settings, &key_store) :
                true;
-}
-
-bool wmbus_app_reload_keys(WmBusApp* app) {
-    if(!app) return false;
-    furi_check(furi_mutex_acquire(app->keyring_mutex, FuriWaitForever) == FuriStatusOk);
-    bool loaded = wmbus_keyring_load(app->storage, &app->keyring);
-    furi_check(furi_mutex_release(app->keyring_mutex) == FuriStatusOk);
-    wmbus_app_apply_runtime_config(app, false);
-    return loaded;
 }
 
 bool wmbus_app_add_key(WmBusApp* app, const uint8_t key[WMBUS_KEY_BYTES]) {

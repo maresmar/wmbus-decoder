@@ -5,7 +5,6 @@
 typedef struct {
     const uint8_t* frame;
     size_t frame_len;
-    bool used_3of6;
 } WmBusPacketDecodeState;
 
 bool wmbus_packet_decode_capture(

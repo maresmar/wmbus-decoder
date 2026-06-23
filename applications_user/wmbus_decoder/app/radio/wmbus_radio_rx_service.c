@@ -129,25 +129,10 @@ static void wmbus_radio_apply_link_b_rx_base(void) {
     wmbus_preset_set_reg(CC1101_PKTCTRL0, 0x02);
 }
 
-static void wmbus_radio_apply_t_mode(void) {
-    wmbus_radio_apply_link_b_rx_base();
-    wmbus_preset_set_reg(CC1101_PKTCTRL1, 0x00);
-    wmbus_preset_set_reg(CC1101_PKTCTRL0, 0x02);
-}
-
-static void wmbus_radio_apply_c_mode(void) {
-    wmbus_radio_apply_link_b_rx_base();
-}
-
 static void wmbus_radio_apply_mode(WmBusRxMode mode) {
     furi_check(wmbus_radio_preset_loadable());
 
-    if(mode == WmBusRxModeC) {
-        wmbus_radio_apply_c_mode();
-    } else {
-        wmbus_radio_apply_t_mode();
-    }
-
+    wmbus_radio_apply_link_b_rx_base();
     wmbus_radio_reload_rx_preset();
     if(mode == WmBusRxModeC && !wmbus_radio_validate_c_mode_regs()) {
         wmbus_radio_reload_rx_preset();
@@ -272,7 +257,6 @@ static bool wmbus_capture_t_step(
 
             memcpy(frame->data, state->raw, frame_raw_len);
             frame->len = frame_raw_len;
-            frame->raw_len = frame_raw_len;
             frame->rssi = (int)furi_hal_subghz_get_rssi();
             frame->mode = WmBusRxModeT;
 
@@ -332,27 +316,17 @@ static bool wmbus_capture_c_step(
     bool full = (state->raw_len >= sizeof(state->raw));
     if(!(gap || full) || state->raw_len == 0U) return false;
 
-    size_t frame_len = state->raw_len;
-    if(state->expected_len > 0U && frame_len > state->expected_len) {
-        frame_len = state->expected_len;
-    }
-
-    size_t frame_offset = wmbus_capture_c_frame_offset(state->raw, frame_len);
-    if(frame_offset == SIZE_MAX || frame_len <= frame_offset) {
-        memcpy(frame->data, state->raw, frame_len);
-        frame->len = frame_len;
-        frame->raw_len = frame_len;
-        frame->rssi = (int)furi_hal_subghz_get_rssi();
-        frame->mode = WmBusRxModeC;
-
+    size_t frame_offset = 0U;
+    size_t frame_len = 0U;
+    if(!wmbus_capture_select_c_frame(
+           state->raw, state->raw_len, state->expected_len, &frame_offset, &frame_len)) {
         wmbus_capture_state_c_reset(state);
         wmbus_radio_recover_rx();
-        return true;
+        return false;
     }
 
     memcpy(frame->data, &state->raw[frame_offset], frame_len - frame_offset);
     frame->len = frame_len - frame_offset;
-    frame->raw_len = frame_len;
     frame->rssi = (int)furi_hal_subghz_get_rssi();
     frame->mode = WmBusRxModeC;
 
@@ -529,8 +503,6 @@ bool wmbus_radio_rx_service_apply_config(
         return false;
     }
 
-    service->settings = *settings;
-    service->key_store = *key_store;
     WmBusControlEvent event = {
         .cmd = WmBusControlCmdApplyConfig,
         .settings = *settings,

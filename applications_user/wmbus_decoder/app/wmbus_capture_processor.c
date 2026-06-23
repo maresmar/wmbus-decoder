@@ -53,12 +53,11 @@ void wmbus_capture_processor_handle(
     }
 
     record.rssi_ok = (settings->min_rssi_dbm >= 0) || (record.rssi >= settings->min_rssi_dbm);
-    record.strong_rssi = record.rssi_ok;
     if(!record.rssi_ok && record.status == WmBusStatusOk) {
         record.status = WmBusStatusWeakRssi;
     }
 
     for(size_t i = 0; i < processor->sink_count; i++) {
-        wmbus_packet_sink_consume(processor->sinks[i], settings, &record);
+        processor->sinks[i]->consume(processor->sinks[i]->context, settings, &record);
     }
 }

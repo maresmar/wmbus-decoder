@@ -15,7 +15,7 @@ static bool wmbus_selftest_check_3of6_valid_single_byte(char* detail, size_t det
     uint8_t out[4] = {0};
     size_t out_len = 0;
 
-    if(!wmbus_decode_3of6(raw, sizeof(raw), out, sizeof(out), &out_len)) {
+    if(!wmbus_decode_3of6_bits(raw, sizeof(raw) * 8U, 0U, out, sizeof(out), &out_len)) {
         wmbus_selftest_set_detail(detail, detail_len, "decode failed");
         return false;
     }
@@ -51,7 +51,7 @@ static bool wmbus_selftest_check_3of6_reject_dangling_nibble(char* detail, size_
     uint8_t out[4] = {0};
     size_t out_len = 0;
 
-    if(wmbus_decode_3of6(raw, sizeof(raw), out, sizeof(out), &out_len)) {
+    if(wmbus_decode_3of6_bits(raw, sizeof(raw) * 8U, 0U, out, sizeof(out), &out_len)) {
         wmbus_selftest_set_detail(detail, detail_len, "dangling nibble accepted");
         return false;
     }
@@ -65,7 +65,7 @@ static bool wmbus_selftest_check_3of6_reject_invalid_symbol(char* detail, size_t
     uint8_t out[4] = {0};
     size_t out_len = 0;
 
-    if(wmbus_decode_3of6(raw, sizeof(raw), out, sizeof(out), &out_len)) {
+    if(wmbus_decode_3of6_bits(raw, sizeof(raw) * 8U, 0U, out, sizeof(out), &out_len)) {
         wmbus_selftest_set_detail(detail, detail_len, "invalid symbol accepted");
         return false;
     }
@@ -330,7 +330,6 @@ static bool wmbus_selftest_check_format_fields_text_prefers_primary_records(
 static bool wmbus_selftest_check_packet_quality_policy(char* detail, size_t detail_len) {
     WmBusPacketRecord record = {
         .has_capture = true,
-        .header_ok = true,
         .plausible = true,
         .length_ok = true,
         .crc_known = true,

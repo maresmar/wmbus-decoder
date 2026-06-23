@@ -58,7 +58,6 @@ struct WmBusApp {
 };
 
 bool wmbus_app_apply_runtime_config(WmBusApp* app, bool persist);
-bool wmbus_app_reload_keys(WmBusApp* app);
 bool wmbus_app_add_key(WmBusApp* app, const uint8_t key[WMBUS_KEY_BYTES]);
 bool wmbus_app_ensure_config_view(WmBusApp* app);
 bool wmbus_app_ensure_key_input_view(WmBusApp* app);

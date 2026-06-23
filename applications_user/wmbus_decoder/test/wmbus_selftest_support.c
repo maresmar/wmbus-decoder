@@ -375,7 +375,6 @@ bool wmbus_selftest_process_capture_record(
     memset(record, 0, sizeof(*record));
     memcpy(capture.data, data, data_len);
     capture.len = data_len;
-    capture.raw_len = data_len;
     capture.rssi = -60;
     capture.mode = mode;
 

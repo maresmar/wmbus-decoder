@@ -308,7 +308,7 @@ bool wmbus_packet_decode_application_records(
     return true;
 }
 
-uint8_t wmbus_packet_count_meaningful_records(
+static uint8_t wmbus_packet_count_meaningful_records(
     const WmBusApplicationRecord* records,
     uint8_t record_count) {
     if(!records) return 0U;

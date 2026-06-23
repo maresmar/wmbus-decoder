@@ -1,8 +1,6 @@
 #pragma once
 
 #include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include "../model/wmbus_application_types.h"
 #include "wmbus_parser.h"

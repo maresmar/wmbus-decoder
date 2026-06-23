@@ -18,7 +18,6 @@ typedef struct {
     WmBusPacketQuality quality;
     WmBusRxMode mode;
     bool has_capture;
-    bool header_ok;
     bool parsed_ok;
     bool rssi_ok;
     bool decoded_ok;
@@ -26,17 +25,12 @@ typedef struct {
     bool length_ok;
     bool crc_known;
     bool crc_ok;
-    bool normalize_format_known;
-    bool strong_rssi;
-    uint16_t raw_len;
     uint16_t capture_len;
-    uint16_t
-        packet_len; /**< Stored byte count of `packet_bytes`, not the same as `dll.l_field`. */
+    uint16_t packet_len; /**< Stored byte count of `packet_bytes`, not the same as `dll.l_field`. */
     bool packet_is_frame;
     int best_offset;
     int rssi;
     uint32_t rx_tick;
-    WmBusFrameFormat normalize_format;
     uint8_t capture_bytes[256];
     uint8_t packet_bytes[256];
     WmBusPacketDllData dll;
@@ -54,12 +48,9 @@ bool wmbus_packet_process_capture(
 
 WmBusPacketQuality wmbus_packet_quality_from_record(const WmBusPacketRecord* record);
 const char* wmbus_packet_quality_str(WmBusPacketQuality quality);
-const char* wmbus_packet_quality_short_label(WmBusPacketQuality quality);
 bool wmbus_packet_record_passes_policy(
     const WmBusPacketRecord* record,
     WmBusPacketQuality min_quality,
     int32_t min_rssi_dbm);
 
 const char* wmbus_packet_status_str(WmBusStatus status);
-const char* wmbus_packet_status_short_label(WmBusStatus status);
-const char* wmbus_packet_csv_logging_str(WmBusCsvLogging logging);

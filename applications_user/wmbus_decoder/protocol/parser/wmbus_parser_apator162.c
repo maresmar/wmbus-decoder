@@ -2,10 +2,8 @@
 
 #include "../model/wmbus_application_record.h"
 
-#include <stdio.h>
 #include <string.h>
 
-#define TAG                        "apator162"
 #define WMBUS_APATOR162_MFG_OLD    0x8614U
 #define WMBUS_APATOR162_META_LEN   8U
 #define WMBUS_APATOR162_STATUS_LEN 7U
@@ -271,36 +269,6 @@ static bool wmbus_parser_apator162_scan_stream(
         *total_m3_x1000 = parsed_total;
     }
 
-    return true;
-}
-
-/**
- * Extracts the first total-volume value from the Apator register stream.
- *
- * Register 0x10 or 0xA1 is interpreted as a little-endian 32-bit total in m3*1000.
- */
-bool wmbus_parser_parse_apator162_payload_total(
-    const uint8_t* payload,
-    size_t payload_len,
-    uint32_t* total_m3_x1000) {
-    if(!payload || !total_m3_x1000 || payload_len == 0U) {
-        return false;
-    }
-
-    WmBusApator162Layout layout = {0};
-    if(!wmbus_parser_apator162_locate_layout(payload, payload_len, &layout)) {
-        return false;
-    }
-
-    uint32_t parsed_total = 0U;
-    bool found_total = false;
-    if(!wmbus_parser_apator162_scan_stream(
-           payload, payload_len, &layout, &parsed_total, &found_total)) {
-        return false;
-    }
-    if(!found_total) return false;
-
-    *total_m3_x1000 = parsed_total;
     return true;
 }
 

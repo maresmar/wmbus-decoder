@@ -9,7 +9,6 @@
 typedef struct {
     uint8_t data[256];
     size_t len;
-    size_t raw_len;
     int rssi;
     WmBusRxMode mode;
 } WmBusCaptureFrame;
@@ -28,8 +27,6 @@ typedef struct {
     bool in_packet;
     size_t expected_len;
     uint32_t last_byte_tick;
-    uint32_t dropped_invalid;
-    uint32_t dropped_oversize;
 } WmBusCaptureStateC;
 
 void wmbus_capture_state_t_reset(WmBusCaptureStateT* state);
@@ -52,6 +49,13 @@ bool wmbus_capture_estimate_c_expected_len(
     size_t raw_len,
     size_t raw_max,
     size_t* expected_len);
+
+bool wmbus_capture_select_c_frame(
+    const uint8_t* raw,
+    size_t raw_len,
+    size_t expected_len,
+    size_t* frame_offset,
+    size_t* frame_len);
 
 bool wmbus_capture_reconstruct_c_frame(
     const uint8_t* payload,

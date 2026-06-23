@@ -1,6 +1,7 @@
 #include "wmbus_rx_view.h"
 
 #include "../../protocol/format/wmbus_packet_formatter.h"
+#include "../../protocol/format/wmbus_hex_utils.h"
 #include "../../protocol/format/wmbus_packet_summary.h"
 #include "../../protocol/model/wmbus_application_record.h"
 #include "../../protocol/parser/wmbus_parser.h"
@@ -24,7 +25,6 @@ typedef struct {
     bool packet_is_frame;
     WmBusStatus status;
     bool has_capture;
-    bool header_ok;
     bool length_ok;
     bool crc_known;
     bool crc_ok;
@@ -88,11 +88,6 @@ static const WmBusRxHistoryEntry*
     return &model->hist[index];
 }
 
-static uint16_t wmbus_rx_history_preview_len(const WmBusRxHistoryEntry* entry) {
-    if(!entry) return 0U;
-    return entry->packet_preview_len;
-}
-
 static const WmBusRxHistoryEntry* wmbus_rx_display_entry_get(const WmBusRxViewModel* model) {
     if(!model) {
         return NULL;
@@ -127,23 +122,6 @@ static void wmbus_rx_format_age(const WmBusRxHistoryEntry* entry, char* out, siz
     } else {
         snprintf(out, out_size, "%lud", (unsigned long)(age_seconds / 86400U));
     }
-}
-
-static void
-    wmbus_rx_preview_hex(const uint8_t* data, size_t data_len, char* out, size_t out_size) {
-    if(!out || out_size == 0U) return;
-    out[0] = '\0';
-    if(!data) return;
-
-    size_t preview_len = data_len;
-    if(preview_len > 8U) preview_len = 8U;
-
-    size_t write = 0;
-    for(size_t i = 0; i < preview_len && (write + 2U) < out_size; i++) {
-        snprintf(&out[write], out_size - write, "%02X", data[i]);
-        write += 2U;
-    }
-    out[write] = '\0';
 }
 
 static void
@@ -190,7 +168,7 @@ static void wmbus_rx_format_quality_flags(
         out_size,
         "%s %s %s %s %s %s",
         entry->has_capture ? "RX" : "--",
-        entry->header_ok ? "HDR" : "--",
+        entry->packet_is_frame ? "HDR" : "--",
         entry->length_ok ? "LEN" : "--",
         (entry->crc_known && entry->crc_ok) ? "CRC" : "--",
         entry->parsed_ok ? "DEC" : "--",
@@ -264,8 +242,9 @@ static void wmbus_rx_draw(Canvas* canvas, void* model) {
         canvas_draw_str(canvas, 0, 58, "OK=history  long OK=config");
     } else if(m->debug_mode) {
         char hex[WMBUS_PACKET_VALUE_MAX];
-        wmbus_rx_preview_hex(
-            entry->packet_preview, wmbus_rx_history_preview_len(entry), hex, sizeof(hex));
+        size_t preview_len = entry->packet_preview_len;
+        if(preview_len > 8U) preview_len = 8U;
+        wmbus_hex_encode(entry->packet_preview, preview_len, hex, sizeof(hex));
         wmbus_rx_format_quality_flags(entry, line, sizeof(line));
         canvas_draw_str(canvas, 0, 48, line);
         snprintf(line, sizeof(line), "Hex:%s%s", hex, (entry->packet_len > 8U) ? "..." : "");
@@ -456,7 +435,6 @@ static void wmbus_rx_history_fill_entry(
     entry->packet_is_frame = record->packet_is_frame;
     entry->status = record->status;
     entry->has_capture = record->has_capture;
-    entry->header_ok = record->header_ok;
     entry->length_ok = record->length_ok;
     entry->crc_known = record->crc_known;
     entry->crc_ok = record->crc_ok;
@@ -487,7 +465,6 @@ static void wmbus_rx_history_entry_to_record(
     record->packet_is_frame = entry->packet_is_frame;
     record->status = entry->status;
     record->has_capture = entry->has_capture;
-    record->header_ok = entry->header_ok;
     record->length_ok = entry->length_ok;
     record->crc_known = entry->crc_known;
     record->crc_ok = entry->crc_ok;

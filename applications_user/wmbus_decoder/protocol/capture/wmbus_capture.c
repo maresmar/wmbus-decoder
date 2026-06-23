@@ -22,8 +22,6 @@ void wmbus_capture_state_c_reset(WmBusCaptureStateC* state) {
     state->in_packet = false;
     state->expected_len = 0;
     state->last_byte_tick = 0;
-    state->dropped_invalid = 0;
-    state->dropped_oversize = 0;
 }
 
 bool wmbus_capture_l_field_valid(uint8_t l_field) {
@@ -183,6 +181,29 @@ bool wmbus_capture_estimate_c_expected_len(
     size_t expected = expected_a;
     if(expected > raw_max) expected = raw_max;
     *expected_len = expected;
+    return true;
+}
+
+bool wmbus_capture_select_c_frame(
+    const uint8_t* raw,
+    size_t raw_len,
+    size_t expected_len,
+    size_t* frame_offset,
+    size_t* frame_len) {
+    if(!raw || !frame_offset || !frame_len || raw_len == 0U) return false;
+
+    size_t selected_len = raw_len;
+    if(expected_len > 0U && selected_len > expected_len) {
+        selected_len = expected_len;
+    }
+
+    size_t selected_offset = wmbus_capture_c_frame_offset(raw, selected_len);
+    if(selected_offset == SIZE_MAX || selected_len <= selected_offset) {
+        return false;
+    }
+
+    *frame_offset = selected_offset;
+    *frame_len = selected_len;
     return true;
 }
 

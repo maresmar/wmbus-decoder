@@ -43,15 +43,6 @@ static const char* const wmbus_min_rssi_text[] = {
     "-75 dBm", "-70 dBm", "-65 dBm", "-60 dBm", "-55 dBm", "-50 dBm",
 };
 
-static uint8_t wmbus_quality_index(WmBusPacketQuality quality) {
-    return (uint8_t)wmbus_packet_quality_clamp(quality);
-}
-
-static WmBusPacketQuality wmbus_quality_from_index(uint8_t index) {
-    if(index >= COUNT_OF(wmbus_quality_text)) index = 0U;
-    return (WmBusPacketQuality)index;
-}
-
 static uint8_t wmbus_min_rssi_index(int32_t min_rssi_dbm) {
     for(uint8_t i = 0; i < COUNT_OF(wmbus_min_rssi_values); i++) {
         if(wmbus_min_rssi_values[i] == min_rssi_dbm) return i;
@@ -85,26 +76,26 @@ static void wmbus_scene_config_csv_logging_changed(VariableItem* item) {
     wmbus_app_apply_runtime_config(app, true);
 }
 
-static void wmbus_scene_config_memory_quality_changed(VariableItem* item) {
+static void
+    wmbus_scene_config_quality_changed(VariableItem* item, WmBusPacketQuality* quality) {
     WmBusApp* app = variable_item_get_context(item);
     uint8_t index = variable_item_get_current_value_index(item);
     if(index >= COUNT_OF(wmbus_quality_text)) {
         index = 0U;
     }
     variable_item_set_current_value_text(item, wmbus_quality_text[index]);
-    app->settings.memory_quality = wmbus_quality_from_index(index);
+    *quality = (WmBusPacketQuality)index;
     wmbus_app_apply_runtime_config(app, true);
+}
+
+static void wmbus_scene_config_memory_quality_changed(VariableItem* item) {
+    WmBusApp* app = variable_item_get_context(item);
+    wmbus_scene_config_quality_changed(item, &app->settings.memory_quality);
 }
 
 static void wmbus_scene_config_csv_quality_changed(VariableItem* item) {
     WmBusApp* app = variable_item_get_context(item);
-    uint8_t index = variable_item_get_current_value_index(item);
-    if(index >= COUNT_OF(wmbus_quality_text)) {
-        index = 0U;
-    }
-    variable_item_set_current_value_text(item, wmbus_quality_text[index]);
-    app->settings.csv_quality = wmbus_quality_from_index(index);
-    wmbus_app_apply_runtime_config(app, true);
+    wmbus_scene_config_quality_changed(item, &app->settings.csv_quality);
 }
 
 static void wmbus_scene_config_min_rssi_changed(VariableItem* item) {
@@ -157,7 +148,7 @@ static void wmbus_scene_config_add_quality_item(
         COUNT_OF(wmbus_quality_text),
         callback,
         app);
-    uint8_t index = wmbus_quality_index(current);
+    uint8_t index = (uint8_t)wmbus_packet_quality_clamp(current);
     variable_item_set_current_value_index(item, index);
     variable_item_set_current_value_text(item, wmbus_quality_text[index]);
 }

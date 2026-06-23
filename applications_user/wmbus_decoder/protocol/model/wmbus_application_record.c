@@ -51,45 +51,6 @@ bool wmbus_application_record_set_raw_hex_le(
     return true;
 }
 
-bool wmbus_application_record_set_date(
-    WmBusApplicationRecord* record,
-    uint16_t year,
-    uint8_t month,
-    uint8_t day) {
-    if(!record || month == 0U || month > 12U || day == 0U || day > 31U) return false;
-
-    record->value_type = WmBusApplicationValueDateTime;
-    record->value_datetime.year = year;
-    record->value_datetime.month = month;
-    record->value_datetime.day = day;
-    record->value_datetime.hour = 0U;
-    record->value_datetime.minute = 0U;
-    record->value_datetime.has_time = false;
-    return true;
-}
-
-bool wmbus_application_record_set_datetime(
-    WmBusApplicationRecord* record,
-    uint16_t year,
-    uint8_t month,
-    uint8_t day,
-    uint8_t hour,
-    uint8_t minute) {
-    if(!record || month == 0U || month > 12U || day == 0U || day > 31U || hour > 23U ||
-       minute > 59U) {
-        return false;
-    }
-
-    record->value_type = WmBusApplicationValueDateTime;
-    record->value_datetime.year = year;
-    record->value_datetime.month = month;
-    record->value_datetime.day = day;
-    record->value_datetime.hour = hour;
-    record->value_datetime.minute = minute;
-    record->value_datetime.has_time = true;
-    return true;
-}
-
 bool wmbus_application_record_is_meaningful(const WmBusApplicationRecord* record) {
     return record && record->quantity != WmBusApplicationQuantityUnknown;
 }

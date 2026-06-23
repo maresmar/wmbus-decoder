@@ -50,7 +50,7 @@ Minimum steps:
 1. add a new parser ID in `wmbus_parser_id.h`
 2. add a parser implementation with `probe(const WmBusParserPacketView*)` and `parse(const WmBusParserPacketView*, WmBusPacketApplicationData*)`
 3. include the new parser in `wmbus_device_parser.c`
-4. register it in `wmbus_device_parsers[]` with `parser_id`, display `name`, and the correct `validates_decrypt` / `show_detail` flags
+4. register it in `wmbus_device_parsers[]` with `parser_id`, display `name`, and the correct `validates_decrypt` flag
 5. place it before any broader parser it should override
 6. add or update selftests in `applications_user/wmbus_decoder/test/`
 

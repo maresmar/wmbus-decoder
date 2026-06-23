@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "../packet/wmbus_packet.h"
+#include "../model/wmbus_application_types.h"
 #include "../packet/wmbus_packet_parts.h"
 
 bool wmbus_packet_summary_find_total_m3(
@@ -23,15 +23,5 @@ void wmbus_packet_summary_format_crypto_tag(
 void wmbus_packet_summary_format_security_text(
     const WmBusPacketEllData* ell,
     const WmBusPacketTplData* tpl,
-    char* out,
-    size_t out_size);
-void wmbus_packet_summary_format_bottom_line(
-    bool packet_is_frame,
-    uint16_t packet_len,
-    const WmBusPacketDllData* dll,
-    const WmBusPacketEllData* ell,
-    const WmBusPacketTplData* tpl,
-    bool has_total_volume,
-    uint32_t total_m3_x1000,
     char* out,
     size_t out_size);

@@ -4,7 +4,6 @@
 #include "../protocol/format/wmbus_packet_summary.h"
 #include "../protocol/format/wmbus_record_formatter.h"
 #include "../protocol/format/wmbus_hex_utils.h"
-#include "../protocol/model/wmbus_application_record.h"
 #include "../protocol/parser/wmbus_parser.h"
 
 #include <furi.h>
@@ -61,8 +60,6 @@ static bool wmbus_log_write_line(File* file, const char* format, ...) {
     return storage_file_write(file, line, to_write) == to_write;
 }
 
-// Hex encoding now handled by wmbus_hex_utils
-
 static void
     wmbus_log_format_total_m3(const WmBusPacketRecord* record, char* out, size_t out_size) {
     if(!out || out_size == 0U) return;
@@ -76,8 +73,6 @@ static void
     wmbus_packet_summary_format_total_m3(total_m3_x1000, out, out_size, false);
 }
 
-
-
 static uint8_t wmbus_log_security_mode(const WmBusPacketRecord* record) {
     if(!record) {
         return 0U;
@@ -88,8 +83,6 @@ static uint8_t wmbus_log_security_mode(const WmBusPacketRecord* record) {
     return record->tpl.security_mode;
 }
 
-
-
 static uint8_t wmbus_log_key_index(const WmBusPacketRecord* record) {
     if(!record) {
         return 0U;
@@ -99,8 +92,6 @@ static uint8_t wmbus_log_key_index(const WmBusPacketRecord* record) {
     }
     return record->tpl.key_index;
 }
-
-
 
 bool wmbus_log_append(Storage* storage, WmBusCsvLogging logging, const WmBusPacketRecord* record) {
     if(!storage || !record || logging == WmBusCsvLoggingNone) return false;
@@ -134,28 +125,36 @@ bool wmbus_log_append(Storage* storage, WmBusCsvLogging logging, const WmBusPack
         wmbus_record_formatter_format_joined(
             record->application.records, record->application.record_count, ';', fields);
         if(record->capture_len > 0U) {
-            wmbus_hex_encode(
-                record->capture_bytes, record->capture_len, hex, sizeof(hex));
+            wmbus_hex_encode(record->capture_bytes, record->capture_len, hex, sizeof(hex));
         } else if(record->packet_len > 0U) {
-            wmbus_hex_encode(
-                record->packet_bytes, record->packet_len, hex, sizeof(hex));
+            wmbus_hex_encode(record->packet_bytes, record->packet_len, hex, sizeof(hex));
         }
         wmbus_log_format_total_m3(record, total_m3, sizeof(total_m3));
+
+        unsigned long tick = (unsigned long)record->rx_tick;
+        char mode = record->mode == WmBusRxModeT ? 'T' : 'C';
+        const char* quality = wmbus_packet_quality_str(record->quality);
+        const char* mfg = record->packet_is_frame ? record->identity.manufacturer : "";
+        const char* id = record->packet_is_frame ? record->identity.meter_id : "";
+        uint8_t version = record->packet_is_frame ? record->dll.version : 0U;
+        uint8_t dev_type = record->packet_is_frame ? record->dll.dev_type : 0U;
+        uint8_t ci = record->packet_is_frame ? record->dll.ci_field : 0U;
+        const char* parser = wmbus_parser_id_name(record->application.parser_id);
 
         if(logging == WmBusCsvLoggingFull) {
             written = wmbus_log_write_line(
                 file,
                 "%lu,%c,%d,%s,%s,%s,%02X,%02X,%02X,%s,%02X,%u,%s,%s,%s\n",
-                (unsigned long)record->rx_tick,
-                record->mode == WmBusRxModeT ? 'T' : 'C',
+                tick,
+                mode,
                 record->rssi,
-                wmbus_packet_quality_str(record->quality),
-                record->packet_is_frame ? record->identity.manufacturer : "",
-                record->packet_is_frame ? record->identity.meter_id : "",
-                record->packet_is_frame ? record->dll.version : 0U,
-                record->packet_is_frame ? record->dll.dev_type : 0U,
-                record->packet_is_frame ? record->dll.ci_field : 0U,
-                wmbus_parser_id_name(record->application.parser_id),
+                quality,
+                mfg,
+                id,
+                version,
+                dev_type,
+                ci,
+                parser,
                 wmbus_log_security_mode(record),
                 wmbus_log_key_index(record),
                 total_m3,
@@ -165,16 +164,16 @@ bool wmbus_log_append(Storage* storage, WmBusCsvLogging logging, const WmBusPack
             written = wmbus_log_write_line(
                 file,
                 "%lu,%c,%d,%s,%s,%s,%02X,%02X,%02X,%s,%s\n",
-                (unsigned long)record->rx_tick,
-                record->mode == WmBusRxModeT ? 'T' : 'C',
+                tick,
+                mode,
                 record->rssi,
-                wmbus_packet_quality_str(record->quality),
-                record->packet_is_frame ? record->identity.manufacturer : "",
-                record->packet_is_frame ? record->identity.meter_id : "",
-                record->packet_is_frame ? record->dll.version : 0U,
-                record->packet_is_frame ? record->dll.dev_type : 0U,
-                record->packet_is_frame ? record->dll.ci_field : 0U,
-                wmbus_parser_id_name(record->application.parser_id),
+                quality,
+                mfg,
+                id,
+                version,
+                dev_type,
+                ci,
+                parser,
                 total_m3);
         }
 

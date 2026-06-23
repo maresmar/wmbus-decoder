@@ -5,6 +5,7 @@
 
 #include "wmbus_hex_utils.h"
 #include "../model/wmbus_application_record.h"
+#include "../packet/wmbus_packet.h"
 
 static uint64_t wmbus_record_formatter_pow10_u64(uint8_t power) {
     uint64_t result = 1U;
@@ -41,8 +42,6 @@ static void wmbus_record_formatter_scaled_unsigned(
         (int)decimals,
         (unsigned long long)frac);
 }
-
-// Hex encoding now handled by wmbus_hex_utils
 
 static const char* wmbus_record_formatter_unit(const WmBusApplicationRecord* record) {
     if(!record) return NULL;
@@ -297,19 +296,6 @@ static bool wmbus_record_formatter_format_field_buf(
     }
 
     snprintf(out, out_size, "%s=%s", label, value);
-    return true;
-}
-
-bool wmbus_record_formatter_format_label(const WmBusApplicationRecord* record, FuriString* out) {
-    char label[WMBUS_PACKET_LABEL_MAX] = {0};
-    if(!out) return false;
-
-    furi_string_reset(out);
-    if(!wmbus_record_formatter_format_label_buf(record, label, sizeof(label)) || label[0] == '\0') {
-        return false;
-    }
-
-    furi_string_set(out, label);
     return true;
 }
 

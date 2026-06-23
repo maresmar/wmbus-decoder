@@ -17,6 +17,3 @@ bool wmbus_packet_decode_application_records(
     WmBusApplicationRecord* out,
     uint8_t out_max,
     uint8_t* out_count);
-uint8_t wmbus_packet_count_meaningful_records(
-    const WmBusApplicationRecord* records,
-    uint8_t record_count);

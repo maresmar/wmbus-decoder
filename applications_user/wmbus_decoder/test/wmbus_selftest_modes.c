@@ -411,15 +411,15 @@ static bool wmbus_selftest_check_packet_process_c_bad_header_keeps_raw_diagnosti
         return false;
     }
 
-    if(!record.has_capture || record.header_ok || record.length_ok || record.crc_ok ||
+    if(!record.has_capture || record.plausible || record.length_ok || record.crc_ok ||
        record.quality != WmBusPacketQualityAnyCapture || record.status != WmBusStatusNotPlausible ||
        record.packet_len != sizeof(raw) || memcmp(record.packet_bytes, raw, sizeof(raw)) != 0) {
         wmbus_selftest_set_detail(
             detail,
             detail_len,
-            "unexpected has=%u hdr=%u len=%u crc=%u quality=%u status=%u packet_len=%u",
+            "unexpected has=%u plausible=%u len=%u crc=%u quality=%u status=%u packet_len=%u",
             record.has_capture ? 1U : 0U,
-            record.header_ok ? 1U : 0U,
+            record.plausible ? 1U : 0U,
             record.length_ok ? 1U : 0U,
             record.crc_ok ? 1U : 0U,
             (unsigned int)record.quality,
@@ -635,7 +635,7 @@ static bool wmbus_selftest_check_frame_normalize_c_mode_crc_bad_prefers_format_b
 
 static bool wmbus_selftest_check_capture_state_reset(char* detail, size_t detail_len) {
     WmBusCaptureStateT state_t = {.raw_len = 9U, .in_packet = true, .expected_raw_len = 42U, .last_byte_tick = 1234U};
-    WmBusCaptureStateC state_c = {.raw_len = 12U, .in_packet = true, .expected_len = 73U, .last_byte_tick = 5678U, .dropped_invalid = 5U, .dropped_oversize = 2U};
+    WmBusCaptureStateC state_c = {.raw_len = 12U, .in_packet = true, .expected_len = 73U, .last_byte_tick = 5678U};
 
     wmbus_capture_state_t_reset(&state_t);
     wmbus_capture_state_c_reset(&state_c);
@@ -644,8 +644,7 @@ static bool wmbus_selftest_check_capture_state_reset(char* detail, size_t detail
         wmbus_selftest_set_detail(detail, detail_len, "T state reset failed");
         return false;
     }
-    if(state_c.raw_len != 0U || state_c.in_packet || state_c.expected_len != 0U || state_c.last_byte_tick != 0U ||
-       state_c.dropped_invalid != 0U || state_c.dropped_oversize != 0U) {
+    if(state_c.raw_len != 0U || state_c.in_packet || state_c.expected_len != 0U || state_c.last_byte_tick != 0U) {
         wmbus_selftest_set_detail(detail, detail_len, "C state reset failed");
         return false;
     }

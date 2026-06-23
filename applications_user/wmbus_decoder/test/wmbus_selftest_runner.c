@@ -2,8 +2,6 @@
 
 #include "../core/wmbus_config.h"
 
-#include <string.h>
-
 static void wmbus_selftest_log_check_result(const char* name, const char* detail, bool pass) {
     if(pass) {
         FURI_LOG_I(TAG, "%s %s", name, detail);
@@ -67,14 +65,6 @@ static void
 
     checks = wmbus_selftest_parser_checks(&count);
     wmbus_selftest_run_checks(summary, log_results, report, checks, count);
-}
-
-void wmbus_selftest_run_all(WmBusSelftestSummary* summary, bool log_results) {
-    WmBusSelftestSummary local_summary = {0};
-    if(!summary) summary = &local_summary;
-
-    memset(summary, 0, sizeof(*summary));
-    wmbus_selftest_run_internal(summary, log_results, NULL);
 }
 
 void wmbus_run_selftests(void) {

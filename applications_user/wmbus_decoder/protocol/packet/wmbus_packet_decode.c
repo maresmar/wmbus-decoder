@@ -15,10 +15,8 @@ typedef struct {
     bool length_ok;
     bool crc_known;
     bool crc_ok;
-    bool normalize_format_known;
     size_t frame_len;
     int best_offset;
-    WmBusFrameFormat normalize_format;
     uint8_t frame[WMBUS_DECODE_MAX];
 } WmBusTDecodeResult;
 
@@ -169,8 +167,6 @@ static bool wmbus_try_decode_t_candidate(
            WmBusRxModeT, decoded, decoded_len, normalized, sizeof(normalized), &normalized_result)) {
         frame = normalized;
         frame_len = normalized_result.normalized_len;
-        result->normalize_format_known = true;
-        result->normalize_format = normalized_result.format;
     }
 
     result->length_ok = normalized_result.length_ok;
@@ -238,12 +234,12 @@ bool wmbus_packet_decode_capture(
     }
 
     memset(out, 0, sizeof(*out));
-    out->used_3of6 = (capture->mode == WmBusRxModeT);
+    bool use_3of6 = (capture->mode == WmBusRxModeT);
 
     const uint8_t* frame = NULL;
     size_t frame_len = 0U;
 
-    if(out->used_3of6) {
+    if(use_3of6) {
         WmBusTDecodeResult t_result = {0};
         wmbus_decode_t_capture(capture, &t_result);
         record->decoded_ok = t_result.decoded_ok;
@@ -251,8 +247,6 @@ bool wmbus_packet_decode_capture(
         record->length_ok = t_result.length_ok;
         record->crc_known = t_result.crc_known;
         record->crc_ok = t_result.crc_ok;
-        record->normalize_format_known = t_result.normalize_format_known;
-        record->normalize_format = t_result.normalize_format;
         record->best_offset = t_result.best_offset;
 
         if(t_result.plausible) {
@@ -268,7 +262,7 @@ bool wmbus_packet_decode_capture(
         }
     }
 
-    if(record->plausible && !out->used_3of6) {
+    if(record->plausible && !use_3of6) {
         WmBusFrameNormalizeResult normalized_result = {0};
         if(wmbus_frame_normalize(
                capture->mode,
@@ -279,8 +273,6 @@ bool wmbus_packet_decode_capture(
                &normalized_result)) {
             frame = frame_buf;
             frame_len = normalized_result.normalized_len;
-            record->normalize_format_known = true;
-            record->normalize_format = normalized_result.format;
         }
         record->length_ok = normalized_result.length_ok;
         record->crc_known = normalized_result.crc_known;
