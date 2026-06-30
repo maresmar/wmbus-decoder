@@ -159,16 +159,13 @@ bool wmbus_packet_resolve_application_payload(
     wmbus_packet_set_payload_packet_slice(record, frame_len);
     wmbus_packet_reset_application_payload(&record->payload);
 
-    if(record->payload.packet_len >= 2U &&
-       record->packet_bytes[record->payload.packet_offset] == 0x2FU &&
-       record->packet_bytes[record->payload.packet_offset + 1U] == 0x2FU) {
-        wmbus_packet_copy_application_payload(
-            &record->payload, frame, frame_len, record->tpl.header_len);
-        return true;
-    }
-
-    if(!record->tpl.has_short_tpl ||
-       !wmbus_parser_short_tpl_security_likely_encrypted(record->tpl.cfg)) {
+    bool has_check_bytes =
+        record->payload.packet_len >= 2U &&
+        record->packet_bytes[record->payload.packet_offset] == 0x2FU &&
+        record->packet_bytes[record->payload.packet_offset + 1U] == 0x2FU;
+    bool needs_decrypt =
+        record->tpl.has_short_tpl && wmbus_parser_short_tpl_security_likely_encrypted(record->tpl.cfg);
+    if(has_check_bytes || !needs_decrypt) {
         wmbus_packet_copy_application_payload(
             &record->payload, frame, frame_len, record->tpl.header_len);
         return true;

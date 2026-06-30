@@ -259,7 +259,6 @@ static bool wmbus_capture_t_step(
             frame->len = frame_raw_len;
             frame->rssi = (int)furi_hal_subghz_get_rssi();
             frame->mode = WmBusRxModeT;
-
             wmbus_capture_state_t_reset(state);
             wmbus_radio_recover_rx();
             return true;
@@ -329,7 +328,6 @@ static bool wmbus_capture_c_step(
     frame->len = frame_len - frame_offset;
     frame->rssi = (int)furi_hal_subghz_get_rssi();
     frame->mode = WmBusRxModeC;
-
     wmbus_capture_state_c_reset(state);
     wmbus_radio_recover_rx();
     return true;

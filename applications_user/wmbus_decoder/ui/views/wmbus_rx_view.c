@@ -4,7 +4,6 @@
 #include "../../protocol/format/wmbus_hex_utils.h"
 #include "../../protocol/format/wmbus_packet_summary.h"
 #include "../../protocol/model/wmbus_application_record.h"
-#include "../../protocol/parser/wmbus_parser.h"
 
 #include <furi.h>
 #include <gui/canvas.h>
@@ -133,7 +132,12 @@ static void
     char crypto[12] = {0};
     wmbus_packet_summary_format_crypto_tag(&entry->ell, &entry->tpl, crypto, sizeof(crypto));
     if(crypto[0] != '\0') {
-        snprintf(out, out_size, "%s REC:%u", crypto, (unsigned int)entry->application.record_count);
+        if(entry->application.record_count == 0U &&
+           (strcmp(crypto, "ENC") == 0 || strcmp(crypto, "EENC") == 0)) {
+            snprintf(out, out_size, "%s", crypto);
+        } else {
+            snprintf(out, out_size, "%s REC:%u", crypto, (unsigned int)entry->application.record_count);
+        }
     } else {
         snprintf(out, out_size, "REC:%u", (unsigned int)entry->application.record_count);
     }

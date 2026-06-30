@@ -20,6 +20,22 @@ static const char*
     }
 }
 
+static void wmbus_packet_summary_format_security_mode(
+    uint8_t security_mode,
+    bool ell_security,
+    char* out,
+    size_t out_size) {
+    if(!out || out_size == 0U) return;
+
+    const char* known_mode =
+        wmbus_packet_summary_security_mode_name(security_mode, ell_security);
+    if(known_mode) {
+        snprintf(out, out_size, "%s", known_mode);
+    } else {
+        snprintf(out, out_size, "Mode %02X", security_mode);
+    }
+}
+
 void wmbus_packet_summary_format_crypto_tag(
     const WmBusPacketEllData* ell,
     const WmBusPacketTplData* tpl,
@@ -71,13 +87,7 @@ void wmbus_packet_summary_format_security_text(
         }
 
         char mode[20] = {0};
-        const char* known_mode =
-            wmbus_packet_summary_security_mode_name(ell->security_mode, true);
-        if(known_mode) {
-            snprintf(mode, sizeof(mode), "%s", known_mode);
-        } else {
-            snprintf(mode, sizeof(mode), "Mode %02X", ell->security_mode);
-        }
+        wmbus_packet_summary_format_security_mode(ell->security_mode, true, mode, sizeof(mode));
 
         if(ell->decrypted) {
             snprintf(out, out_size, "ELL %s, decrypted key #%u", mode, (unsigned int)ell->key_index);
@@ -92,12 +102,7 @@ void wmbus_packet_summary_format_security_text(
     if(!tpl || !tpl->has_short_tpl) return;
 
     char mode[20] = {0};
-    const char* known_mode = wmbus_packet_summary_security_mode_name(tpl->security_mode, false);
-    if(known_mode) {
-        snprintf(mode, sizeof(mode), "%s", known_mode);
-    } else {
-        snprintf(mode, sizeof(mode), "Mode %02X", tpl->security_mode);
-    }
+    wmbus_packet_summary_format_security_mode(tpl->security_mode, false, mode, sizeof(mode));
 
     if(tpl->decrypted) {
         snprintf(out, out_size, "%s, decrypted key #%u", mode, (unsigned int)tpl->key_index);
