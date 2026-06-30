@@ -111,3 +111,27 @@ From the firmware root:
 Output:
 
 `build/f7-firmware-D/.extapps/wmbus_decoder.fap`
+
+## Tests
+
+The app runs its selftests at startup and writes the report to:
+
+`/ext/apps_data/wmbus_decoder/selftest.txt`
+
+After building and launching the app on a device, fetch the report with the Flipper CLI:
+
+```bash
+./fbt cli
+```
+
+Then run:
+
+```text
+storage read /ext/apps_data/wmbus_decoder/selftest.txt
+```
+
+Expected result ends with:
+
+```text
+selftests done total=58 passed=58 failed=0
+```
