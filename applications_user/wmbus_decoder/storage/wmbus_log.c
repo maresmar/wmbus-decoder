@@ -4,6 +4,7 @@
 #include "../protocol/format/wmbus_packet_summary.h"
 #include "../protocol/format/wmbus_record_formatter.h"
 #include "../protocol/format/wmbus_hex_utils.h"
+#include "../protocol/model/wmbus_application_record.h"
 #include "../protocol/parser/wmbus_parser.h"
 
 #include <furi.h>
@@ -67,7 +68,8 @@ static void
     if(!record) return;
 
     uint32_t total_m3_x1000 = 0U;
-    if(!wmbus_packet_summary_find_total_m3(&record->application, &total_m3_x1000)) {
+    if(!wmbus_application_find_total_volume(
+           record->application.records, record->application.record_count, &total_m3_x1000)) {
         return;
     }
     wmbus_packet_summary_format_total_m3(total_m3_x1000, out, out_size, false);

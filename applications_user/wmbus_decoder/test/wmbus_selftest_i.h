@@ -103,10 +103,6 @@ bool wmbus_selftest_hex_to_format_b_frame(
 uint32_t wmbus_selftest_fnv1a32(const uint8_t* data, size_t len);
 bool wmbus_selftest_write_report_line(File* file, const char* format, ...);
 bool wmbus_selftest_find_total_volume(const WmBusPacketRecord* record, uint32_t* total_m3_x1000);
-const char* wmbus_selftest_record_value(
-    const WmBusApplicationRecord* record,
-    char* out,
-    size_t out_size);
 void wmbus_selftest_describe_first_record(
     const WmBusPacketRecord* packet,
     char* out,

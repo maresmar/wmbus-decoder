@@ -1,15 +1,10 @@
 #pragma once
 
-#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
-#include "../model/wmbus_application_types.h"
 #include "../packet/wmbus_packet_parts.h"
 
-bool wmbus_packet_summary_find_total_m3(
-    const WmBusPacketApplicationData* application,
-    uint32_t* total_m3_x1000);
 void wmbus_packet_summary_format_total_m3(
     uint32_t total_m3_x1000,
     char* out,

@@ -299,19 +299,6 @@ static bool wmbus_record_formatter_format_field_buf(
     return true;
 }
 
-bool wmbus_record_formatter_format_value(const WmBusApplicationRecord* record, FuriString* out) {
-    char value[WMBUS_PACKET_VALUE_MAX] = {0};
-    if(!out) return false;
-
-    furi_string_reset(out);
-    if(!wmbus_record_formatter_format_value_buf(record, value, sizeof(value)) || value[0] == '\0') {
-        return false;
-    }
-
-    furi_string_set(out, value);
-    return true;
-}
-
 bool wmbus_record_formatter_format_field(const WmBusApplicationRecord* record, FuriString* out) {
     char field[WMBUS_PACKET_DETAIL_MAX] = {0};
     if(!out) return false;

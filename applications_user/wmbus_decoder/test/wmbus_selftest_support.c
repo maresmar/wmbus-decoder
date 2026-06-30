@@ -93,28 +93,6 @@ bool wmbus_selftest_find_total_volume(const WmBusPacketRecord* record, uint32_t*
         record->application.records, record->application.record_count, total_m3_x1000);
 }
 
-const char* wmbus_selftest_record_value(
-    const WmBusApplicationRecord* record,
-    char* out,
-    size_t out_size) {
-    if(!out || out_size == 0U) return out;
-
-    FuriString* value = furi_string_alloc();
-    if(!value) {
-        out[0] = '\0';
-        return out;
-    }
-
-    if(!wmbus_record_formatter_format_value(record, value)) {
-        out[0] = '\0';
-    } else {
-        snprintf(out, out_size, "%s", furi_string_get_cstr(value));
-    }
-
-    furi_string_free(value);
-    return out;
-}
-
 void wmbus_selftest_describe_first_record(
     const WmBusPacketRecord* packet,
     char* out,

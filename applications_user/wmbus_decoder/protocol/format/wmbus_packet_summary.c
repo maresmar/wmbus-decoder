@@ -2,16 +2,7 @@
 
 #include <stdio.h>
 
-#include "../model/wmbus_application_record.h"
 #include "../parser/wmbus_parser.h"
-
-bool wmbus_packet_summary_find_total_m3(
-    const WmBusPacketApplicationData* application,
-    uint32_t* total_m3_x1000) {
-    if(!application) return false;
-    return wmbus_application_find_total_volume(
-        application->records, application->record_count, total_m3_x1000);
-}
 
 void wmbus_packet_summary_format_total_m3(
     uint32_t total_m3_x1000,

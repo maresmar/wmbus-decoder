@@ -146,7 +146,8 @@ static void
     if(!entry) return;
 
     uint32_t total_m3_x1000 = 0U;
-    if(!wmbus_packet_summary_find_total_m3(&entry->application, &total_m3_x1000)) {
+    if(!wmbus_application_find_total_volume(
+           entry->application.records, entry->application.record_count, &total_m3_x1000)) {
         return;
     }
 
