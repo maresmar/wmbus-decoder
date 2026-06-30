@@ -4,7 +4,7 @@
 
 ## Supported Features
 
-- WM-Bus receive pipeline with `T` and `C` mode capture paths
+- WM-Bus receive pipeline with `T` and experimental `C` mode capture paths
 - packet validation with plausibility, length, and CRC checks
 - packet history on device with quality-based retention threshold and optional RSSI gate
 - optional dated CSV logging with quality-based CSV threshold
@@ -30,7 +30,6 @@
 - the app is receive-only; it does not transmit or pair
 - device-specific parsing is limited; unsupported telegrams fall back to generic decode or remain undecoded
 - decryption support is limited to what the shared packet path and registered parsers can validate
-- old-style Apator telegrams with `CI == 0xB6` are not supported
 
 ## Parsers
 
@@ -61,6 +60,7 @@ Parser inputs come through `WmBusParserPacketView`, which exposes DLL, TPL, payl
 - `OK`: switch between `Latest` and `History`
 - `Up` / `Down`: browse saved packets in `History`
 - `Long OK`: open config
+- `Long Up`: toogle debug overlay
 - `Long Down`: open packet detail for the selected history entry
 - `Back`: exit
 
@@ -82,7 +82,6 @@ Files used by the app:
 - selftest report: `/ext/apps_data/wmbus_decoder/selftest.txt`
 - CSV basic: `/ext/apps_data/wmbus_decoder/packets_YYYYMMDD_basic.csv`
 - CSV full: `/ext/apps_data/wmbus_decoder/packets_YYYYMMDD_full.csv`
-- CSV falls back to `packets_undated_basic.csv` or `packets_undated_full.csv` if the RTC date is not usable
 
 ## Key File
 
