@@ -1,5 +1,6 @@
 #include "wmbus_application_record.h"
 
+#include <stdio.h>
 #include <string.h>
 
 static uint64_t wmbus_application_pow10_u64(uint8_t power) {
@@ -89,4 +90,22 @@ bool wmbus_application_find_total_volume(
     }
 
     return false;
+}
+
+void wmbus_application_format_volume_m3(
+    uint32_t total_m3_x1000,
+    char* out,
+    size_t out_size,
+    bool with_unit) {
+    if(!out || out_size == 0U) return;
+    out[0] = '\0';
+
+    uint32_t whole = total_m3_x1000 / 1000U;
+    uint32_t frac = total_m3_x1000 % 1000U;
+    snprintf(
+        out,
+        out_size,
+        with_unit ? "%lu.%03lu m3" : "%lu.%03lu",
+        (unsigned long)whole,
+        (unsigned long)frac);
 }

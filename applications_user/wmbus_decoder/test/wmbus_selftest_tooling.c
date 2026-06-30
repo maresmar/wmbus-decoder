@@ -178,31 +178,29 @@ static bool wmbus_selftest_check_dif_vif_decode_basic(char* detail, size_t detai
     };
     WmBusApplicationRecord records[WMBUS_PACKET_RECORD_MAX] = {0};
     uint8_t count = 0U;
-    char vol[WMBUS_PACKET_VALUE_MAX] = {0};
-    char energy[WMBUS_PACKET_VALUE_MAX] = {0};
-    char flow[WMBUS_PACKET_VALUE_MAX] = {0};
-    char date[WMBUS_PACKET_VALUE_MAX] = {0};
-    char dt[WMBUS_PACKET_VALUE_MAX] = {0};
-    char status[WMBUS_PACKET_VALUE_MAX] = {0};
-
-    if(!wmbus_packet_decode_application_records(payload, sizeof(payload), records, COUNT_OF(records), &count)) {
-        wmbus_selftest_set_detail(detail, detail_len, "decode failed");
+    FuriString* fields = furi_string_alloc();
+    if(!fields) {
+        wmbus_selftest_set_detail(detail, detail_len, "alloc failed");
         return false;
     }
 
-    wmbus_selftest_record_value(&records[0], vol, sizeof(vol));
-    wmbus_selftest_record_value(&records[1], energy, sizeof(energy));
-    wmbus_selftest_record_value(&records[3], flow, sizeof(flow));
-    wmbus_selftest_record_value(&records[7], date, sizeof(date));
-    wmbus_selftest_record_value(&records[8], dt, sizeof(dt));
-    wmbus_selftest_record_value(&records[9], status, sizeof(status));
+    if(!wmbus_packet_decode_application_records(payload, sizeof(payload), records, COUNT_OF(records), &count)) {
+        wmbus_selftest_set_detail(detail, detail_len, "decode failed");
+        furi_string_free(fields);
+        return false;
+    }
+
+    wmbus_record_formatter_format_joined(records, count, ';', fields);
+    const char* fields_text = furi_string_get_cstr(fields);
 
     if(count != 10U || records[0].quantity != WmBusApplicationQuantityVolume ||
        records[0].value_type != WmBusApplicationValueUnsigned || records[0].value_unsigned != 123456U ||
-       strcmp(vol, "123.456 m3") != 0 || records[1].quantity != WmBusApplicationQuantityEnergy ||
+       !strstr(fields_text, "Volume[inst]=123.456 m3") ||
+       records[1].quantity != WmBusApplicationQuantityEnergy ||
        records[1].value_type != WmBusApplicationValueUnsigned || records[1].value_unsigned != 123456U ||
-       strcmp(energy, "123456 Wh") != 0 || records[2].storage_no != 2U ||
-       records[3].quantity != WmBusApplicationQuantityVolumeFlow || strcmp(flow, "12.345678 m3/h") != 0 ||
+       !strstr(fields_text, "Energy[inst]=123456 Wh") || records[2].storage_no != 2U ||
+       records[3].quantity != WmBusApplicationQuantityVolumeFlow ||
+       !strstr(fields_text, "Flow=12.345678 m3/h") ||
        records[4].quantity != WmBusApplicationQuantityFlowTemperature || records[4].value_type != WmBusApplicationValueUnsigned ||
        records[4].value_unsigned != 215U || records[4].scale10 != -1 ||
        records[5].quantity != WmBusApplicationQuantityReturnTemperature || records[5].value_type != WmBusApplicationValueUnsigned ||
@@ -212,17 +210,26 @@ static bool wmbus_selftest_check_dif_vif_decode_basic(char* detail, size_t detai
        records[7].quantity != WmBusApplicationQuantityDate || records[7].value_type != WmBusApplicationValueDateTime ||
        records[7].value_datetime.year != 2025U || records[7].value_datetime.month != 3U ||
        records[7].value_datetime.day != 12U || records[7].value_datetime.has_time ||
-       strcmp(date, "2025-03-12") != 0 || records[8].quantity != WmBusApplicationQuantityDateTime ||
+       !strstr(fields_text, "Date=2025-03-12") ||
+       records[8].quantity != WmBusApplicationQuantityDateTime ||
        records[8].value_type != WmBusApplicationValueDateTime || records[8].value_datetime.year != 2025U ||
        records[8].value_datetime.month != 3U || records[8].value_datetime.day != 12U ||
        !records[8].value_datetime.has_time || records[8].value_datetime.hour != 16U ||
-       records[8].value_datetime.minute != 37U || strcmp(dt, "2025-03-12 16:37") != 0 ||
+       records[8].value_datetime.minute != 37U ||
+       !strstr(fields_text, "Measured at=2025-03-12 16:37") ||
        records[9].quantity != WmBusApplicationQuantityStatus || records[9].value_type != WmBusApplicationValueRaw ||
-       strcmp(status, "3412") != 0) {
-        wmbus_selftest_set_detail(detail, detail_len, "count=%u vol=%s energy=%s flow=%s date=%s dt=%s status=%s", (unsigned int)count, vol, energy, flow, date, dt, status);
+       !strstr(fields_text, "Status=3412")) {
+        wmbus_selftest_set_detail(
+            detail,
+            detail_len,
+            "count=%u fields=%s",
+            (unsigned int)count,
+            fields_text);
+        furi_string_free(fields);
         return false;
     }
 
+    furi_string_free(fields);
     wmbus_selftest_set_detail(detail, detail_len, "records=%u common_types=volume,energy,flow,temp,date,status", (unsigned int)count);
     return true;
 }

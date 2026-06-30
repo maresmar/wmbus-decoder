@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "wmbus_application_types.h"
@@ -20,3 +21,8 @@ bool wmbus_application_find_total_volume(
     const WmBusApplicationRecord* records,
     uint8_t record_count,
     uint32_t* total_m3_x1000);
+void wmbus_application_format_volume_m3(
+    uint32_t total_m3_x1000,
+    char* out,
+    size_t out_size,
+    bool with_unit);

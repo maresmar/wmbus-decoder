@@ -152,7 +152,7 @@ static void
     }
 
     char volume[WMBUS_PACKET_VALUE_MAX] = {0};
-    wmbus_packet_summary_format_total_m3(total_m3_x1000, volume, sizeof(volume), false);
+    wmbus_application_format_volume_m3(total_m3_x1000, volume, sizeof(volume), false);
     snprintf(out, out_size, "%sm3", volume);
 }
 

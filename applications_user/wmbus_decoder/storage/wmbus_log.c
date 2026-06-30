@@ -72,7 +72,7 @@ static void
            record->application.records, record->application.record_count, &total_m3_x1000)) {
         return;
     }
-    wmbus_packet_summary_format_total_m3(total_m3_x1000, out, out_size, false);
+    wmbus_application_format_volume_m3(total_m3_x1000, out, out_size, false);
 }
 
 static uint8_t wmbus_log_security_mode(const WmBusPacketRecord* record) {

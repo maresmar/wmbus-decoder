@@ -4,24 +4,6 @@
 
 #include "../parser/wmbus_parser.h"
 
-void wmbus_packet_summary_format_total_m3(
-    uint32_t total_m3_x1000,
-    char* out,
-    size_t out_size,
-    bool with_unit) {
-    if(!out || out_size == 0U) return;
-    out[0] = '\0';
-
-    uint32_t whole = total_m3_x1000 / 1000U;
-    uint32_t frac = total_m3_x1000 % 1000U;
-    snprintf(
-        out,
-        out_size,
-        with_unit ? "%lu.%03lu m3" : "%lu.%03lu",
-        (unsigned long)whole,
-        (unsigned long)frac);
-}
-
 static const char*
     wmbus_packet_summary_security_mode_name(uint8_t security_mode, bool ell_security) {
     switch(security_mode) {

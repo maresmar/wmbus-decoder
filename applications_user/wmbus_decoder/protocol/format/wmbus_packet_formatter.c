@@ -113,7 +113,7 @@ static void wmbus_packet_formatter_format_application_detail(
     uint32_t total_m3_x1000 = 0U;
     if(wmbus_application_find_total_volume(
            record->application.records, record->application.record_count, &total_m3_x1000)) {
-        wmbus_packet_summary_format_total_m3(total_m3_x1000, total, sizeof(total), true);
+        wmbus_application_format_volume_m3(total_m3_x1000, total, sizeof(total), true);
         snprintf(line, sizeof(line), "Volume=%s", total);
         wmbus_packet_formatter_append_line(out, line, &wrote_any);
         wrote_volume = true;
