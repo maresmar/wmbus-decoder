@@ -185,10 +185,8 @@ static WmBusApp* wmbus_app_alloc(void) {
     }
     wmbus_csv_sink_init(&app->csv_sink, app->storage);
     wmbus_history_sink_init(&app->history_sink, app->rx_view);
-    if(!wmbus_capture_processor_add_sink(
-           app->capture_processor, wmbus_csv_sink_get_packet_sink(&app->csv_sink)) ||
-       !wmbus_capture_processor_add_sink(
-           app->capture_processor, wmbus_history_sink_get_packet_sink(&app->history_sink))) {
+    if(!wmbus_capture_processor_add_sink(app->capture_processor, &app->csv_sink.sink) ||
+       !wmbus_capture_processor_add_sink(app->capture_processor, &app->history_sink.sink)) {
         wmbus_app_free(app);
         return NULL;
     }

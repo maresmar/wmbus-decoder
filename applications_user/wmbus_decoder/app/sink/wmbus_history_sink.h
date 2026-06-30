@@ -10,5 +10,3 @@ typedef struct {
 } WmBusHistorySink;
 
 void wmbus_history_sink_init(WmBusHistorySink* history_sink, WmBusRxView* rx_view);
-const WmBusPacketSink* wmbus_history_sink_get_packet_sink(const WmBusHistorySink* history_sink);
-

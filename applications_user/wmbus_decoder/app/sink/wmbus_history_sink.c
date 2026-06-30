@@ -29,7 +29,3 @@ void wmbus_history_sink_init(WmBusHistorySink* history_sink, WmBusRxView* rx_vie
             },
     };
 }
-
-const WmBusPacketSink* wmbus_history_sink_get_packet_sink(const WmBusHistorySink* history_sink) {
-    return history_sink ? &history_sink->sink : NULL;
-}
