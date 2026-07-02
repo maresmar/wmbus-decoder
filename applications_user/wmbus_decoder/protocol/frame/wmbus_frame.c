@@ -317,14 +317,14 @@ bool wmbus_frame_normalize(
         size_t expected_len = wmbus_frame_expected_len(l_field, format);
         if(frame_len < expected_len) continue;
 
-        out->length_ok = true;
-        out->crc_known = true;
-
         size_t trimmed_len = 0;
         if(!wmbus_frame_trim_crc(
                format, frame, expected_len, candidate_trimmed, normalized_max, &trimmed_len)) {
             continue;
         }
+
+        out->length_ok = true;
+        out->crc_known = true;
 
         if(!fallback_ready) {
             memcpy(normalized, candidate_trimmed, trimmed_len);

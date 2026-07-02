@@ -341,9 +341,7 @@ static bool wmbus_selftest_check_packet_detail_omits_duplicate_volume(
     WmBusPacketRecord packet = {
         .quality = WmBusPacketQualityParsed,
         .mode = WmBusRxModeC,
-        .parsed_ok = true,
         .rssi_ok = true,
-        .packet_is_frame = true,
         .rssi = -72,
         .dll.dev_type = 0x07,
         .dll.ci_field = 0x7A,
@@ -410,8 +408,7 @@ static bool wmbus_selftest_check_packet_quality_policy(char* detail, size_t deta
         return false;
     }
 
-    record.parsed_ok = true;
-    record.quality = wmbus_packet_quality_from_record(&record);
+    record.quality = WmBusPacketQualityParsed;
     if(record.quality != WmBusPacketQualityParsed ||
        !wmbus_packet_record_passes_policy(&record, WmBusPacketQualityParsed, 0)) {
         wmbus_selftest_set_detail(

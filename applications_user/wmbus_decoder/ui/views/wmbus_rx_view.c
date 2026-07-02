@@ -21,10 +21,8 @@ typedef struct {
 } WmBusRxViewContext;
 
 typedef struct {
-    bool packet_is_frame;
     WmBusPacketQuality quality;
     WmBusRxMode mode;
-    bool parsed_ok;
     bool rssi_ok;
     int8_t rssi;
     uint32_t rx_tick;
@@ -169,10 +167,10 @@ static void wmbus_rx_format_quality_flags(
         out_size,
         "%s %s %s %s %s %s",
         "RX",
-        entry->packet_is_frame ? "HDR" : "--",
+        wmbus_packet_quality_meets(entry->quality, WmBusPacketQualityHeaderOk) ? "HDR" : "--",
         wmbus_packet_quality_meets(entry->quality, WmBusPacketQualityFrameComplete) ? "LEN" : "--",
         wmbus_packet_quality_meets(entry->quality, WmBusPacketQualityCrcOk) ? "CRC" : "--",
-        entry->parsed_ok ? "DEC" : "--",
+        wmbus_packet_quality_meets(entry->quality, WmBusPacketQualityParsed) ? "DEC" : "--",
         entry->rssi_ok ? "RSSI" : "rssi");
 }
 
@@ -240,7 +238,7 @@ static void wmbus_rx_draw(Canvas* canvas, void* model) {
 
     if(!entry) {
         canvas_draw_str(canvas, 0, 48, "Waiting for RX...");
-        canvas_draw_str(canvas, 0, 58, "OK=history  long OK=config");
+        canvas_draw_str(canvas, 0, 58, "[ok] History [OK] Config");
     } else if(m->debug_mode) {
         char hex[WMBUS_PACKET_VALUE_MAX];
         size_t preview_len = entry->packet_preview_len;
@@ -250,11 +248,9 @@ static void wmbus_rx_draw(Canvas* canvas, void* model) {
         canvas_draw_str(canvas, 0, 48, line);
         snprintf(line, sizeof(line), "Hex:%s%s", hex, (entry->packet_len > 8U) ? "..." : "");
         canvas_draw_str(canvas, 0, 58, line);
-    } else if(!entry->packet_is_frame) {
-        char footer_left[24];
-        canvas_draw_str(canvas, 0, 48, "Raw packet");
-        wmbus_rx_format_footer_left(entry, footer_left, sizeof(footer_left));
-        canvas_draw_str(canvas, 0, 58, footer_left);
+    } else if(!wmbus_packet_quality_meets(entry->quality, WmBusPacketQualityFrameComplete)) {
+        canvas_draw_str(canvas, 0, 48, "Waiting for complete frame...");
+        canvas_draw_str(canvas, 0, 58, "[UP] Debug [DOWN] Detail");
     } else {
         char right[20];
         char footer_left[24];
@@ -433,10 +429,8 @@ static void wmbus_rx_history_fill_entry(
     if(!entry || !record) return;
 
     memset(entry, 0, sizeof(*entry));
-    entry->packet_is_frame = record->packet_is_frame;
     entry->quality = record->quality;
     entry->mode = record->mode;
-    entry->parsed_ok = record->parsed_ok;
     entry->rssi_ok = record->rssi_ok;
     entry->rssi = (int8_t)record->rssi;
     entry->rx_tick = record->rx_tick;
@@ -460,10 +454,8 @@ static void wmbus_rx_history_entry_to_record(
     }
 
     memset(record, 0, sizeof(*record));
-    record->packet_is_frame = entry->packet_is_frame;
     record->quality = entry->quality;
     record->mode = entry->mode;
-    record->parsed_ok = entry->parsed_ok;
     record->rssi_ok = entry->rssi_ok;
     record->rssi = entry->rssi;
     record->rx_tick = entry->rx_tick;
@@ -493,7 +485,7 @@ void wmbus_rx_view_push_packet(
                 model->packets_rx++;
             }
 
-            if(record->parsed_ok) {
+            if(wmbus_packet_quality_meets(record->quality, WmBusPacketQualityParsed)) {
                 model->packets_decoded++;
             }
 

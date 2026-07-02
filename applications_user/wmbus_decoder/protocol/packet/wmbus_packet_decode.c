@@ -302,7 +302,6 @@ void wmbus_packet_store_frame(
     size_t frame_len) {
     if(!record || !frame || frame_len == 0U) return;
 
-    record->packet_is_frame = true;
     record->packet_len =
         (uint16_t)((frame_len > sizeof(record->packet_bytes)) ? sizeof(record->packet_bytes) :
                                                               frame_len);

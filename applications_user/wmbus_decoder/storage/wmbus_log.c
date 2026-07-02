@@ -136,11 +136,12 @@ bool wmbus_log_append(Storage* storage, WmBusCsvLogging logging, const WmBusPack
         unsigned long tick = (unsigned long)record->rx_tick;
         char mode = record->mode == WmBusRxModeT ? 'T' : 'C';
         const char* quality = wmbus_packet_quality_str(record->quality);
-        const char* mfg = record->packet_is_frame ? record->identity.manufacturer : "";
-        const char* id = record->packet_is_frame ? record->identity.meter_id : "";
-        uint8_t version = record->packet_is_frame ? record->dll.version : 0U;
-        uint8_t dev_type = record->packet_is_frame ? record->dll.dev_type : 0U;
-        uint8_t ci = record->packet_is_frame ? record->dll.ci_field : 0U;
+        bool has_frame = wmbus_packet_quality_meets(record->quality, WmBusPacketQualityFrameComplete);
+        const char* mfg = has_frame ? record->identity.manufacturer : "";
+        const char* id = has_frame ? record->identity.meter_id : "";
+        uint8_t version = has_frame ? record->dll.version : 0U;
+        uint8_t dev_type = has_frame ? record->dll.dev_type : 0U;
+        uint8_t ci = has_frame ? record->dll.ci_field : 0U;
         const char* parser = wmbus_parser_id_name(record->application.parser_id);
 
         if(logging == WmBusCsvLoggingFull) {

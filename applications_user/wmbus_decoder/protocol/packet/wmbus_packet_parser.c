@@ -10,8 +10,8 @@ bool wmbus_packet_parse_application(WmBusPacketRecord* record) {
     }
 
     memset(&record->application, 0, sizeof(record->application));
-    if(!record->packet_is_frame || !record->payload.has_application_payload ||
-       record->payload.application_len == 0U) {
+    if(!wmbus_packet_quality_meets(record->quality, WmBusPacketQualityFrameComplete) ||
+       !record->payload.has_application_payload || record->payload.application_len == 0U) {
         return false;
     }
 
@@ -35,7 +35,9 @@ void wmbus_packet_finalize_parser(WmBusPacketRecord* record) {
             record->application.parser_id = WmBusParserIdEll;
         } else {
             record->application.parser_id =
-                record->packet_is_frame ? WmBusParserIdHeader : WmBusParserIdRaw;
+                wmbus_packet_quality_meets(record->quality, WmBusPacketQualityFrameComplete) ?
+                    WmBusParserIdHeader :
+                    WmBusParserIdRaw;
         }
     }
 }

@@ -16,11 +16,9 @@
 typedef struct {
     WmBusPacketQuality quality;
     WmBusRxMode mode;
-    bool parsed_ok;
     bool rssi_ok;
     uint16_t capture_len;
     uint16_t packet_len; /**< Stored byte count of `packet_bytes`, not the same as `dll.l_field`. */
-    bool packet_is_frame;
     int best_offset;
     int rssi;
     uint32_t rx_tick;

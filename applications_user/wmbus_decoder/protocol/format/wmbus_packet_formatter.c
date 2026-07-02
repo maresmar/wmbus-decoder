@@ -195,7 +195,7 @@ void wmbus_packet_format_detail_text(const WmBusPacketRecord* record, FuriString
     furi_string_reset(out);
     if(!record) return;
 
-    if(record->packet_is_frame) {
+    if(wmbus_packet_quality_meets(record->quality, WmBusPacketQualityFrameComplete)) {
         wmbus_packet_formatter_format_frame_detail(record, out);
     } else {
         wmbus_packet_formatter_format_raw_detail(record, out);
