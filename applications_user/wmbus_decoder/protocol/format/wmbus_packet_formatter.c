@@ -40,6 +40,19 @@ static const WmBusApplicationRecord* wmbus_packet_formatter_find_first_record(
     return NULL;
 }
 
+static bool wmbus_packet_formatter_line_is_label(const char* line, const char* label) {
+    if(!line || !label) {
+        return false;
+    }
+
+    size_t label_len = strlen(label);
+    if(strncmp(line, label, label_len) != 0) {
+        return false;
+    }
+
+    return line[label_len] == '=' || line[label_len] == '[';
+}
+
 static void wmbus_packet_formatter_append_filtered_joined_fields(
     const FuriString* fields,
     bool skip_status,
@@ -68,8 +81,8 @@ static void wmbus_packet_formatter_append_filtered_joined_fields(
         memcpy(line, &text[start], line_len);
         line[line_len] = '\0';
 
-        bool is_status = strncmp(line, "Status=", 7U) == 0;
-        bool is_volume = strncmp(line, "Volume=", 7U) == 0;
+        bool is_status = wmbus_packet_formatter_line_is_label(line, "Status");
+        bool is_volume = wmbus_packet_formatter_line_is_label(line, "Volume");
         if((skip_status && is_status) || (skip_volume && is_volume)) {
             start = end + 1U;
             continue;
@@ -150,14 +163,14 @@ static void wmbus_packet_formatter_format_frame_detail(
     wmbus_packet_formatter_format_application_detail(record, application_body);
     furi_string_printf(
         out,
-        "MFC: %s  DT: %02X  CI: %02X\nID: %s\nMode: %c  RSSI: %d\n---\nStatus: %s\nParser: %s\nSecurity: %s\n---\n",
+        "MFC: %s  DT: %02X  CI: %02X\nID: %s\nMode: %c  RSSI: %d\n---\nQuality: %s\nParser: %s\nSecurity: %s\n---\n",
         record->identity.manufacturer,
         record->dll.dev_type,
         record->dll.ci_field,
         record->identity.meter_id,
         record->mode == WmBusRxModeT ? 'T' : 'C',
         record->rssi,
-        wmbus_packet_status_str(record->status),
+        wmbus_packet_quality_str(record->quality),
         wmbus_parser_id_name(record->application.parser_id),
         security);
     furi_string_cat_str(out, furi_string_get_cstr(application_body));
@@ -169,10 +182,10 @@ static void wmbus_packet_formatter_format_raw_detail(
     FuriString* out) {
     furi_string_printf(
         out,
-        "MFC: -  DT: --  CI: --\nID: -\nMode: %c  RSSI: %d\n---\nStatus: %s\nParser: %s\nSecurity: -\n---\nLen=%u bytes",
+        "MFC: -  DT: --  CI: --\nID: -\nMode: %c  RSSI: %d\n---\nQuality: %s\nParser: %s\nSecurity: -\n---\nLen=%u bytes",
         record->mode == WmBusRxModeT ? 'T' : 'C',
         record->rssi,
-        wmbus_packet_status_str(record->status),
+        wmbus_packet_quality_str(record->quality),
         wmbus_parser_id_name(record->application.parser_id),
         (unsigned int)record->packet_len);
 }

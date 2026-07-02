@@ -14,18 +14,6 @@ typedef enum {
 } WmBusFrameFormat;
 
 typedef enum {
-    WmBusStatusNone = 0,
-    WmBusStatusDecodeFail,
-    WmBusStatusNotPlausible,
-    WmBusStatusFramingError,
-    WmBusStatusCrcBad,
-    WmBusStatusWeakRssi,
-    WmBusStatusOk,
-    WmBusStatusParsed,
-    WmBusStatusCount,
-} WmBusStatus;
-
-typedef enum {
     WmBusPacketQualityAnyCapture = 0,
     WmBusPacketQualityHeaderOk,
     WmBusPacketQualityFrameComplete,

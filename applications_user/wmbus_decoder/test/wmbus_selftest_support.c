@@ -322,10 +322,11 @@ void wmbus_selftest_result_from_record(
     furi_check(record);
     wmbus_selftest_result_reset(result);
 
-    result->decoded_ok = record->decoded_ok;
-    result->plausible = record->plausible;
-    result->length_ok = record->length_ok;
-    result->crc_ok = record->crc_ok;
+    result->decoded_ok = record->quality != WmBusPacketQualityAnyCapture;
+    result->plausible = wmbus_packet_quality_meets(record->quality, WmBusPacketQualityHeaderOk);
+    result->length_ok =
+        wmbus_packet_quality_meets(record->quality, WmBusPacketQualityFrameComplete);
+    result->crc_ok = wmbus_packet_quality_meets(record->quality, WmBusPacketQualityCrcOk);
     result->best_offset = record->best_offset;
 
     if(record->packet_len > 0U) {

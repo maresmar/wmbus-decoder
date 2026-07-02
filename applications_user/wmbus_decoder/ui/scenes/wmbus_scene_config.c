@@ -26,14 +26,6 @@ static const char* const wmbus_toggle_text[] = {
     "On",
 };
 
-static const char* const wmbus_quality_text[] = {
-    "RX",
-    "HDR OK",
-    "LEN OK",
-    "CRC OK",
-    "DECODED",
-};
-
 static const int32_t wmbus_min_rssi_values[] = {
     0, -100, -95, -90, -85, -80, -75, -70, -65, -60, -55, -50,
 };
@@ -80,10 +72,10 @@ static void
     wmbus_scene_config_quality_changed(VariableItem* item, WmBusPacketQuality* quality) {
     WmBusApp* app = variable_item_get_context(item);
     uint8_t index = variable_item_get_current_value_index(item);
-    if(index >= COUNT_OF(wmbus_quality_text)) {
+    if(index >= WmBusPacketQualityCount) {
         index = 0U;
     }
-    variable_item_set_current_value_text(item, wmbus_quality_text[index]);
+    variable_item_set_current_value_text(item, wmbus_packet_quality_short_str((WmBusPacketQuality)index));
     *quality = (WmBusPacketQuality)index;
     wmbus_app_apply_runtime_config(app, true);
 }
@@ -145,12 +137,12 @@ static void wmbus_scene_config_add_quality_item(
     VariableItem* item = variable_item_list_add(
         app->config_list,
         label,
-        COUNT_OF(wmbus_quality_text),
+        WmBusPacketQualityCount,
         callback,
         app);
     uint8_t index = (uint8_t)wmbus_packet_quality_clamp(current);
     variable_item_set_current_value_index(item, index);
-    variable_item_set_current_value_text(item, wmbus_quality_text[index]);
+    variable_item_set_current_value_text(item, wmbus_packet_quality_short_str((WmBusPacketQuality)index));
 }
 
 static void wmbus_scene_config_add_min_rssi_item(WmBusApp* app) {

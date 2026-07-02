@@ -296,14 +296,14 @@ static bool wmbus_selftest_check_packet_process_t_sync_after_fifo_prefix(
         wmbus_selftest_set_detail(detail, detail_len, "process failed");
         return false;
     }
-    if(!record.plausible || !record.crc_ok || record.best_offset != 16 ||
+    if(!wmbus_packet_quality_meets(record.quality, WmBusPacketQualityCrcOk) ||
+       record.best_offset != 16 ||
        strcmp(record.identity.meter_id, "21202020") != 0) {
         wmbus_selftest_set_detail(
             detail,
             detail_len,
-            "unexpected plausible=%u crc=%u best_offset=%d id=%s",
-            record.plausible ? 1U : 0U,
-            record.crc_ok ? 1U : 0U,
+            "unexpected quality=%u best_offset=%d id=%s",
+            (unsigned int)record.quality,
             record.best_offset,
             record.identity.meter_id);
         return false;
@@ -411,24 +411,18 @@ static bool wmbus_selftest_check_packet_process_c_bad_header_keeps_raw_diagnosti
         return false;
     }
 
-    if(!record.has_capture || record.plausible || record.length_ok || record.crc_ok ||
-       record.quality != WmBusPacketQualityAnyCapture || record.status != WmBusStatusNotPlausible ||
-       record.packet_len != sizeof(raw) || memcmp(record.packet_bytes, raw, sizeof(raw)) != 0) {
+    if(record.quality != WmBusPacketQualityAnyCapture || record.packet_len != sizeof(raw) ||
+       memcmp(record.packet_bytes, raw, sizeof(raw)) != 0) {
         wmbus_selftest_set_detail(
             detail,
             detail_len,
-            "unexpected has=%u plausible=%u len=%u crc=%u quality=%u status=%u packet_len=%u",
-            record.has_capture ? 1U : 0U,
-            record.plausible ? 1U : 0U,
-            record.length_ok ? 1U : 0U,
-            record.crc_ok ? 1U : 0U,
+            "unexpected quality=%u packet_len=%u",
             (unsigned int)record.quality,
-            (unsigned int)record.status,
             (unsigned int)record.packet_len);
         return false;
     }
 
-    wmbus_selftest_set_detail(detail, detail_len, "quality=Any capture status=Not plausible");
+    wmbus_selftest_set_detail(detail, detail_len, "quality=Any capture raw diagnostic kept");
     return true;
 }
 

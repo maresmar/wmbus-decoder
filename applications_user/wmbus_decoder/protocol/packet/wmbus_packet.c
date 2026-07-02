@@ -7,27 +7,6 @@
 #include "wmbus_packet_parser.h"
 #include "wmbus_packet_security.h"
 
-const char* wmbus_packet_status_str(WmBusStatus status) {
-    switch(status) {
-    case WmBusStatusDecodeFail:
-        return "Decode fail";
-    case WmBusStatusNotPlausible:
-        return "Not plausible";
-    case WmBusStatusFramingError:
-        return "Framing error";
-    case WmBusStatusCrcBad:
-        return "CRC bad";
-    case WmBusStatusWeakRssi:
-        return "Weak RSSI";
-    case WmBusStatusOk:
-        return "OK";
-    case WmBusStatusParsed:
-        return "Decoded";
-    default:
-        return "--";
-    }
-}
-
 const char* wmbus_packet_quality_str(WmBusPacketQuality quality) {
     switch(wmbus_packet_quality_clamp(quality)) {
     case WmBusPacketQualityAnyCapture:
@@ -45,20 +24,34 @@ const char* wmbus_packet_quality_str(WmBusPacketQuality quality) {
     }
 }
 
+const char* wmbus_packet_quality_short_str(WmBusPacketQuality quality) {
+    switch(wmbus_packet_quality_clamp(quality)) {
+    case WmBusPacketQualityAnyCapture:
+        return "RX";
+    case WmBusPacketQualityHeaderOk:
+        return "HDR OK";
+    case WmBusPacketQualityFrameComplete:
+        return "LEN OK";
+    case WmBusPacketQualityCrcOk:
+        return "CRC OK";
+    case WmBusPacketQualityParsed:
+        return "DECODED";
+    default:
+        return "--";
+    }
+}
+
 WmBusPacketQuality wmbus_packet_quality_from_record(const WmBusPacketRecord* record) {
-    if(!record || !record->has_capture) return WmBusPacketQualityAnyCapture;
+    if(!record) return WmBusPacketQualityAnyCapture;
     if(record->parsed_ok) return WmBusPacketQualityParsed;
-    if(record->crc_known && record->crc_ok) return WmBusPacketQualityCrcOk;
-    if(record->length_ok) return WmBusPacketQualityFrameComplete;
-    if(record->plausible) return WmBusPacketQualityHeaderOk;
-    return WmBusPacketQualityAnyCapture;
+    return wmbus_packet_quality_clamp(record->quality);
 }
 
 bool wmbus_packet_record_passes_policy(
     const WmBusPacketRecord* record,
     WmBusPacketQuality min_quality,
     int32_t min_rssi_dbm) {
-    if(!record || !record->has_capture) return false;
+    if(!record) return false;
     if(min_rssi_dbm < 0 && record->rssi < min_rssi_dbm) return false;
     return wmbus_packet_quality_meets(record->quality, min_quality);
 }
@@ -78,7 +71,6 @@ bool wmbus_packet_process_capture(
     record->rssi = capture->rssi;
     record->rx_tick = furi_get_tick();
     record->rssi_ok = true;
-    record->has_capture = (record->capture_len > 0U);
     memcpy(record->capture_bytes, capture->data, record->capture_len);
 
     uint8_t normalized[256] = {0};
@@ -88,7 +80,8 @@ bool wmbus_packet_process_capture(
     }
 
     bool parser_succeeded = false;
-    if(record->plausible && decode.frame && decode.frame_len > 0U) {
+    if(wmbus_packet_quality_meets(decode.quality, WmBusPacketQualityHeaderOk) && decode.frame &&
+       decode.frame_len > 0U) {
         wmbus_packet_store_frame(record, decode.frame, decode.frame_len);
         wmbus_packet_resolve_application_payload(decode.frame, decode.frame_len, record, key_store);
         parser_succeeded = wmbus_packet_parse_application(record);
@@ -104,21 +97,7 @@ bool wmbus_packet_process_capture(
 
     record->parsed_ok = parser_succeeded || (record->application.record_count > 0U) ||
                         record->tpl.decrypted || record->ell.decrypted;
-    record->quality = wmbus_packet_quality_from_record(record);
-
-    if(capture->mode == WmBusRxModeT && !record->decoded_ok) {
-        record->status = WmBusStatusDecodeFail;
-    } else if(!record->plausible) {
-        record->status = WmBusStatusNotPlausible;
-    } else if(!record->length_ok) {
-        record->status = WmBusStatusFramingError;
-    } else if(record->crc_known && !record->crc_ok) {
-        record->status = WmBusStatusCrcBad;
-    } else if(record->parsed_ok) {
-        record->status = WmBusStatusParsed;
-    } else {
-        record->status = WmBusStatusOk;
-    }
+    record->quality = record->parsed_ok ? WmBusPacketQualityParsed : decode.quality;
 
     return true;
 }

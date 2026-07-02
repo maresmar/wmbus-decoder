@@ -10,11 +10,7 @@
 #define WMBUS_T_SYNC_SEARCH_BITS 64U
 
 typedef struct {
-    bool decoded_ok;
-    bool plausible;
-    bool length_ok;
-    bool crc_known;
-    bool crc_ok;
+    WmBusPacketQuality quality;
     size_t frame_len;
     int best_offset;
     uint8_t frame[WMBUS_DECODE_MAX];
@@ -127,11 +123,32 @@ static void wmbus_packet_extract_dll_tpl_info(
 
 static int wmbus_score_t_decode_candidate(const WmBusTDecodeResult* candidate) {
     int score = 0;
-    if(candidate->decoded_ok) score += 1;
-    if(candidate->plausible) score += 4;
-    if(candidate->length_ok) score += 2;
-    if(candidate->crc_ok) score += 1;
+    if(candidate->quality != WmBusPacketQualityAnyCapture) score += 1;
+    if(wmbus_packet_quality_meets(candidate->quality, WmBusPacketQualityHeaderOk)) score += 4;
+    if(wmbus_packet_quality_meets(candidate->quality, WmBusPacketQualityFrameComplete)) score += 2;
+    if(wmbus_packet_quality_meets(candidate->quality, WmBusPacketQualityCrcOk)) score += 1;
     return score;
+}
+
+static void wmbus_packet_upgrade_quality(
+    WmBusPacketQuality* quality,
+    WmBusPacketQuality candidate) {
+    if(!quality) return;
+    if(wmbus_packet_quality_meets(candidate, *quality)) {
+        *quality = candidate;
+    }
+}
+
+static void wmbus_packet_upgrade_quality_from_normalize(
+    WmBusPacketQuality* quality,
+    const WmBusFrameNormalizeResult* normalize) {
+    if(!quality || !normalize) return;
+    if(normalize->length_ok) {
+        wmbus_packet_upgrade_quality(quality, WmBusPacketQualityFrameComplete);
+    }
+    if(normalize->crc_known && normalize->crc_ok) {
+        wmbus_packet_upgrade_quality(quality, WmBusPacketQualityCrcOk);
+    }
 }
 
 static bool wmbus_try_decode_t_candidate(
@@ -155,9 +172,8 @@ static bool wmbus_try_decode_t_candidate(
         return false;
     }
 
-    result->decoded_ok = true;
-    result->plausible = wmbus_decode_is_plausible_frame(decoded, decoded_len);
-    if(!result->plausible) return true;
+    if(!wmbus_decode_is_plausible_frame(decoded, decoded_len)) return true;
+    wmbus_packet_upgrade_quality(&result->quality, WmBusPacketQualityHeaderOk);
 
     const uint8_t* frame = decoded;
     size_t frame_len = decoded_len;
@@ -169,9 +185,7 @@ static bool wmbus_try_decode_t_candidate(
         frame_len = normalized_result.normalized_len;
     }
 
-    result->length_ok = normalized_result.length_ok;
-    result->crc_known = normalized_result.crc_known;
-    result->crc_ok = normalized_result.crc_ok;
+    wmbus_packet_upgrade_quality_from_normalize(&result->quality, &normalized_result);
     result->frame_len = frame_len;
     memcpy(result->frame, frame, frame_len);
     return true;
@@ -242,27 +256,22 @@ bool wmbus_packet_decode_capture(
     if(use_3of6) {
         WmBusTDecodeResult t_result = {0};
         wmbus_decode_t_capture(capture, &t_result);
-        record->decoded_ok = t_result.decoded_ok;
-        record->plausible = t_result.plausible;
-        record->length_ok = t_result.length_ok;
-        record->crc_known = t_result.crc_known;
-        record->crc_ok = t_result.crc_ok;
         record->best_offset = t_result.best_offset;
+        out->quality = t_result.quality;
 
-        if(t_result.plausible) {
+        if(wmbus_packet_quality_meets(t_result.quality, WmBusPacketQualityHeaderOk)) {
             frame = t_result.frame;
             frame_len = t_result.frame_len;
         }
     } else {
-        record->decoded_ok = true;
         if(wmbus_decode_is_plausible_frame(capture->data, capture->len)) {
-            record->plausible = true;
             frame = capture->data;
             frame_len = capture->len;
+            wmbus_packet_upgrade_quality(&out->quality, WmBusPacketQualityHeaderOk);
         }
     }
 
-    if(record->plausible && !use_3of6) {
+    if(frame && !use_3of6) {
         WmBusFrameNormalizeResult normalized_result = {0};
         if(wmbus_frame_normalize(
                capture->mode,
@@ -274,10 +283,8 @@ bool wmbus_packet_decode_capture(
             frame = frame_buf;
             frame_len = normalized_result.normalized_len;
         }
-        record->length_ok = normalized_result.length_ok;
-        record->crc_known = normalized_result.crc_known;
-        record->crc_ok = normalized_result.crc_ok;
-    } else if(record->plausible && frame_len > 0U) {
+        wmbus_packet_upgrade_quality_from_normalize(&out->quality, &normalized_result);
+    } else if(frame && frame_len > 0U) {
         size_t copy_len = frame_len > frame_buf_max ? frame_buf_max : frame_len;
         memcpy(frame_buf, frame, copy_len);
         frame = frame_buf;

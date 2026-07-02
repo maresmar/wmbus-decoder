@@ -8,6 +8,7 @@
 #include "../protocol/parser/wmbus_parser_apator162.h"
 #include "../protocol/parser/wmbus_parser_dif_vif.h"
 
+#include <stdio.h>
 #include <string.h>
 
 static bool wmbus_selftest_check_3of6_valid_single_byte(char* detail, size_t detail_len) {
@@ -334,16 +335,58 @@ static bool wmbus_selftest_check_format_fields_text_prefers_primary_records(
     return true;
 }
 
+static bool wmbus_selftest_check_packet_detail_omits_duplicate_volume(
+    char* detail,
+    size_t detail_len) {
+    WmBusPacketRecord packet = {
+        .quality = WmBusPacketQualityParsed,
+        .mode = WmBusRxModeC,
+        .parsed_ok = true,
+        .rssi_ok = true,
+        .packet_is_frame = true,
+        .rssi = -72,
+        .dll.dev_type = 0x07,
+        .dll.ci_field = 0x7A,
+        .application.parser_id = WmBusParserIdDifVif,
+    };
+    snprintf(packet.identity.manufacturer, sizeof(packet.identity.manufacturer), "TST");
+    snprintf(packet.identity.meter_id, sizeof(packet.identity.meter_id), "12345678");
+
+    WmBusApplicationRecord* record = NULL;
+    if(!wmbus_application_record_append(&packet.application, &record)) {
+        wmbus_selftest_set_detail(detail, detail_len, "append volume failed");
+        return false;
+    }
+    record->quantity = WmBusApplicationQuantityVolume;
+    record->measurement_type = WmBusApplicationMeasurementTypeInstantaneous;
+    record->scale10 = -3;
+    record->data_len = 4U;
+    wmbus_application_record_set_unsigned(record, 150U);
+
+    FuriString* text = furi_string_alloc();
+    if(!text) {
+        wmbus_selftest_set_detail(detail, detail_len, "detail alloc failed");
+        return false;
+    }
+
+    wmbus_packet_format_detail_text(&packet, text);
+    const char* detail_text = furi_string_get_cstr(text);
+    if(!strstr(detail_text, "\nVolume=0.150 m3") || strstr(detail_text, "Volume[inst]=")) {
+        wmbus_selftest_set_detail(detail, detail_len, "detail=%s", detail_text);
+        furi_string_free(text);
+        return false;
+    }
+
+    wmbus_selftest_set_detail(detail, detail_len, "detail volume dedup=YES");
+    furi_string_free(text);
+    return true;
+}
+
 static bool wmbus_selftest_check_packet_quality_policy(char* detail, size_t detail_len) {
     WmBusPacketRecord record = {
-        .has_capture = true,
-        .plausible = true,
-        .length_ok = true,
-        .crc_known = true,
-        .crc_ok = true,
+        .quality = WmBusPacketQualityCrcOk,
         .rssi = -82,
     };
-    record.quality = wmbus_packet_quality_from_record(&record);
 
     if(record.quality != WmBusPacketQualityCrcOk) {
         wmbus_selftest_set_detail(
@@ -393,6 +436,8 @@ static const WmBusSelftestCheck wmbus_selftest_checks_tooling[] = {
     {"check_dif_vif_decode_reject_malformed", wmbus_selftest_check_dif_vif_decode_reject_malformed},
     {"check_format_fields_text_prefers_primary_records",
      wmbus_selftest_check_format_fields_text_prefers_primary_records},
+    {"check_packet_detail_omits_duplicate_volume",
+     wmbus_selftest_check_packet_detail_omits_duplicate_volume},
     {"check_packet_quality_policy", wmbus_selftest_check_packet_quality_policy},
 };
 
