@@ -7,42 +7,6 @@
 #include "../model/wmbus_application_record.h"
 #include "../packet/wmbus_packet.h"
 
-static uint64_t wmbus_record_formatter_pow10_u64(uint8_t power) {
-    uint64_t result = 1U;
-    while(power > 0U) {
-        result *= 10U;
-        power--;
-    }
-    return result;
-}
-
-static void wmbus_record_formatter_scaled_unsigned(
-    uint64_t value,
-    int8_t scale10,
-    char* out,
-    size_t out_size) {
-    if(!out || out_size == 0U) return;
-    out[0] = '\0';
-
-    if(scale10 >= 0) {
-        uint64_t scaled = value * wmbus_record_formatter_pow10_u64((uint8_t)scale10);
-        snprintf(out, out_size, "%llu", (unsigned long long)scaled);
-        return;
-    }
-
-    uint8_t decimals = (uint8_t)(-scale10);
-    uint64_t div = wmbus_record_formatter_pow10_u64(decimals);
-    uint64_t whole = value / div;
-    uint64_t frac = value % div;
-    snprintf(
-        out,
-        out_size,
-        "%llu.%0*llu",
-        (unsigned long long)whole,
-        (int)decimals,
-        (unsigned long long)frac);
-}
-
 static const char* wmbus_record_formatter_unit(const WmBusApplicationRecord* record) {
     if(!record) return NULL;
 
@@ -152,7 +116,8 @@ static bool wmbus_record_formatter_format_value_buf(
 
     switch(record->value_type) {
     case WmBusApplicationValueUnsigned: {
-        wmbus_record_formatter_scaled_unsigned(record->value_unsigned, record->scale10, out, out_size);
+        wmbus_application_format_scaled_unsigned(
+            record->value_unsigned, record->scale10, out, out_size);
         const char* unit = wmbus_record_formatter_unit(record);
         if(unit && out[0] != '\0') {
             size_t len = strlen(out);

@@ -61,40 +61,6 @@ static bool wmbus_log_write_line(File* file, const char* format, ...) {
     return storage_file_write(file, line, to_write) == to_write;
 }
 
-static void
-    wmbus_log_format_total_m3(const WmBusPacketRecord* record, char* out, size_t out_size) {
-    if(!out || out_size == 0U) return;
-    out[0] = '\0';
-    if(!record) return;
-
-    uint32_t total_m3_x1000 = 0U;
-    if(!wmbus_application_find_total_volume(
-           record->application.records, record->application.record_count, &total_m3_x1000)) {
-        return;
-    }
-    wmbus_application_format_volume_m3(total_m3_x1000, out, out_size, false);
-}
-
-static uint8_t wmbus_log_security_mode(const WmBusPacketRecord* record) {
-    if(!record) {
-        return 0U;
-    }
-    if(record->ell.has_ell && record->ell.has_session) {
-        return record->ell.security_mode;
-    }
-    return record->tpl.security_mode;
-}
-
-static uint8_t wmbus_log_key_index(const WmBusPacketRecord* record) {
-    if(!record) {
-        return 0U;
-    }
-    if(record->ell.has_ell && record->ell.has_session) {
-        return record->ell.key_index;
-    }
-    return record->tpl.key_index;
-}
-
 bool wmbus_log_append(Storage* storage, WmBusCsvLogging logging, const WmBusPacketRecord* record) {
     if(!storage || !record || logging == WmBusCsvLoggingNone) return false;
 
@@ -131,7 +97,8 @@ bool wmbus_log_append(Storage* storage, WmBusCsvLogging logging, const WmBusPack
         } else if(record->packet_len > 0U) {
             wmbus_hex_encode(record->packet_bytes, record->packet_len, hex, sizeof(hex));
         }
-        wmbus_log_format_total_m3(record, total_m3, sizeof(total_m3));
+        wmbus_application_format_total_volume_m3(
+            &record->application, total_m3, sizeof(total_m3), false);
 
         unsigned long tick = (unsigned long)record->rx_tick;
         char mode = record->mode == WmBusRxModeT ? 'T' : 'C';
@@ -158,8 +125,8 @@ bool wmbus_log_append(Storage* storage, WmBusCsvLogging logging, const WmBusPack
                 dev_type,
                 ci,
                 parser,
-                wmbus_log_security_mode(record),
-                wmbus_log_key_index(record),
+                wmbus_packet_summary_security_mode(&record->ell, &record->tpl),
+                wmbus_packet_summary_key_index(&record->ell, &record->tpl),
                 total_m3,
                 furi_string_get_cstr(fields),
                 hex);

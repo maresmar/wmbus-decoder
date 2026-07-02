@@ -12,7 +12,8 @@ static void wmbus_history_sink_consume(
 
     bool store_in_history = wmbus_packet_record_passes_policy(
         record, settings->memory_quality, settings->min_rssi_dbm);
-    wmbus_rx_view_push_packet(history_sink->rx_view, record, store_in_history);
+    bool rssi_gate_ok = (settings->min_rssi_dbm >= 0) || (record->rssi >= settings->min_rssi_dbm);
+    wmbus_rx_view_push_packet(history_sink->rx_view, record, rssi_gate_ok, store_in_history);
 }
 
 void wmbus_history_sink_init(WmBusHistorySink* history_sink, WmBusRxView* rx_view) {

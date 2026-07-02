@@ -341,7 +341,6 @@ static bool wmbus_selftest_check_packet_detail_omits_duplicate_volume(
     WmBusPacketRecord packet = {
         .quality = WmBusPacketQualityParsed,
         .mode = WmBusRxModeC,
-        .rssi_ok = true,
         .rssi = -72,
         .dll.dev_type = 0x07,
         .dll.ci_field = 0x7A,

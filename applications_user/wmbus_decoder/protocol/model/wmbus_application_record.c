@@ -92,13 +92,20 @@ bool wmbus_application_find_total_volume(
     return false;
 }
 
-void wmbus_application_format_volume_m3(
-    uint32_t total_m3_x1000,
+bool wmbus_application_format_total_volume_m3(
+    const WmBusPacketApplicationData* application,
     char* out,
     size_t out_size,
     bool with_unit) {
-    if(!out || out_size == 0U) return;
+    if(!out || out_size == 0U) return false;
     out[0] = '\0';
+    if(!application) return false;
+
+    uint32_t total_m3_x1000 = 0U;
+    if(!wmbus_application_find_total_volume(
+           application->records, application->record_count, &total_m3_x1000)) {
+        return false;
+    }
 
     uint32_t whole = total_m3_x1000 / 1000U;
     uint32_t frac = total_m3_x1000 % 1000U;
@@ -108,4 +115,32 @@ void wmbus_application_format_volume_m3(
         with_unit ? "%lu.%03lu m3" : "%lu.%03lu",
         (unsigned long)whole,
         (unsigned long)frac);
+    return true;
+}
+
+void wmbus_application_format_scaled_unsigned(
+    uint64_t value,
+    int8_t scale10,
+    char* out,
+    size_t out_size) {
+    if(!out || out_size == 0U) return;
+    out[0] = '\0';
+
+    if(scale10 >= 0) {
+        uint64_t scaled = value * wmbus_application_pow10_u64((uint8_t)scale10);
+        snprintf(out, out_size, "%llu", (unsigned long long)scaled);
+        return;
+    }
+
+    uint8_t decimals = (uint8_t)(-scale10);
+    uint64_t div = wmbus_application_pow10_u64(decimals);
+    uint64_t whole = value / div;
+    uint64_t frac = value % div;
+    snprintf(
+        out,
+        out_size,
+        "%llu.%0*llu",
+        (unsigned long long)whole,
+        (int)decimals,
+        (unsigned long long)frac);
 }

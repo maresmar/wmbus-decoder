@@ -21,8 +21,13 @@ bool wmbus_application_find_total_volume(
     const WmBusApplicationRecord* records,
     uint8_t record_count,
     uint32_t* total_m3_x1000);
-void wmbus_application_format_volume_m3(
-    uint32_t total_m3_x1000,
+bool wmbus_application_format_total_volume_m3(
+    const WmBusPacketApplicationData* application,
     char* out,
     size_t out_size,
     bool with_unit);
+void wmbus_application_format_scaled_unsigned(
+    uint64_t value,
+    int8_t scale10,
+    char* out,
+    size_t out_size);

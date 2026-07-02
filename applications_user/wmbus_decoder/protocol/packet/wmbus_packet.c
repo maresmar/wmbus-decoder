@@ -41,11 +41,6 @@ const char* wmbus_packet_quality_short_str(WmBusPacketQuality quality) {
     }
 }
 
-WmBusPacketQuality wmbus_packet_quality_from_record(const WmBusPacketRecord* record) {
-    if(!record) return WmBusPacketQualityAnyCapture;
-    return wmbus_packet_quality_clamp(record->quality);
-}
-
 bool wmbus_packet_record_passes_policy(
     const WmBusPacketRecord* record,
     WmBusPacketQuality min_quality,
@@ -69,7 +64,6 @@ bool wmbus_packet_process_capture(
     record->best_offset = -1;
     record->rssi = capture->rssi;
     record->rx_tick = furi_get_tick();
-    record->rssi_ok = true;
     memcpy(record->capture_bytes, capture->data, record->capture_len);
 
     uint8_t normalized[256] = {0};
@@ -99,7 +93,6 @@ bool wmbus_packet_process_capture(
     if(application_decoded && wmbus_packet_quality_meets(record->quality, WmBusPacketQualityCrcOk)) {
         record->quality = WmBusPacketQualityParsed;
     }
-    record->quality = wmbus_packet_quality_from_record(record);
 
     return true;
 }

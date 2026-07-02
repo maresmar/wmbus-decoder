@@ -112,3 +112,21 @@ void wmbus_packet_summary_format_security_text(
         snprintf(out, out_size, "%s", mode);
     }
 }
+
+uint8_t wmbus_packet_summary_security_mode(
+    const WmBusPacketEllData* ell,
+    const WmBusPacketTplData* tpl) {
+    if(ell && ell->has_ell && ell->has_session) {
+        return ell->security_mode;
+    }
+    return tpl ? tpl->security_mode : 0U;
+}
+
+uint8_t wmbus_packet_summary_key_index(
+    const WmBusPacketEllData* ell,
+    const WmBusPacketTplData* tpl) {
+    if(ell && ell->has_ell && ell->has_session) {
+        return ell->key_index;
+    }
+    return tpl ? tpl->key_index : 0U;
+}

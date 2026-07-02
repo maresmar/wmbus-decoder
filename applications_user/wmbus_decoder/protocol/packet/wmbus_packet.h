@@ -16,7 +16,6 @@
 typedef struct {
     WmBusPacketQuality quality;
     WmBusRxMode mode;
-    bool rssi_ok;
     uint16_t capture_len;
     uint16_t packet_len; /**< Stored byte count of `packet_bytes`, not the same as `dll.l_field`. */
     int best_offset;
@@ -37,7 +36,6 @@ bool wmbus_packet_process_capture(
     const WmBusCryptoKeyStore* key_store,
     WmBusPacketRecord* record);
 
-WmBusPacketQuality wmbus_packet_quality_from_record(const WmBusPacketRecord* record);
 const char* wmbus_packet_quality_str(WmBusPacketQuality quality);
 const char* wmbus_packet_quality_short_str(WmBusPacketQuality quality);
 bool wmbus_packet_record_passes_policy(
