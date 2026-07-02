@@ -545,7 +545,7 @@ bool wmbus_rx_view_has_selected_packet(WmBusRxView* rx_view) {
     with_view_model(
         rx_view->view,
         WmBusRxViewModel * model,
-        { has_packet = (wmbus_rx_display_entry_get(model) != NULL); },
+        { has_packet = wmbus_rx_display_entry_get(model); },
         false);
     return has_packet;
 }

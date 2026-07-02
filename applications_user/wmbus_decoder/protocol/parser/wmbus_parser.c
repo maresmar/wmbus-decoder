@@ -31,7 +31,7 @@ static const WmBusParserInfo wmbus_builtin_parsers[] = {
     },
 };
 
-const WmBusParserInfo* wmbus_parser_get_info(WmBusParserId parser_id) {
+static const WmBusParserInfo* wmbus_parser_get_info(WmBusParserId parser_id) {
     const WmBusDeviceParser* device_parser = wmbus_device_parser_get(parser_id);
     if(device_parser) {
         return &device_parser->info;

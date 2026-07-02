@@ -13,7 +13,6 @@ typedef struct {
     bool validates_decrypt;
 } WmBusParserInfo;
 
-const WmBusParserInfo* wmbus_parser_get_info(WmBusParserId parser_id);
 const char* wmbus_parser_id_name(WmBusParserId parser_id);
 
 bool wmbus_parser_ci_has_ell(uint8_t ci);

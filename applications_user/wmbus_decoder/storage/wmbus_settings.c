@@ -52,35 +52,18 @@ bool wmbus_settings_load(Storage* storage, WmBusSettings* settings) {
 
             if(mode > WmBusRxModeC) break;
             if(csv_logging >= WmBusCsvLoggingCount) break;
+            if(version < WMBUS_SETTINGS_VERSION) break;
+
+            if(!flipper_format_read_int32(fff, "min_rssi_dbm", &min_rssi_dbm, 1)) break;
+            if(!flipper_format_read_uint32(fff, "memory_quality", &memory_quality, 1)) break;
+            if(!flipper_format_read_uint32(fff, "csv_quality", &csv_quality, 1)) break;
+            if(!flipper_format_read_bool(fff, "debug_overlay", &debug_overlay, 1)) break;
 
             settings->mode = (WmBusRxMode)mode;
             settings->csv_logging = (WmBusCsvLogging)csv_logging;
-
-            if(version >= 3U) {
-                if(!flipper_format_read_int32(fff, "min_rssi_dbm", &min_rssi_dbm, 1)) break;
-                if(!flipper_format_read_uint32(fff, "memory_quality", &memory_quality, 1)) break;
-                if(!flipper_format_read_uint32(fff, "csv_quality", &csv_quality, 1)) break;
-                if(!flipper_format_read_bool(fff, "debug_overlay", &debug_overlay, 1)) break;
-
-                settings->min_rssi_dbm = wmbus_settings_normalize_min_rssi(min_rssi_dbm);
-                settings->memory_quality =
-                    wmbus_packet_quality_clamp((WmBusPacketQuality)memory_quality);
-                settings->csv_quality =
-                    wmbus_packet_quality_clamp((WmBusPacketQuality)csv_quality);
-            } else if(version == 2U) {
-                uint32_t legacy_threshold = 0;
-                if(!flipper_format_read_uint32(fff, "memory_threshold", &legacy_threshold, 1)) break;
-                if(!flipper_format_read_uint32(fff, "csv_threshold", &legacy_threshold, 1)) break;
-                if(!flipper_format_read_bool(fff, "debug_overlay", &debug_overlay, 1)) break;
-            } else if(version == 1U) {
-                uint32_t legacy_mask = 0;
-                if(!flipper_format_read_uint32(fff, "memory_status_mask", &legacy_mask, 1)) break;
-                if(!flipper_format_read_uint32(fff, "csv_status_mask", &legacy_mask, 1)) break;
-                if(!flipper_format_read_bool(fff, "debug_overlay", &debug_overlay, 1)) break;
-            } else {
-                break;
-            }
-
+            settings->min_rssi_dbm = wmbus_settings_normalize_min_rssi(min_rssi_dbm);
+            settings->memory_quality = wmbus_packet_quality_clamp((WmBusPacketQuality)memory_quality);
+            settings->csv_quality = wmbus_packet_quality_clamp((WmBusPacketQuality)csv_quality);
             settings->debug_overlay = debug_overlay;
             loaded = true;
         } while(false);

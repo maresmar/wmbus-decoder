@@ -65,10 +65,8 @@ static void wmbus_keyring_format_hex_key(
     if(!key || !out) return;
 
     wmbus_hex_encode(key, WMBUS_KEY_BYTES, out, WMBUS_KEYRING_LINE_MAX - 1U);
-    size_t len = 0;
-    while(out[len] != '\0') len++;
-    out[len] = '\n';
-    out[len + 1U] = '\0';
+    out[WMBUS_KEY_BYTES * 2U] = '\n';
+    out[WMBUS_KEY_BYTES * 2U + 1U] = '\0';
 }
 
 void wmbus_keyring_init(WmBusKeyring* keyring) {
@@ -138,7 +136,7 @@ bool wmbus_keyring_load(Storage* storage, WmBusKeyring* keyring) {
             break;
         }
 
-        if(strchr(buffer, ',') != NULL) {
+        if(strchr(buffer, ',')) {
             ok = false;
             wmbus_keyring_set_status(&loaded, "bad key");
             break;

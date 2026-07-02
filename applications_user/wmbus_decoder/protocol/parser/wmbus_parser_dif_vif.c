@@ -343,7 +343,7 @@ bool wmbus_parser_dif_vif_parse(
            packet->payload->application_bytes,
            packet->payload->application_len,
            out_application->records,
-           (uint8_t)(sizeof(out_application->records) / sizeof(out_application->records[0])),
+           WMBUS_PACKET_RECORD_MAX,
            &record_count)) {
         return false;
     }
