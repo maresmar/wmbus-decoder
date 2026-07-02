@@ -95,8 +95,18 @@ static bool wmbus_decode_mfg_valid(uint16_t man) {
     return (a >= 1U && a <= 26U) && (b >= 1U && b <= 26U) && (c >= 1U && c <= 26U);
 }
 
-static bool wmbus_decode_c_field_valid(uint8_t c_field) {
-    return c_field == 0x44U || c_field == 0x46U;
+bool wmbus_decode_c_field_valid(uint8_t c_field) {
+    if((c_field & 0x40U) == 0U) return false;
+
+    switch(c_field & 0x0FU) {
+    case 0x4U: // SND_NR
+    case 0x6U: // SND_IR
+    case 0x7U: // ACC_NR
+    case 0x8U: // ACC_DMD
+        return true;
+    default:
+        return false;
+    }
 }
 
 bool wmbus_decode_is_plausible_frame(const uint8_t* data, size_t len) {

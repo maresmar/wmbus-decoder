@@ -1,5 +1,7 @@
 #include "wmbus_selftest_i.h"
 
+#include "../protocol/decode/wmbus_decode.h"
+
 #include <string.h>
 
 static const WmBusTestVector wmbus_vector_c_apator_a_ok = {
@@ -350,6 +352,22 @@ static bool wmbus_selftest_check_capture_c_frame_offset_l_field_54(char* detail,
     return true;
 }
 
+static bool wmbus_selftest_check_capture_c_accepts_access_demand(char* detail, size_t detail_len) {
+    const uint8_t raw[] = {0x0A, 0x48, 0x01, 0x06, 0x20, 0x20, 0x20, 0x20, 0x05, 0x07, 0x7A};
+    size_t frame_offset = wmbus_capture_c_frame_offset(raw, sizeof(raw));
+    if(frame_offset != 0U || !wmbus_decode_is_plausible_frame(raw, sizeof(raw))) {
+        wmbus_selftest_set_detail(
+            detail,
+            detail_len,
+            "access demand rejected offset=%u",
+            (unsigned int)frame_offset);
+        return false;
+    }
+
+    wmbus_selftest_set_detail(detail, detail_len, "c_field=48 accepted");
+    return true;
+}
+
 static bool wmbus_selftest_check_capture_c_select_rejects_timeout_noise(
     char* detail,
     size_t detail_len) {
@@ -573,15 +591,12 @@ static bool wmbus_selftest_check_frame_normalize_format_b_wire_frame(char* detai
     return true;
 }
 
-static bool wmbus_selftest_check_frame_normalize_c_mode_crc_bad_prefers_format_b(
+static bool wmbus_selftest_check_packet_process_c_crc_bad_keeps_raw_diagnostic(
     char* detail,
     size_t detail_len) {
     uint8_t frame[WMBUS_SELFTEST_BUF_MAX] = {0};
     size_t frame_len = 0;
-    uint8_t normalized[WMBUS_SELFTEST_BUF_MAX] = {0};
-    uint8_t expected[WMBUS_SELFTEST_BUF_MAX] = {0};
-    size_t expected_len = 0;
-    WmBusFrameNormalizeResult result = {0};
+    WmBusPacketRecord record = {0};
 
     if(!wmbus_frame_build_format_a(wmbus_apator_b, WMBUS_APATOR_B_LEN, frame, sizeof(frame), &frame_len)) {
         wmbus_selftest_set_detail(detail, detail_len, "build format-A failed");
@@ -590,40 +605,48 @@ static bool wmbus_selftest_check_frame_normalize_c_mode_crc_bad_prefers_format_b
 
     frame[5] ^= 0x01U;
 
-    size_t expected_b_len = wmbus_frame_expected_len(frame[0], WmBusFrameFormatB);
-    if(expected_b_len >= frame_len ||
-       !wmbus_frame_trim_crc(
-           WmBusFrameFormatB, frame, expected_b_len, expected, sizeof(expected), &expected_len)) {
-        wmbus_selftest_set_detail(detail, detail_len, "prepare format-B fallback failed");
-        return false;
-    }
-
-    if(wmbus_frame_crc_check(WmBusFrameFormatA, frame, frame_len) ||
-       wmbus_frame_crc_check(WmBusFrameFormatB, frame, expected_b_len)) {
+    if(wmbus_frame_crc_check(WmBusFrameFormatA, frame, frame_len)) {
         wmbus_selftest_set_detail(detail, detail_len, "corrupt frame unexpectedly passed CRC");
         return false;
     }
 
-    if(!wmbus_frame_normalize(WmBusRxModeC, frame, frame_len, normalized, sizeof(normalized), &result)) {
-        wmbus_selftest_set_detail(detail, detail_len, "normalize crc-bad frame failed");
-        return false;
-    }
-
-    if(!result.length_ok || !result.crc_known || result.crc_ok || result.format != WmBusFrameFormatB ||
-       result.normalized_len != expected_len || memcmp(expected, normalized, expected_len) != 0) {
+    uint8_t normalized[WMBUS_SELFTEST_BUF_MAX] = {0};
+    WmBusFrameNormalizeResult normalize = {0};
+    if(wmbus_frame_normalize(WmBusRxModeC, frame, frame_len, normalized, sizeof(normalized), &normalize) ||
+       !normalize.crc_known || normalize.crc_ok || normalize.length_ok ||
+       normalize.format != WmBusFrameFormatA || normalize.computed_len != frame_len ||
+       normalize.normalized_len != WMBUS_APATOR_B_LEN) {
         wmbus_selftest_set_detail(
             detail,
             detail_len,
-            "unexpected format=%u len_ok=%u crc_ok=%u normalized_len=%u expected_len=%u",
-            (unsigned int)result.format,
-            result.length_ok ? 1U : 0U,
-            result.crc_ok ? 1U : 0U,
-            (unsigned int)result.normalized_len,
-            (unsigned int)expected_len);
+            "unexpected normalize crc_known=%u crc_ok=%u len_ok=%u format=%u computed=%u norm=%u",
+            normalize.crc_known ? 1U : 0U,
+            normalize.crc_ok ? 1U : 0U,
+            normalize.length_ok ? 1U : 0U,
+            (unsigned int)normalize.format,
+            (unsigned int)normalize.computed_len,
+            (unsigned int)normalize.normalized_len);
         return false;
     }
 
-    wmbus_selftest_set_detail(detail, detail_len, "mode=C crc_bad fallback=B normalized_len=%u", (unsigned int)expected_len);
+    if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, NULL, &record)) {
+        wmbus_selftest_set_detail(detail, detail_len, "process failed");
+        return false;
+    }
+
+    if(record.quality != WmBusPacketQualityHeaderOk || record.packet_len != frame_len ||
+       memcmp(record.packet_bytes, frame, frame_len) != 0 || record.application.parser_id != WmBusParserIdRaw) {
+        wmbus_selftest_set_detail(
+            detail,
+            detail_len,
+            "unexpected quality=%u packet_len=%u parser=%u",
+            (unsigned int)record.quality,
+            (unsigned int)record.packet_len,
+            (unsigned int)record.application.parser_id);
+        return false;
+    }
+
+    wmbus_selftest_set_detail(detail, detail_len, "mode=C crc_bad raw diagnostic kept");
     return true;
 }
 
@@ -657,6 +680,7 @@ static const WmBusSelftestCheck wmbus_selftest_checks_modes[] = {
     {"check_capture_c_frame_offset_waits_for_disambiguation", wmbus_selftest_check_capture_c_frame_offset_waits_for_disambiguation},
     {"check_capture_c_frame_offset_with_signal_byte", wmbus_selftest_check_capture_c_frame_offset_with_signal_byte},
     {"check_capture_c_frame_offset_l_field_54", wmbus_selftest_check_capture_c_frame_offset_l_field_54},
+    {"check_capture_c_accepts_access_demand", wmbus_selftest_check_capture_c_accepts_access_demand},
     {"check_capture_c_select_rejects_timeout_noise", wmbus_selftest_check_capture_c_select_rejects_timeout_noise},
     {"check_capture_c_select_signal_byte", wmbus_selftest_check_capture_c_select_signal_byte},
     {"check_packet_process_c_bad_header_keeps_raw_diagnostic", wmbus_selftest_check_packet_process_c_bad_header_keeps_raw_diagnostic},
@@ -667,7 +691,7 @@ static const WmBusSelftestCheck wmbus_selftest_checks_modes[] = {
     {"check_frame_normalize_format_a_wire_frame", wmbus_selftest_check_frame_normalize_format_a_wire_frame},
     {"check_frame_normalize_c_mode_format_a_wire_frame", wmbus_selftest_check_frame_normalize_c_mode_format_a_wire_frame},
     {"check_frame_normalize_format_b_wire_frame", wmbus_selftest_check_frame_normalize_format_b_wire_frame},
-    {"check_frame_normalize_c_mode_crc_bad_prefers_format_b", wmbus_selftest_check_frame_normalize_c_mode_crc_bad_prefers_format_b},
+    {"check_packet_process_c_crc_bad_keeps_raw_diagnostic", wmbus_selftest_check_packet_process_c_crc_bad_keeps_raw_diagnostic},
     {"check_capture_state_reset", wmbus_selftest_check_capture_state_reset},
 };
 

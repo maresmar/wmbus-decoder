@@ -28,10 +28,6 @@ bool wmbus_capture_l_field_valid(uint8_t l_field) {
     return l_field >= 10;
 }
 
-static bool wmbus_capture_c_field_valid(uint8_t c_field) {
-    return c_field == 0x44U || c_field == 0x46U;
-}
-
 static bool wmbus_capture_mfg_valid(uint16_t man) {
     uint8_t a = (man >> 10) & 0x1F;
     uint8_t b = (man >> 5) & 0x1F;
@@ -65,10 +61,10 @@ size_t wmbus_capture_c_frame_offset(const uint8_t* raw, size_t raw_len) {
     if(!raw || raw_len == 0U) return SIZE_MAX;
 
     bool offset0_valid =
-        (raw_len >= 2U) && wmbus_capture_l_field_valid(raw[0]) && wmbus_capture_c_field_valid(raw[1]);
+        (raw_len >= 2U) && wmbus_capture_l_field_valid(raw[0]) && wmbus_decode_c_field_valid(raw[1]);
     bool offset1_valid =
         (raw_len >= 3U) && (raw[0] == WMBUS_C_SIGNAL_BYTE) && wmbus_capture_l_field_valid(raw[1]) &&
-        wmbus_capture_c_field_valid(raw[2]);
+        wmbus_decode_c_field_valid(raw[2]);
 
     if(offset0_valid && !offset1_valid) {
         return 0U;

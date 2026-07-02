@@ -300,16 +300,16 @@ bool wmbus_frame_normalize(
         ordered_formats[1] = WmBusFrameFormatB;
     } else {
         // The runtime C path captures raw Link B wire bytes after sync handling.
-        // When CRC disambiguation fails, prefer the lighter format-B trim as fallback.
+        // Prefer format B first, but only a passing CRC is allowed to normalize.
         ordered_formats[0] = WmBusFrameFormatB;
         ordered_formats[1] = WmBusFrameFormatA;
     }
 
-    bool fallback_ready = false;
-    size_t fallback_len = 0;
-    size_t fallback_expected_len = 0;
-    WmBusFrameFormat fallback_format = ordered_formats[0];
     uint8_t candidate_trimmed[256] = {0};
+    size_t candidate_max = normalized_max;
+    if(candidate_max > sizeof(candidate_trimmed)) {
+        candidate_max = sizeof(candidate_trimmed);
+    }
     uint8_t l_field = frame[0];
 
     for(size_t i = 0; i < 2; i++) {
@@ -319,36 +319,26 @@ bool wmbus_frame_normalize(
 
         size_t trimmed_len = 0;
         if(!wmbus_frame_trim_crc(
-               format, frame, expected_len, candidate_trimmed, normalized_max, &trimmed_len)) {
+               format, frame, expected_len, candidate_trimmed, candidate_max, &trimmed_len)) {
             continue;
         }
 
-        out->length_ok = true;
         out->crc_known = true;
-
-        if(!fallback_ready) {
-            memcpy(normalized, candidate_trimmed, trimmed_len);
-            fallback_len = trimmed_len;
-            fallback_expected_len = expected_len;
-            fallback_format = format;
-            fallback_ready = true;
+        if(expected_len >= out->computed_len) {
+            out->format = format;
+            out->computed_len = expected_len;
+            out->normalized_len = trimmed_len;
         }
 
         if(wmbus_frame_crc_check(format, frame, expected_len)) {
             memcpy(normalized, candidate_trimmed, trimmed_len);
+            out->length_ok = true;
             out->crc_ok = true;
             out->format = format;
             out->computed_len = expected_len;
             out->normalized_len = trimmed_len;
             return true;
         }
-    }
-
-    if(fallback_ready) {
-        out->format = fallback_format;
-        out->computed_len = fallback_expected_len;
-        out->normalized_len = fallback_len;
-        return true;
     }
 
     return false;

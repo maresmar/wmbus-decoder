@@ -39,15 +39,15 @@ static bool wmbus_selftest_check_parser_apator162_public_vectors(char* detail, s
             wmbus_selftest_set_detail(detail, detail_len, "vector %s plausibility failed", vector->id);
             return false;
         }
-        if(!wmbus_frame_build_format_a(normalized, normalized_len, frame, sizeof(frame), &frame_len)) {
-            wmbus_selftest_set_detail(detail, detail_len, "vector %s format-A build failed", vector->id);
+        if(!wmbus_frame_build_format_b(normalized, normalized_len, frame, sizeof(frame), &frame_len)) {
+            wmbus_selftest_set_detail(detail, detail_len, "vector %s format-B build failed", vector->id);
             return false;
         }
-        if(!wmbus_frame_normalize(WmBusRxModeT, frame, frame_len, roundtrip, sizeof(roundtrip), &result)) {
+        if(!wmbus_frame_normalize(WmBusRxModeC, frame, frame_len, roundtrip, sizeof(roundtrip), &result)) {
             wmbus_selftest_set_detail(detail, detail_len, "vector %s normalize failed", vector->id);
             return false;
         }
-        if(!result.length_ok || !result.crc_known || !result.crc_ok || result.format != WmBusFrameFormatA ||
+        if(!result.length_ok || !result.crc_known || !result.crc_ok || result.format != WmBusFrameFormatB ||
            result.normalized_len != normalized_len || memcmp(normalized, roundtrip, normalized_len) != 0) {
             wmbus_selftest_set_detail(detail, detail_len, "vector %s roundtrip failed", vector->id);
             return false;
@@ -57,7 +57,7 @@ static bool wmbus_selftest_check_parser_apator162_public_vectors(char* detail, s
             wmbus_selftest_set_detail(detail, detail_len, "vector expected id=%s got=%s", vector->id, id);
             return false;
         }
-        if(!wmbus_selftest_process_capture_record(WmBusRxModeC, roundtrip, result.normalized_len, NULL, &record)) {
+        if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, NULL, &record)) {
             wmbus_selftest_set_detail(detail, detail_len, "vector %s packet process failed", vector->id);
             return false;
         }
@@ -81,6 +81,8 @@ static bool wmbus_selftest_check_parser_apator162_public_vectors(char* detail, s
 static bool wmbus_selftest_check_parser_apator162_old_style_ci_b6_rejected(char* detail, size_t detail_len) {
     uint8_t normalized[WMBUS_SELFTEST_BUF_MAX] = {0};
     size_t normalized_len = 0;
+    uint8_t frame[WMBUS_SELFTEST_BUF_MAX] = {0};
+    size_t frame_len = 0;
     WmBusPacketRecord record = {0};
 
     if(!wmbus_selftest_hex_to_bytes(wmbus_selftest_apator_old_style_b6, normalized, sizeof(normalized), &normalized_len)) {
@@ -99,7 +101,11 @@ static bool wmbus_selftest_check_parser_apator162_old_style_ci_b6_rejected(char*
         wmbus_selftest_set_detail(detail, detail_len, "expected CI=B6");
         return false;
     }
-    if(!wmbus_selftest_process_capture_record(WmBusRxModeC, normalized, normalized_len, NULL, &record)) {
+    if(!wmbus_frame_build_format_b(normalized, normalized_len, frame, sizeof(frame), &frame_len)) {
+        wmbus_selftest_set_detail(detail, detail_len, "format-B build failed");
+        return false;
+    }
+    if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, NULL, &record)) {
         wmbus_selftest_set_detail(detail, detail_len, "packet process failed");
         return false;
     }
@@ -403,14 +409,20 @@ static bool wmbus_selftest_check_parser_apator162_mode5_corrupt_rejected(char* d
 }
 
 static bool wmbus_selftest_check_parser_apator162_payload_without_total(char* detail, size_t detail_len) {
-    uint8_t frame[WMBUS_APATOR_B_LEN] = {0};
+    uint8_t normalized[WMBUS_APATOR_B_LEN] = {0};
+    uint8_t frame[WMBUS_SELFTEST_BUF_MAX] = {0};
+    size_t frame_len = 0;
     WmBusPacketRecord record = {0};
     uint32_t total_m3_x1000 = 0U;
 
-    memcpy(frame, wmbus_apator_b, sizeof(frame));
-    frame[28] = 0xFFU;
+    memcpy(normalized, wmbus_apator_b, sizeof(normalized));
+    normalized[28] = 0xFFU;
 
-    if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, sizeof(frame), NULL, &record)) {
+    if(!wmbus_frame_build_format_b(normalized, sizeof(normalized), frame, sizeof(frame), &frame_len)) {
+        wmbus_selftest_set_detail(detail, detail_len, "format-B build failed");
+        return false;
+    }
+    if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, NULL, &record)) {
         wmbus_selftest_set_detail(detail, detail_len, "packet process failed");
         return false;
     }
@@ -426,18 +438,24 @@ static bool wmbus_selftest_check_parser_apator162_payload_without_total(char* de
 }
 
 static bool wmbus_selftest_check_parser_apator162_payload_total_a1(char* detail, size_t detail_len) {
-    uint8_t frame[WMBUS_APATOR_B_LEN] = {0};
+    uint8_t normalized[WMBUS_APATOR_B_LEN] = {0};
+    uint8_t frame[WMBUS_SELFTEST_BUF_MAX] = {0};
+    size_t frame_len = 0;
     WmBusPacketRecord record = {0};
     uint32_t total_m3_x1000 = 0U;
 
-    memcpy(frame, wmbus_apator_b, sizeof(frame));
-    frame[28] = 0xA1U;
-    frame[29] = 0x78U;
-    frame[30] = 0x56U;
-    frame[31] = 0x34U;
-    frame[32] = 0x12U;
+    memcpy(normalized, wmbus_apator_b, sizeof(normalized));
+    normalized[28] = 0xA1U;
+    normalized[29] = 0x78U;
+    normalized[30] = 0x56U;
+    normalized[31] = 0x34U;
+    normalized[32] = 0x12U;
 
-    if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, sizeof(frame), NULL, &record)) {
+    if(!wmbus_frame_build_format_b(normalized, sizeof(normalized), frame, sizeof(frame), &frame_len)) {
+        wmbus_selftest_set_detail(detail, detail_len, "format-B build failed");
+        return false;
+    }
+    if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, NULL, &record)) {
         wmbus_selftest_set_detail(detail, detail_len, "packet process failed");
         return false;
     }
@@ -454,13 +472,19 @@ static bool wmbus_selftest_check_parser_apator162_payload_total_a1(char* detail,
 }
 
 static bool wmbus_selftest_check_parser_apator162_invalid_payload_not_claimed(char* detail, size_t detail_len) {
-    uint8_t frame[WMBUS_APATOR_B_LEN] = {0};
+    uint8_t normalized[WMBUS_APATOR_B_LEN] = {0};
+    uint8_t frame[WMBUS_SELFTEST_BUF_MAX] = {0};
+    size_t frame_len = 0;
     WmBusPacketRecord record = {0};
 
-    memcpy(frame, wmbus_apator_b, sizeof(frame));
-    frame[25] = 0xFEU;
+    memcpy(normalized, wmbus_apator_b, sizeof(normalized));
+    normalized[25] = 0xFEU;
 
-    if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, sizeof(frame), NULL, &record)) {
+    if(!wmbus_frame_build_format_b(normalized, sizeof(normalized), frame, sizeof(frame), &frame_len)) {
+        wmbus_selftest_set_detail(detail, detail_len, "format-B build failed");
+        return false;
+    }
+    if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, NULL, &record)) {
         wmbus_selftest_set_detail(detail, detail_len, "packet process failed");
         return false;
     }
@@ -477,9 +501,15 @@ static bool wmbus_selftest_check_parser_apator162_invalid_payload_not_claimed(ch
 }
 
 static bool wmbus_selftest_check_packet_sections_clear_payload(char* detail, size_t detail_len) {
+    uint8_t frame[WMBUS_SELFTEST_BUF_MAX] = {0};
+    size_t frame_len = 0;
     WmBusPacketRecord record = {0};
 
-    if(!wmbus_selftest_process_capture_record(WmBusRxModeC, wmbus_apator_b, WMBUS_APATOR_B_LEN, NULL, &record)) {
+    if(!wmbus_frame_build_format_b(wmbus_apator_b, WMBUS_APATOR_B_LEN, frame, sizeof(frame), &frame_len)) {
+        wmbus_selftest_set_detail(detail, detail_len, "format-B build failed");
+        return false;
+    }
+    if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, NULL, &record)) {
         wmbus_selftest_set_detail(detail, detail_len, "packet process failed");
         return false;
     }

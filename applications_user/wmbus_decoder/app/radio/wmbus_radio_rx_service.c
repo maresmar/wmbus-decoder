@@ -294,12 +294,10 @@ static bool wmbus_capture_c_step(
         state->in_packet = true;
         if(state->raw_len >= sizeof(state->raw)) break;
 
-        if(state->expected_len == 0U) {
-            size_t expected_len = 0U;
-            if(wmbus_capture_estimate_c_expected_len(
-                   state->raw, state->raw_len, sizeof(state->raw), &expected_len)) {
-                state->expected_len = expected_len;
-            }
+        size_t expected_len = 0U;
+        if(wmbus_capture_estimate_c_expected_len(
+               state->raw, state->raw_len, sizeof(state->raw), &expected_len)) {
+            state->expected_len = expected_len;
         }
 
         if(state->expected_len > 0U && state->raw_len >= state->expected_len) {
