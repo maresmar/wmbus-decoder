@@ -29,15 +29,17 @@ void wmbus_packet_finalize_parser(WmBusPacketRecord* record) {
     if(!record) return;
 
     if(record->application.parser_id == WmBusParserIdUnknown) {
-        if(record->tpl.has_short_tpl) {
+        bool frame_complete =
+            wmbus_packet_quality_meets(record->quality, WmBusPacketQualityFrameComplete);
+
+        if(!frame_complete) {
+            record->application.parser_id = WmBusParserIdRaw;
+        } else if(record->tpl.has_short_tpl) {
             record->application.parser_id = WmBusParserIdShortTpl;
         } else if(record->ell.has_ell) {
             record->application.parser_id = WmBusParserIdEll;
         } else {
-            record->application.parser_id =
-                wmbus_packet_quality_meets(record->quality, WmBusPacketQualityFrameComplete) ?
-                    WmBusParserIdHeader :
-                    WmBusParserIdRaw;
+            record->application.parser_id = WmBusParserIdHeader;
         }
     }
 }

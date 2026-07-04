@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "../capture/wmbus_capture.h"
+#include "../../core/wmbus_types.h"
 
 #define WMBUS_MFG_STR_LEN 4U
 #define WMBUS_ID_STR_LEN  9U
@@ -22,6 +22,9 @@ void wmbus_frame_decode_mfg(uint16_t man, char out[WMBUS_MFG_STR_LEN]);
 bool wmbus_frame_format_id_bcd(const uint8_t id[4], char out[WMBUS_ID_STR_LEN]);
 void wmbus_frame_format_id(const uint8_t id[4], char out[WMBUS_ID_STR_LEN], bool* is_bcd);
 
+bool wmbus_frame_l_field_valid(uint8_t l_field);
+size_t wmbus_frame_len_format_a(uint8_t l_field);
+size_t wmbus_frame_len_format_b(uint8_t l_field);
 size_t wmbus_frame_expected_len(uint8_t l_field, WmBusFrameFormat format);
 
 bool wmbus_frame_build_format_a(

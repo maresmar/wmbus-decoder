@@ -7,7 +7,7 @@
 #include "../parser/wmbus_parser.h"
 
 #define WMBUS_DECODE_MAX 256U
-#define WMBUS_T_SYNC_SEARCH_BITS 64U
+#define WMBUS_T_SYNC_SEARCH_BITS 8U
 
 typedef struct {
     WmBusPacketQuality quality;
@@ -160,7 +160,7 @@ static bool wmbus_try_decode_t_candidate(
     size_t raw_bit_len = capture->len * 8U;
 
     memset(result, 0, sizeof(*result));
-    result->best_offset = (int)bit_offset;
+    result->best_offset = -1;
 
     uint8_t decoded[WMBUS_DECODE_MAX] = {0};
     size_t decoded_len = 0;
@@ -172,11 +172,11 @@ static bool wmbus_try_decode_t_candidate(
     }
 
     uint8_t l_field = decoded[0];
-    if(!wmbus_capture_l_field_valid(l_field)) return true;
+    if(!wmbus_frame_l_field_valid(l_field)) return false;
 
-    size_t expected_len = wmbus_capture_frame_len_format_a(l_field);
+    size_t expected_len = wmbus_frame_len_format_a(l_field);
     size_t expected_bit_len = bit_offset + expected_len * 12U;
-    if(raw_bit_len < expected_bit_len) return true;
+    if(raw_bit_len < expected_bit_len) return false;
 
     if(!wmbus_decode_3of6_bits(
            capture->data, expected_bit_len, bit_offset, decoded, sizeof(decoded), &decoded_len) ||
@@ -184,7 +184,8 @@ static bool wmbus_try_decode_t_candidate(
         return false;
     }
 
-    if(!wmbus_decode_is_plausible_frame(decoded, decoded_len)) return true;
+    if(!wmbus_decode_is_plausible_frame(decoded, decoded_len)) return false;
+    result->best_offset = (int)bit_offset;
     wmbus_packet_upgrade_quality(&result->quality, WmBusPacketQualityHeaderOk);
 
     const uint8_t* frame = decoded;
@@ -212,9 +213,9 @@ static void wmbus_decode_t_capture(const WmBusCaptureFrame* capture, WmBusTDecod
     int best_score = -1;
 
     size_t raw_bit_len = capture->len * 8U;
-    // Decode from the first bit position that behaves like a T-mode 3-of-6 frame
-    // start. This handles short pre-frame FIFO prefixes without accepting them as
-    // packet bytes; candidates still have to pass header/length/CRC scoring.
+    // Sync-based RX should put FIFO at frame data. Scan only the possible bit
+    // alignments within the first byte; wider prefix recovery belongs in radio
+    // validation, not packet normalization.
     size_t scan_bits = raw_bit_len;
     if(scan_bits > WMBUS_T_SYNC_SEARCH_BITS) {
         scan_bits = WMBUS_T_SYNC_SEARCH_BITS;

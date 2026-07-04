@@ -72,27 +72,33 @@ bool wmbus_packet_process_capture(
         return false;
     }
 
-    bool parser_succeeded = false;
     record->quality = decode.quality;
-    if(wmbus_packet_quality_meets(decode.quality, WmBusPacketQualityFrameComplete) && decode.frame &&
-       decode.frame_len > 0U) {
+
+    bool has_complete_frame =
+        wmbus_packet_quality_meets(decode.quality, WmBusPacketQualityFrameComplete) &&
+        decode.frame && decode.frame_len > 0U;
+    bool crc_ok = wmbus_packet_quality_meets(decode.quality, WmBusPacketQualityCrcOk);
+
+    if(has_complete_frame) {
         wmbus_packet_store_frame(record, decode.frame, decode.frame_len);
-        wmbus_packet_resolve_application_payload(decode.frame, decode.frame_len, record, key_store);
-        parser_succeeded = wmbus_packet_parse_application(record);
-        wmbus_packet_finalize_parser(record);
     } else {
         record->packet_len = (uint16_t)((capture->len > sizeof(record->packet_bytes)) ?
                                             sizeof(record->packet_bytes) :
                                             capture->len);
         memcpy(record->packet_bytes, capture->data, record->packet_len);
-        record->application.parser_id = WmBusParserIdRaw;
     }
 
-    bool application_decoded = parser_succeeded || (record->application.record_count > 0U) ||
-                               record->tpl.decrypted || record->ell.decrypted;
-    if(application_decoded && wmbus_packet_quality_meets(record->quality, WmBusPacketQualityCrcOk)) {
-        record->quality = WmBusPacketQualityParsed;
+    if(has_complete_frame && crc_ok) {
+        bool payload_ready =
+            wmbus_packet_resolve_application_payload(decode.frame, decode.frame_len, record, key_store);
+        if(payload_ready) {
+            bool parser_succeeded = wmbus_packet_parse_application(record);
+            if(parser_succeeded) {
+                record->quality = WmBusPacketQualityParsed;
+            }
+        }
     }
 
+    wmbus_packet_finalize_parser(record);
     return true;
 }

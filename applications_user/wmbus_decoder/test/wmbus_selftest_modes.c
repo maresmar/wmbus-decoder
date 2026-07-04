@@ -189,41 +189,6 @@ void wmbus_selftest_report_case_result(
     }
 }
 
-static bool wmbus_selftest_check_capture_reconstruct_c_frame(char* detail, size_t detail_len) {
-    const uint8_t payload[] = {0x44, 0x01, 0x06, 0x20, 0x20};
-    uint8_t frame[16] = {0};
-    size_t frame_len = 0;
-
-    if(!wmbus_capture_reconstruct_c_frame(payload, sizeof(payload), frame, sizeof(frame), &frame_len)) {
-        wmbus_selftest_set_detail(detail, detail_len, "reconstruct failed");
-        return false;
-    }
-    if(frame_len != sizeof(payload) + 1U || frame[0] != sizeof(payload) || frame[1] != 0x44U ||
-       frame[4] != 0x20U) {
-        wmbus_selftest_set_detail(detail, detail_len, "unexpected frame_len=%u L=%02X C=%02X id0=%02X", (unsigned int)frame_len, frame[0], frame[1], frame[4]);
-        return false;
-    }
-
-    wmbus_selftest_set_detail(detail, detail_len, "frame_len=%u L=%02X C=%02X", 6U, frame[0], frame[1]);
-    return true;
-}
-
-static bool wmbus_selftest_check_capture_reconstruct_c_frame_reject_oversize(
-    char* detail,
-    size_t detail_len) {
-    uint8_t payload[256] = {0};
-    uint8_t frame[300] = {0};
-    size_t frame_len = 0;
-
-    if(wmbus_capture_reconstruct_c_frame(payload, sizeof(payload), frame, sizeof(frame), &frame_len)) {
-        wmbus_selftest_set_detail(detail, detail_len, "oversize payload accepted");
-        return false;
-    }
-
-    wmbus_selftest_set_detail(detail, detail_len, "reject=YES");
-    return true;
-}
-
 static bool wmbus_selftest_check_packet_process_t_ignores_invalid_tail(
     char* detail,
     size_t detail_len,
@@ -292,7 +257,7 @@ static bool wmbus_selftest_check_packet_process_t_ignores_invalid_tail_64(char* 
     return wmbus_selftest_check_packet_process_t_ignores_invalid_tail(detail, detail_len, 64U);
 }
 
-static bool wmbus_selftest_check_packet_process_t_sync_after_fifo_prefix(
+static bool wmbus_selftest_check_packet_process_t_rejects_fifo_prefix(
     char* detail,
     size_t detail_len) {
     uint8_t frame[WMBUS_SELFTEST_BUF_MAX] = {0};
@@ -325,24 +290,22 @@ static bool wmbus_selftest_check_packet_process_t_sync_after_fifo_prefix(
         wmbus_selftest_set_detail(detail, detail_len, "process failed");
         return false;
     }
-    if(!wmbus_packet_quality_meets(record.quality, WmBusPacketQualityCrcOk) ||
-       record.best_offset != 16 ||
-       strcmp(record.identity.meter_id, "21202020") != 0) {
+    if(record.quality != WmBusPacketQualityAnyCapture || record.best_offset >= 0 ||
+       record.packet_len != raw_len + 2U) {
         wmbus_selftest_set_detail(
             detail,
             detail_len,
-            "unexpected quality=%u best_offset=%d id=%s",
+            "unexpected quality=%u best_offset=%d packet_len=%u",
             (unsigned int)record.quality,
             record.best_offset,
-            record.identity.meter_id);
+            (unsigned int)record.packet_len);
         return false;
     }
 
     wmbus_selftest_set_detail(
         detail,
         detail_len,
-        "fifo_prefix=3C94 best_offset=16 id=%s",
-        record.identity.meter_id);
+        "fifo_prefix=3C94 rejected");
     return true;
 }
 
@@ -477,7 +440,7 @@ static bool wmbus_selftest_check_packet_process_c_crc_bad_keeps_raw_diagnostic(
     uint8_t normalized[WMBUS_SELFTEST_BUF_MAX] = {0};
     WmBusFrameNormalizeResult normalize = {0};
     if(wmbus_frame_normalize(WmBusRxModeC, frame, frame_len, normalized, sizeof(normalized), &normalize) ||
-       !normalize.crc_known || normalize.crc_ok || normalize.length_ok ||
+       !normalize.crc_known || normalize.crc_ok || !normalize.length_ok ||
        normalize.format != WmBusFrameFormatA || normalize.computed_len != frame_len ||
        normalize.normalized_len != WMBUS_APATOR_B_LEN) {
         wmbus_selftest_set_detail(
@@ -498,8 +461,9 @@ static bool wmbus_selftest_check_packet_process_c_crc_bad_keeps_raw_diagnostic(
         return false;
     }
 
-    if(record.quality != WmBusPacketQualityHeaderOk || record.packet_len != frame_len ||
-       memcmp(record.packet_bytes, frame, frame_len) != 0 || record.application.parser_id != WmBusParserIdRaw) {
+    if(record.quality != WmBusPacketQualityFrameComplete || record.packet_len != frame_len ||
+       memcmp(record.packet_bytes, frame, frame_len) != 0 ||
+       record.application.parser_id != WmBusParserIdEll) {
         wmbus_selftest_set_detail(
             detail,
             detail_len,
@@ -510,7 +474,7 @@ static bool wmbus_selftest_check_packet_process_c_crc_bad_keeps_raw_diagnostic(
         return false;
     }
 
-    wmbus_selftest_set_detail(detail, detail_len, "mode=C crc_bad raw diagnostic kept");
+    wmbus_selftest_set_detail(detail, detail_len, "mode=C crc_bad complete ell header kept");
     return true;
 }
 
@@ -535,12 +499,10 @@ static bool wmbus_selftest_check_capture_state_reset(char* detail, size_t detail
 }
 
 static const WmBusSelftestCheck wmbus_selftest_checks_modes[] = {
-    {"check_capture_reconstruct_c_frame", wmbus_selftest_check_capture_reconstruct_c_frame},
-    {"check_capture_reconstruct_c_frame_reject_oversize", wmbus_selftest_check_capture_reconstruct_c_frame_reject_oversize},
     {"check_packet_process_t_ignores_invalid_tail_1", wmbus_selftest_check_packet_process_t_ignores_invalid_tail_1},
     {"check_packet_process_t_ignores_invalid_tail_16", wmbus_selftest_check_packet_process_t_ignores_invalid_tail_16},
     {"check_packet_process_t_ignores_invalid_tail_64", wmbus_selftest_check_packet_process_t_ignores_invalid_tail_64},
-    {"check_packet_process_t_sync_after_fifo_prefix", wmbus_selftest_check_packet_process_t_sync_after_fifo_prefix},
+    {"check_packet_process_t_rejects_fifo_prefix", wmbus_selftest_check_packet_process_t_rejects_fifo_prefix},
     {"check_capture_c_accepts_access_demand", wmbus_selftest_check_capture_c_accepts_access_demand},
     {"check_packet_process_c_bad_header_keeps_raw_diagnostic", wmbus_selftest_check_packet_process_c_bad_header_keeps_raw_diagnostic},
     {"check_frame_normalize_format_a_wire_frame", wmbus_selftest_check_frame_normalize_format_a_wire_frame},
