@@ -15,8 +15,6 @@
 #define WMBUS_LED_PULSE_MS      40U
 #define WMBUS_T_GAP_TIMEOUT_MS  5U
 #define WMBUS_C_READ_TIMEOUT_MS 25U
-#define WMBUS_T_FORCE_SCORE     3
-
 #define WMBUS_CC1101_PKTCTRL0_INFINITE_LEN 0x02U
 #define WMBUS_CC1101_PKTCTRL0_WHITE_DATA   0x40U
 #define WMBUS_CC1101_PKTCTRL0_T_MODE       WMBUS_CC1101_PKTCTRL0_INFINITE_LEN
@@ -315,7 +313,6 @@ static bool wmbus_capture_t_step(
     uint32_t gap_ticks) {
     if(!state || !frame || !had_data) return false;
 
-    bool force_complete = false;
     while(true) {
         bool overflow = false;
         if(!wmbus_capture_append_fifo(
@@ -333,44 +330,16 @@ static bool wmbus_capture_t_step(
 
         state->in_packet = true;
         if(state->raw_len >= sizeof(state->raw)) break;
-
-        size_t expected_raw_len = 0U;
-        int expected_raw_score = 0;
-        if(wmbus_capture_estimate_t_expected_raw_len_scored(
-               state->raw,
-               state->raw_len,
-               sizeof(state->raw),
-               &expected_raw_len,
-               &expected_raw_score)) {
-            if(state->expected_raw_len == 0U || expected_raw_score > state->expected_raw_score ||
-               (expected_raw_score == state->expected_raw_score &&
-                expected_raw_len > state->expected_raw_len)) {
-                state->expected_raw_len = expected_raw_len;
-                state->expected_raw_score = expected_raw_score;
-            }
-        }
-
-        if(state->expected_raw_score >= WMBUS_T_FORCE_SCORE && state->expected_raw_len > 0U &&
-           state->raw_len >= state->expected_raw_len) {
-            force_complete = true;
-            break;
-        }
     }
 
     if(state->in_packet) {
         uint32_t now = furi_get_tick();
-        bool gap = force_complete || (!*had_data && (now - state->last_byte_tick) >= gap_ticks);
+        bool gap = (!*had_data && (now - state->last_byte_tick) >= gap_ticks);
         bool full = (state->raw_len >= sizeof(state->raw));
 
         if((gap || full) && state->raw_len > 0U) {
-            size_t frame_raw_len = state->raw_len;
-            if(state->expected_raw_score >= WMBUS_T_FORCE_SCORE && state->expected_raw_len > 0U &&
-               frame_raw_len > state->expected_raw_len) {
-                frame_raw_len = state->expected_raw_len;
-            }
-
-            memcpy(frame->data, state->raw, frame_raw_len);
-            frame->len = frame_raw_len;
+            memcpy(frame->data, state->raw, state->raw_len);
+            frame->len = state->raw_len;
             frame->rssi = (int)furi_hal_subghz_get_rssi();
             frame->mode = WmBusRxModeT;
             wmbus_capture_state_t_reset(state);
@@ -389,7 +358,6 @@ static bool wmbus_capture_c_step(
     uint32_t gap_ticks) {
     if(!state || !frame || !had_data) return false;
 
-    bool force_complete = false;
     while(true) {
         bool overflow = false;
         if(!wmbus_capture_append_fifo(
@@ -407,37 +375,17 @@ static bool wmbus_capture_c_step(
 
         state->in_packet = true;
         if(state->raw_len >= sizeof(state->raw)) break;
-
-        size_t expected_len = 0U;
-        if(wmbus_capture_estimate_c_expected_len(
-               state->raw, state->raw_len, sizeof(state->raw), &expected_len)) {
-            state->expected_len = expected_len;
-        }
-
-        if(state->expected_len > 0U && state->raw_len >= state->expected_len) {
-            force_complete = true;
-            break;
-        }
     }
 
     if(!state->in_packet) return false;
 
     uint32_t now = furi_get_tick();
-    bool gap = force_complete || (!*had_data && (now - state->last_byte_tick) >= gap_ticks);
+    bool gap = (!*had_data && (now - state->last_byte_tick) >= gap_ticks);
     bool full = (state->raw_len >= sizeof(state->raw));
     if(!(gap || full) || state->raw_len == 0U) return false;
 
-    size_t frame_offset = 0U;
-    size_t frame_len = 0U;
-    if(!wmbus_capture_select_c_frame(
-           state->raw, state->raw_len, state->expected_len, &frame_offset, &frame_len)) {
-        wmbus_capture_state_c_reset(state);
-        wmbus_radio_recover_rx();
-        return false;
-    }
-
-    memcpy(frame->data, &state->raw[frame_offset], frame_len - frame_offset);
-    frame->len = frame_len - frame_offset;
+    memcpy(frame->data, state->raw, state->raw_len);
+    frame->len = state->raw_len;
     frame->rssi = (int)furi_hal_subghz_get_rssi();
     frame->mode = WmBusRxModeC;
     wmbus_capture_state_c_reset(state);

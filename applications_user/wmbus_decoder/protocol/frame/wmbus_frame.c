@@ -299,8 +299,7 @@ bool wmbus_frame_normalize(
         ordered_formats[0] = WmBusFrameFormatA;
         ordered_formats[1] = WmBusFrameFormatB;
     } else {
-        // C capture strips any optional pre-frame signal byte before this point,
-        // so normalization expects Link-B frame bytes beginning at the L-field.
+        // C normalization expects Link-B frame bytes beginning at the L-field.
         // Prefer format B first, but only a passing CRC is allowed to normalize.
         ordered_formats[0] = WmBusFrameFormatB;
         ordered_formats[1] = WmBusFrameFormatA;
