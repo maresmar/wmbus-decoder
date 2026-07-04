@@ -15,6 +15,13 @@
 #define WMBUS_LED_PULSE_MS      40U
 #define WMBUS_T_GAP_TIMEOUT_MS  5U
 #define WMBUS_C_READ_TIMEOUT_MS 25U
+#define WMBUS_T_FORCE_SCORE     3
+
+#define WMBUS_CC1101_PKTCTRL0_INFINITE_LEN 0x02U
+#define WMBUS_CC1101_PKTCTRL0_WHITE_DATA   0x40U
+#define WMBUS_CC1101_PKTCTRL0_T_MODE       WMBUS_CC1101_PKTCTRL0_INFINITE_LEN
+#define WMBUS_CC1101_PKTCTRL0_C_MODE \
+    (WMBUS_CC1101_PKTCTRL0_WHITE_DATA | WMBUS_CC1101_PKTCTRL0_INFINITE_LEN)
 
 typedef enum {
     WmBusControlCmdStop = 0,
@@ -27,6 +34,12 @@ typedef struct {
     WmBusCryptoKeyStore key_store;
 } WmBusControlEvent;
 
+typedef struct {
+    const char* name;
+    const uint8_t* regs;
+    size_t regs_size;
+} WmBusCc1101Profile;
+
 struct WmBusRadioRxService {
     WmBusRadioRxCallbacks callbacks;
     FuriThread* thread;
@@ -35,31 +48,103 @@ struct WmBusRadioRxService {
     WmBusCryptoKeyStore key_store;
 };
 
-static uint8_t wmbus_cc1101_preset_regs[];
+static const uint8_t wmbus_cc1101_t_mode_preset_regs[] = {
+    // IOCFG2 is register 0x00 and cannot appear in this table because the
+    // Flipper preset loader uses 0x00 as the end-of-table sentinel.
+    CC1101_IOCFG1, 0x2E, CC1101_IOCFG0, 0x00, CC1101_FIFOTHR, 0x07, CC1101_SYNC1, 0x54,
+    CC1101_SYNC0, 0x3D, CC1101_PKTLEN, 0xFF, CC1101_PKTCTRL1, 0x00, CC1101_PKTCTRL0,
+    WMBUS_CC1101_PKTCTRL0_T_MODE,
+    CC1101_ADDR, 0x00, CC1101_CHANNR, 0x00, CC1101_FSCTRL1, 0x08, CC1101_FSCTRL0, 0x00,
+    CC1101_FREQ2, 0x21, CC1101_FREQ1, 0x65, CC1101_FREQ0, 0x6A, CC1101_MDMCFG4, 0x5C,
+    CC1101_MDMCFG3, 0x04, CC1101_MDMCFG2, 0x05, CC1101_MDMCFG1, 0x22, CC1101_MDMCFG0, 0xF8,
+    CC1101_DEVIATN, 0x44, CC1101_MCSM2, 0x07, CC1101_MCSM1, 0x00, CC1101_MCSM0, 0x18,
+    CC1101_FOCCFG, 0x2E, CC1101_BSCFG, 0xBF, CC1101_AGCCTRL2, 0x43, CC1101_AGCCTRL1, 0x09,
+    CC1101_AGCCTRL0, 0xB5, CC1101_WOREVT1, 0x87, CC1101_WOREVT0, 0x6B, CC1101_WORCTRL, 0xFB,
+    CC1101_FREND1, 0xB6, CC1101_FREND0, 0x10, CC1101_FSCAL3, 0xEA, CC1101_FSCAL2, 0x2A,
+    CC1101_FSCAL1, 0x00, CC1101_FSCAL0, 0x1F, CC1101_RCCTRL1, 0x41, CC1101_RCCTRL0, 0x00,
+    CC1101_FSTEST, 0x59, CC1101_PTEST, 0x7F, CC1101_AGCTEST, 0x3F, CC1101_TEST2, 0x81,
+    CC1101_TEST1, 0x35, CC1101_TEST0, 0x09, 0U, 0U, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00,
+};
 
-static bool wmbus_radio_preset_loadable(void) {
-    for(size_t i = 0;; i += 2U) {
-        uint8_t reg = wmbus_cc1101_preset_regs[i];
-        uint8_t value = wmbus_cc1101_preset_regs[i + 1U];
+static const uint8_t wmbus_cc1101_c_mode_preset_regs[] = {
+    // C-mode uses the same 2-FSK/sync settings as T-mode, but enables CC1101
+    // data whitening so the FIFO contains dewhitened Link-B frame bytes.
+    CC1101_IOCFG1, 0x2E, CC1101_IOCFG0, 0x00, CC1101_FIFOTHR, 0x07, CC1101_SYNC1, 0x54,
+    CC1101_SYNC0, 0x3D, CC1101_PKTLEN, 0xFF, CC1101_PKTCTRL1, 0x00, CC1101_PKTCTRL0,
+    WMBUS_CC1101_PKTCTRL0_C_MODE,
+    CC1101_ADDR, 0x00, CC1101_CHANNR, 0x00, CC1101_FSCTRL1, 0x08, CC1101_FSCTRL0, 0x00,
+    CC1101_FREQ2, 0x21, CC1101_FREQ1, 0x65, CC1101_FREQ0, 0x6A, CC1101_MDMCFG4, 0x5C,
+    CC1101_MDMCFG3, 0x04, CC1101_MDMCFG2, 0x05, CC1101_MDMCFG1, 0x22, CC1101_MDMCFG0, 0xF8,
+    CC1101_DEVIATN, 0x44, CC1101_MCSM2, 0x07, CC1101_MCSM1, 0x00, CC1101_MCSM0, 0x18,
+    CC1101_FOCCFG, 0x2E, CC1101_BSCFG, 0xBF, CC1101_AGCCTRL2, 0x43, CC1101_AGCCTRL1, 0x09,
+    CC1101_AGCCTRL0, 0xB5, CC1101_WOREVT1, 0x87, CC1101_WOREVT0, 0x6B, CC1101_WORCTRL, 0xFB,
+    CC1101_FREND1, 0xB6, CC1101_FREND0, 0x10, CC1101_FSCAL3, 0xEA, CC1101_FSCAL2, 0x2A,
+    CC1101_FSCAL1, 0x00, CC1101_FSCAL0, 0x1F, CC1101_RCCTRL1, 0x41, CC1101_RCCTRL0, 0x00,
+    CC1101_FSTEST, 0x59, CC1101_PTEST, 0x7F, CC1101_AGCTEST, 0x3F, CC1101_TEST2, 0x81,
+    CC1101_TEST1, 0x35, CC1101_TEST0, 0x09, 0U, 0U, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00,
+};
+
+static const WmBusCc1101Profile wmbus_cc1101_t_mode_profile = {
+    .name = "T",
+    .regs = wmbus_cc1101_t_mode_preset_regs,
+    .regs_size = sizeof(wmbus_cc1101_t_mode_preset_regs),
+};
+
+static const WmBusCc1101Profile wmbus_cc1101_c_mode_profile = {
+    .name = "C",
+    .regs = wmbus_cc1101_c_mode_preset_regs,
+    .regs_size = sizeof(wmbus_cc1101_c_mode_preset_regs),
+};
+
+static const WmBusCc1101Profile* wmbus_cc1101_active_profile = &wmbus_cc1101_t_mode_profile;
+
+static const WmBusCc1101Profile* wmbus_radio_profile(WmBusRxMode mode) {
+    return mode == WmBusRxModeC ? &wmbus_cc1101_c_mode_profile : &wmbus_cc1101_t_mode_profile;
+}
+
+static void wmbus_radio_select_profile(WmBusRxMode mode) {
+    wmbus_cc1101_active_profile = wmbus_radio_profile(mode);
+}
+
+static bool wmbus_radio_preset_loadable(const WmBusCc1101Profile* profile) {
+    if(!profile || !profile->regs || profile->regs_size < 10U) return false;
+
+    for(size_t i = 0; i + 1U < profile->regs_size; i += 2U) {
+        uint8_t reg = profile->regs[i];
+        uint8_t value = profile->regs[i + 1U];
 
         if(reg == 0U && value == 0U) {
-            return true;
+            return i + 10U <= profile->regs_size;
         }
 
         if(reg == 0U) {
             return false;
         }
     }
+
+    return false;
 }
 
-static void wmbus_preset_set_reg(uint8_t reg, uint8_t value) {
-    for(size_t i = 0;; i += 2U) {
-        if(wmbus_cc1101_preset_regs[i] == 0U && wmbus_cc1101_preset_regs[i + 1U] == 0U) break;
-        if(wmbus_cc1101_preset_regs[i] == reg) {
-            wmbus_cc1101_preset_regs[i + 1U] = value;
-            return;
+static bool wmbus_radio_profile_get_reg(
+    const WmBusCc1101Profile* profile,
+    uint8_t reg,
+    uint8_t* value) {
+    if(!profile || !profile->regs || !value) return false;
+
+    for(size_t i = 0; i + 1U < profile->regs_size; i += 2U) {
+        uint8_t profile_reg = profile->regs[i];
+        uint8_t profile_value = profile->regs[i + 1U];
+
+        if(profile_reg == 0U && profile_value == 0U) return false;
+        if(profile_reg == reg) {
+            *value = profile_value;
+            return true;
         }
     }
+
+    return false;
 }
 
 static uint8_t wmbus_radio_read_reg(uint8_t reg) {
@@ -78,13 +163,33 @@ static void wmbus_radio_recover_rx(void) {
 
 static void wmbus_radio_reload_rx_preset(void) {
     furi_hal_subghz_reset();
-    furi_hal_subghz_load_custom_preset(wmbus_cc1101_preset_regs);
+    furi_hal_subghz_load_custom_preset(wmbus_cc1101_active_profile->regs);
     furi_hal_subghz_set_frequency_and_path(WMBUS_FREQ_HZ);
     furi_hal_subghz_flush_rx();
     furi_hal_subghz_rx();
 }
 
-static bool wmbus_radio_validate_c_mode_regs(void) {
+static char wmbus_radio_mode_char(WmBusRxMode mode) {
+    return mode == WmBusRxModeC ? 'C' : 'T';
+}
+
+static bool wmbus_radio_validate_mode_regs(WmBusRxMode mode) {
+    const WmBusCc1101Profile* profile = wmbus_radio_profile(mode);
+    uint8_t expected_iocfg0 = 0U;
+    uint8_t expected_pktctrl0 = 0U;
+    uint8_t expected_pktctrl1 = 0U;
+    uint8_t expected_mdmcfg2 = 0U;
+    uint8_t expected_sync1 = 0U;
+    uint8_t expected_sync0 = 0U;
+
+    bool expected_ok =
+        wmbus_radio_profile_get_reg(profile, CC1101_IOCFG0, &expected_iocfg0) &&
+        wmbus_radio_profile_get_reg(profile, CC1101_PKTCTRL0, &expected_pktctrl0) &&
+        wmbus_radio_profile_get_reg(profile, CC1101_PKTCTRL1, &expected_pktctrl1) &&
+        wmbus_radio_profile_get_reg(profile, CC1101_MDMCFG2, &expected_mdmcfg2) &&
+        wmbus_radio_profile_get_reg(profile, CC1101_SYNC1, &expected_sync1) &&
+        wmbus_radio_profile_get_reg(profile, CC1101_SYNC0, &expected_sync0);
+
     uint8_t iocfg0 = wmbus_radio_read_reg(CC1101_IOCFG0);
     uint8_t pktctrl0 = wmbus_radio_read_reg(CC1101_PKTCTRL0);
     uint8_t pktctrl1 = wmbus_radio_read_reg(CC1101_PKTCTRL1);
@@ -94,7 +199,8 @@ static bool wmbus_radio_validate_c_mode_regs(void) {
 
     FURI_LOG_D(
         TAG,
-        "C cfg SYNC=%02X%02X IOCFG0=%02X PKTCTRL0=%02X PKTCTRL1=%02X MDMCFG2=%02X",
+        "%c cfg SYNC=%02X%02X IOCFG0=%02X PKTCTRL0=%02X PKTCTRL1=%02X MDMCFG2=%02X",
+        wmbus_radio_mode_char(mode),
         sync1,
         sync0,
         iocfg0,
@@ -102,42 +208,40 @@ static bool wmbus_radio_validate_c_mode_regs(void) {
         pktctrl1,
         mdmcfg2);
 
-    bool ok = (iocfg0 == 0x00U) && (pktctrl0 == 0x02U) && (pktctrl1 == 0x00U) &&
-              (mdmcfg2 == 0x05U) &&
-              (sync1 == 0x54U) && (sync0 == 0x3DU);
+    bool ok = expected_ok && (iocfg0 == expected_iocfg0) && (pktctrl0 == expected_pktctrl0) &&
+              (pktctrl1 == expected_pktctrl1) && (mdmcfg2 == expected_mdmcfg2) &&
+              (sync1 == expected_sync1) && (sync0 == expected_sync0);
     if(!ok) {
         FURI_LOG_W(
             TAG,
-            "C cfg mismatch (SYNC=%02X%02X IOCFG0=%02X PKTCTRL0=%02X PKTCTRL1=%02X MDMCFG2=%02X)",
+            "%c cfg mismatch (SYNC=%02X%02X/%02X%02X IOCFG0=%02X/%02X PKTCTRL0=%02X/%02X PKTCTRL1=%02X/%02X MDMCFG2=%02X/%02X)",
+            wmbus_radio_mode_char(mode),
             sync1,
             sync0,
+            expected_sync1,
+            expected_sync0,
             iocfg0,
+            expected_iocfg0,
             pktctrl0,
+            expected_pktctrl0,
             pktctrl1,
-            mdmcfg2);
+            expected_pktctrl1,
+            mdmcfg2,
+            expected_mdmcfg2);
     }
     return ok;
 }
 
-static void wmbus_radio_apply_link_b_rx_base(void) {
-    wmbus_preset_set_reg(CC1101_SYNC1, 0x54);
-    wmbus_preset_set_reg(CC1101_SYNC0, 0x3D);
-    wmbus_preset_set_reg(CC1101_IOCFG0, 0x00);
-    wmbus_preset_set_reg(CC1101_MDMCFG2, 0x05);
-    wmbus_preset_set_reg(CC1101_MCSM1, 0x00);
-    wmbus_preset_set_reg(CC1101_PKTCTRL1, 0x00);
-    wmbus_preset_set_reg(CC1101_PKTCTRL0, 0x02);
-}
-
 static void wmbus_radio_apply_mode(WmBusRxMode mode) {
-    furi_check(wmbus_radio_preset_loadable());
+    wmbus_radio_select_profile(mode);
+    furi_check(wmbus_radio_preset_loadable(wmbus_cc1101_active_profile));
 
-    wmbus_radio_apply_link_b_rx_base();
     wmbus_radio_reload_rx_preset();
-    if(mode == WmBusRxModeC && !wmbus_radio_validate_c_mode_regs()) {
+    if(!wmbus_radio_validate_mode_regs(mode)) {
         wmbus_radio_reload_rx_preset();
-        if(!wmbus_radio_validate_c_mode_regs()) {
-            FURI_LOG_W(TAG, "C cfg still mismatched after preset reload");
+        if(!wmbus_radio_validate_mode_regs(mode)) {
+            FURI_LOG_W(
+                TAG, "%c cfg still mismatched after preset reload", wmbus_radio_mode_char(mode));
             wmbus_radio_recover_rx();
         }
     }
@@ -230,15 +334,24 @@ static bool wmbus_capture_t_step(
         state->in_packet = true;
         if(state->raw_len >= sizeof(state->raw)) break;
 
-        if(state->expected_raw_len == 0U) {
-            size_t expected_raw_len = 0U;
-            if(wmbus_capture_estimate_t_expected_raw_len(
-                   state->raw, state->raw_len, sizeof(state->raw), &expected_raw_len)) {
+        size_t expected_raw_len = 0U;
+        int expected_raw_score = 0;
+        if(wmbus_capture_estimate_t_expected_raw_len_scored(
+               state->raw,
+               state->raw_len,
+               sizeof(state->raw),
+               &expected_raw_len,
+               &expected_raw_score)) {
+            if(state->expected_raw_len == 0U || expected_raw_score > state->expected_raw_score ||
+               (expected_raw_score == state->expected_raw_score &&
+                expected_raw_len > state->expected_raw_len)) {
                 state->expected_raw_len = expected_raw_len;
+                state->expected_raw_score = expected_raw_score;
             }
         }
 
-        if(state->expected_raw_len > 0U && state->raw_len >= state->expected_raw_len) {
+        if(state->expected_raw_score >= WMBUS_T_FORCE_SCORE && state->expected_raw_len > 0U &&
+           state->raw_len >= state->expected_raw_len) {
             force_complete = true;
             break;
         }
@@ -251,7 +364,8 @@ static bool wmbus_capture_t_step(
 
         if((gap || full) && state->raw_len > 0U) {
             size_t frame_raw_len = state->raw_len;
-            if(state->expected_raw_len > 0U && frame_raw_len > state->expected_raw_len) {
+            if(state->expected_raw_score >= WMBUS_T_FORCE_SCORE && state->expected_raw_len > 0U &&
+               frame_raw_len > state->expected_raw_len) {
                 frame_raw_len = state->expected_raw_len;
             }
 
@@ -507,21 +621,3 @@ bool wmbus_radio_rx_service_apply_config(
     return furi_message_queue_put(service->control_queue, &event, FuriWaitForever) ==
            FuriStatusOk;
 }
-
-static uint8_t wmbus_cc1101_preset_regs[] = {
-    // IOCFG2 is register 0x00 and cannot appear in this table because the
-    // Flipper preset loader uses 0x00 as the end-of-table sentinel.
-    CC1101_IOCFG1, 0x2E, CC1101_IOCFG0, 0x00, CC1101_FIFOTHR, 0x07, CC1101_SYNC1, 0x54,
-    CC1101_SYNC0, 0x3D, CC1101_PKTLEN, 0xFF, CC1101_PKTCTRL1, 0x00, CC1101_PKTCTRL0, 0x02,
-    CC1101_ADDR, 0x00, CC1101_CHANNR, 0x00, CC1101_FSCTRL1, 0x08, CC1101_FSCTRL0, 0x00,
-    CC1101_FREQ2, 0x21, CC1101_FREQ1, 0x65, CC1101_FREQ0, 0x6A, CC1101_MDMCFG4, 0x5C,
-    CC1101_MDMCFG3, 0x04, CC1101_MDMCFG2, 0x05, CC1101_MDMCFG1, 0x22, CC1101_MDMCFG0, 0xF8,
-    CC1101_DEVIATN, 0x44, CC1101_MCSM2, 0x07, CC1101_MCSM1, 0x00, CC1101_MCSM0, 0x18,
-    CC1101_FOCCFG, 0x2E, CC1101_BSCFG, 0xBF, CC1101_AGCCTRL2, 0x43, CC1101_AGCCTRL1, 0x09,
-    CC1101_AGCCTRL0, 0xB5, CC1101_WOREVT1, 0x87, CC1101_WOREVT0, 0x6B, CC1101_WORCTRL, 0xFB,
-    CC1101_FREND1, 0xB6, CC1101_FREND0, 0x10, CC1101_FSCAL3, 0xEA, CC1101_FSCAL2, 0x2A,
-    CC1101_FSCAL1, 0x00, CC1101_FSCAL0, 0x1F, CC1101_RCCTRL1, 0x41, CC1101_RCCTRL0, 0x00,
-    CC1101_FSTEST, 0x59, CC1101_PTEST, 0x7F, CC1101_AGCTEST, 0x3F, CC1101_TEST2, 0x81,
-    CC1101_TEST1, 0x35, CC1101_TEST0, 0x09, 0U, 0U, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00,
-};

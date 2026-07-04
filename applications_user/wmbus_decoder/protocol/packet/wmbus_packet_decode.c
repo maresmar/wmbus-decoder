@@ -154,21 +154,33 @@ static void wmbus_packet_upgrade_quality_from_normalize(
 static bool wmbus_try_decode_t_candidate(
     const WmBusCaptureFrame* capture,
     size_t bit_offset,
-    uint8_t tail_pad,
     WmBusTDecodeResult* result) {
     if(!capture || !result) return false;
 
     size_t raw_bit_len = capture->len * 8U;
-    if(raw_bit_len <= tail_pad) return false;
-    raw_bit_len -= tail_pad;
 
     memset(result, 0, sizeof(*result));
     result->best_offset = (int)bit_offset;
 
     uint8_t decoded[WMBUS_DECODE_MAX] = {0};
     size_t decoded_len = 0;
+    size_t l_bit_len = bit_offset + 12U;
+    if(raw_bit_len < l_bit_len ||
+       !wmbus_decode_3of6_bits(capture->data, l_bit_len, bit_offset, decoded, 1U, &decoded_len) ||
+       decoded_len != 1U) {
+        return false;
+    }
+
+    uint8_t l_field = decoded[0];
+    if(!wmbus_capture_l_field_valid(l_field)) return true;
+
+    size_t expected_len = wmbus_capture_frame_len_format_a(l_field);
+    size_t expected_bit_len = bit_offset + expected_len * 12U;
+    if(raw_bit_len < expected_bit_len) return true;
+
     if(!wmbus_decode_3of6_bits(
-           capture->data, raw_bit_len, bit_offset, decoded, sizeof(decoded), &decoded_len)) {
+           capture->data, expected_bit_len, bit_offset, decoded, sizeof(decoded), &decoded_len) ||
+       decoded_len < expected_len) {
         return false;
     }
 
@@ -176,11 +188,11 @@ static bool wmbus_try_decode_t_candidate(
     wmbus_packet_upgrade_quality(&result->quality, WmBusPacketQualityHeaderOk);
 
     const uint8_t* frame = decoded;
-    size_t frame_len = decoded_len;
+    size_t frame_len = expected_len;
     uint8_t normalized[WMBUS_DECODE_MAX] = {0};
     WmBusFrameNormalizeResult normalized_result = {0};
     if(wmbus_frame_normalize(
-           WmBusRxModeT, decoded, decoded_len, normalized, sizeof(normalized), &normalized_result)) {
+           WmBusRxModeT, decoded, expected_len, normalized, sizeof(normalized), &normalized_result)) {
         frame = normalized;
         frame_len = normalized_result.normalized_len;
     }
@@ -198,7 +210,6 @@ static void wmbus_decode_t_capture(const WmBusCaptureFrame* capture, WmBusTDecod
     result->best_offset = -1;
 
     int best_score = -1;
-    uint8_t best_tail_pad = 0xFFU;
 
     size_t raw_bit_len = capture->len * 8U;
     // Decode from the first bit position that behaves like a T-mode 3-of-6 frame
@@ -210,29 +221,24 @@ static void wmbus_decode_t_capture(const WmBusCaptureFrame* capture, WmBusTDecod
     }
 
     for(size_t bit_offset = 0; bit_offset < scan_bits; bit_offset++) {
-        for(uint8_t tail_pad = 0; tail_pad < 8U; tail_pad++) {
-            WmBusTDecodeResult candidate = {0};
-            if(!wmbus_try_decode_t_candidate(capture, bit_offset, tail_pad, &candidate)) {
-                continue;
-            }
+        WmBusTDecodeResult candidate = {0};
+        if(!wmbus_try_decode_t_candidate(capture, bit_offset, &candidate)) {
+            continue;
+        }
 
-            int score = wmbus_score_t_decode_candidate(&candidate);
-            bool better = false;
-            if(score > best_score) {
+        int score = wmbus_score_t_decode_candidate(&candidate);
+        bool better = false;
+        if(score > best_score) {
+            better = true;
+        } else if(score == best_score && score >= 0) {
+            if(result->best_offset < 0 || candidate.best_offset < result->best_offset) {
                 better = true;
-            } else if(score == best_score && score >= 0) {
-                if(result->best_offset < 0 || candidate.best_offset < result->best_offset) {
-                    better = true;
-                } else if(candidate.best_offset == result->best_offset && tail_pad < best_tail_pad) {
-                    better = true;
-                }
             }
+        }
 
-            if(better) {
-                *result = candidate;
-                best_score = score;
-                best_tail_pad = tail_pad;
-            }
+        if(better) {
+            *result = candidate;
+            best_score = score;
         }
     }
 }

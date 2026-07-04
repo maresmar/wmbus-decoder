@@ -5,7 +5,6 @@
 #include "../decode/wmbus_decode.h"
 #include "../frame/wmbus_frame.h"
 
-#define WMBUS_C_SIGNAL_BYTE 0x54U
 #define WMBUS_T_SYNC_SEARCH_BITS 64U
 
 void wmbus_capture_state_t_reset(WmBusCaptureStateT* state) {
@@ -13,6 +12,7 @@ void wmbus_capture_state_t_reset(WmBusCaptureStateT* state) {
     state->raw_len = 0;
     state->in_packet = false;
     state->expected_raw_len = 0;
+    state->expected_raw_score = 0;
     state->last_byte_tick = 0;
 }
 
@@ -26,20 +26,6 @@ void wmbus_capture_state_c_reset(WmBusCaptureStateC* state) {
 
 bool wmbus_capture_l_field_valid(uint8_t l_field) {
     return l_field >= 10;
-}
-
-static bool wmbus_capture_mfg_valid(uint16_t man) {
-    uint8_t a = (man >> 10) & 0x1F;
-    uint8_t b = (man >> 5) & 0x1F;
-    uint8_t c = man & 0x1F;
-    return (a >= 1U && a <= 26U) && (b >= 1U && b <= 26U) && (c >= 1U && c <= 26U);
-}
-
-static bool wmbus_capture_candidate_mfg_valid(const uint8_t* raw, size_t raw_len, size_t offset) {
-    if(!raw || raw_len < (offset + 4U)) return false;
-
-    uint16_t man = (uint16_t)raw[offset + 2U] | ((uint16_t)raw[offset + 3U] << 8);
-    return wmbus_capture_mfg_valid(man);
 }
 
 size_t wmbus_capture_frame_len_format_a(uint8_t l_field) {
@@ -60,40 +46,21 @@ size_t wmbus_capture_frame_len_format_b(uint8_t l_field) {
 size_t wmbus_capture_c_frame_offset(const uint8_t* raw, size_t raw_len) {
     if(!raw || raw_len == 0U) return SIZE_MAX;
 
-    bool offset0_valid =
-        (raw_len >= 2U) && wmbus_capture_l_field_valid(raw[0]) && wmbus_decode_c_field_valid(raw[1]);
-    bool offset1_valid =
-        (raw_len >= 3U) && (raw[0] == WMBUS_C_SIGNAL_BYTE) && wmbus_capture_l_field_valid(raw[1]) &&
-        wmbus_decode_c_field_valid(raw[2]);
-
-    if(offset0_valid && !offset1_valid) {
+    if((raw_len >= 2U) && wmbus_capture_l_field_valid(raw[0]) &&
+       wmbus_decode_c_field_valid(raw[1])) {
         return 0U;
-    }
-
-    // TI's C-mode framing can prepend a signaling 0x54 byte after sync. When both
-    // offsets look superficially valid, use the manufacturer bytes to disambiguate.
-    if(offset1_valid && !offset0_valid) {
-        return 1U;
-    }
-
-    if(offset0_valid && offset1_valid) {
-        bool offset0_mfg_valid = wmbus_capture_candidate_mfg_valid(raw, raw_len, 0U);
-        bool offset1_mfg_valid = wmbus_capture_candidate_mfg_valid(raw, raw_len, 1U);
-
-        if(offset0_mfg_valid != offset1_mfg_valid) {
-            return offset0_mfg_valid ? 0U : 1U;
-        }
     }
 
     return SIZE_MAX;
 }
 
-bool wmbus_capture_estimate_t_expected_raw_len(
+bool wmbus_capture_estimate_t_expected_raw_len_scored(
     const uint8_t* raw,
     size_t raw_len,
     size_t raw_max,
-    size_t* expected_raw_len) {
-    if(!raw || !expected_raw_len) return false;
+    size_t* expected_raw_len,
+    int* expected_score) {
+    if(!raw || !expected_raw_len || !expected_score) return false;
 
     uint8_t decoded[256] = {0};
     int best_score = -1;
@@ -109,41 +76,69 @@ bool wmbus_capture_estimate_t_expected_raw_len(
     }
 
     for(size_t bit_offset = 0; bit_offset < scan_bits; bit_offset++) {
-        for(uint8_t tail_pad = 0; tail_pad < 8U; tail_pad++) {
-            size_t candidate_bit_len = raw_len * 8U;
-            if(candidate_bit_len <= tail_pad) continue;
-            candidate_bit_len -= tail_pad;
+        size_t decoded_len = 0;
+        size_t l_bit_len = bit_offset + 12U;
+        if(raw_bit_len < l_bit_len ||
+           !wmbus_decode_3of6_bits(raw, l_bit_len, bit_offset, decoded, 1U, &decoded_len) ||
+           decoded_len != 1U) {
+            continue;
+        }
 
-            size_t decoded_len = 0;
-            if(!wmbus_decode_3of6_bits(
-                   raw, candidate_bit_len, bit_offset, decoded, sizeof(decoded), &decoded_len) ||
-               decoded_len < 1) {
-                continue;
+        uint8_t l_field = decoded[0];
+        if(!wmbus_capture_l_field_valid(l_field)) continue;
+
+        size_t expected_decoded_len = wmbus_capture_frame_len_format_a(l_field);
+        size_t expected_bit_len = bit_offset + expected_decoded_len * 12U;
+        size_t expected = (expected_bit_len + 7U) / 8U;
+        if(expected > raw_max) expected = raw_max;
+
+        int score = 1;
+        size_t header_bit_len = bit_offset + 11U * 12U;
+        if(raw_bit_len >= header_bit_len &&
+           wmbus_decode_3of6_bits(raw, header_bit_len, bit_offset, decoded, sizeof(decoded), &decoded_len) &&
+           decoded_len >= 11U && wmbus_decode_is_plausible_frame(decoded, decoded_len)) {
+            score += 2;
+        }
+
+        if(raw_bit_len >= expected_bit_len &&
+           wmbus_decode_3of6_bits(
+               raw, expected_bit_len, bit_offset, decoded, sizeof(decoded), &decoded_len) &&
+           decoded_len >= expected_decoded_len) {
+            uint8_t normalized[256] = {0};
+            WmBusFrameNormalizeResult normalize = {0};
+            if(wmbus_frame_normalize(
+                   WmBusRxModeT,
+                   decoded,
+                   expected_decoded_len,
+                   normalized,
+                   sizeof(normalized),
+                   &normalize) &&
+               normalize.crc_ok) {
+                score += 3;
             }
+        }
 
-            uint8_t l_field = decoded[0];
-            if(!wmbus_capture_l_field_valid(l_field)) continue;
-
-            size_t expected_decoded_len = wmbus_capture_frame_len_format_a(l_field);
-            size_t expected = (bit_offset + expected_decoded_len * 12U + 7U) / 8U;
-            if(expected > raw_max) expected = raw_max;
-
-            int score = 1;
-            if(decoded_len >= 11U && wmbus_decode_is_plausible_frame(decoded, decoded_len)) {
-                score += 2;
-            }
-
-            if(score > best_score) {
-                best_score = score;
-                best_expected = expected;
-            }
+        if(score > best_score) {
+            best_score = score;
+            best_expected = expected;
         }
     }
 
     if(best_score < 0) return false;
 
     *expected_raw_len = best_expected;
+    *expected_score = best_score;
     return true;
+}
+
+bool wmbus_capture_estimate_t_expected_raw_len(
+    const uint8_t* raw,
+    size_t raw_len,
+    size_t raw_max,
+    size_t* expected_raw_len) {
+    int expected_score = 0;
+    return wmbus_capture_estimate_t_expected_raw_len_scored(
+        raw, raw_len, raw_max, expected_raw_len, &expected_score);
 }
 
 bool wmbus_capture_estimate_c_expected_len(

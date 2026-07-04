@@ -18,6 +18,7 @@ typedef struct {
     size_t raw_len;
     bool in_packet;
     size_t expected_raw_len;
+    int expected_raw_score;
     uint32_t last_byte_tick;
 } WmBusCaptureStateT;
 
@@ -43,6 +44,13 @@ bool wmbus_capture_estimate_t_expected_raw_len(
     size_t raw_len,
     size_t raw_max,
     size_t* expected_raw_len);
+
+bool wmbus_capture_estimate_t_expected_raw_len_scored(
+    const uint8_t* raw,
+    size_t raw_len,
+    size_t raw_max,
+    size_t* expected_raw_len,
+    int* expected_score);
 
 bool wmbus_capture_estimate_c_expected_len(
     const uint8_t* raw,
