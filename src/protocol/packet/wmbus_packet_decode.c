@@ -163,6 +163,27 @@ static void wmbus_packet_upgrade_quality_from_measure(
     }
 }
 
+static bool wmbus_packet_decode_copy_frame(
+    const uint8_t* frame,
+    size_t frame_len,
+    uint8_t* frame_buf,
+    size_t frame_buf_max,
+    const uint8_t** out_frame,
+    size_t* out_frame_len) {
+    if(!frame || frame_len == 0U || !frame_buf || frame_buf_max == 0U || !out_frame ||
+       !out_frame_len) {
+        return false;
+    }
+
+    size_t copy_len = frame_len > frame_buf_max ? frame_buf_max : frame_len;
+    if(frame != frame_buf) {
+        memcpy(frame_buf, frame, copy_len);
+    }
+    *out_frame = frame_buf;
+    *out_frame_len = copy_len;
+    return true;
+}
+
 static bool wmbus_try_decode_t_candidate(
     const WmBusCaptureFrame* capture,
     size_t bit_offset,
@@ -285,8 +306,8 @@ bool wmbus_packet_decode_capture(
         out->quality = t_result.quality;
 
         if(wmbus_packet_quality_meets(t_result.quality, WmBusPacketQualityHeaderOk)) {
-            frame = t_result.frame;
-            frame_len = t_result.frame_len;
+            wmbus_packet_decode_copy_frame(
+                t_result.frame, t_result.frame_len, frame_buf, frame_buf_max, &frame, &frame_len);
         }
     } else {
         if(wmbus_decode_is_plausible_frame(capture->data, capture->len)) {
@@ -314,15 +335,9 @@ bool wmbus_packet_decode_capture(
             frame_len = normalized_result.normalized_len;
             wmbus_packet_upgrade_quality_from_normalize(&out->quality, &normalized_result);
         } else if(measure.complete && measure.frame_len <= frame_buf_max) {
-            memcpy(frame_buf, frame, measure.frame_len);
-            frame = frame_buf;
-            frame_len = measure.frame_len;
+            wmbus_packet_decode_copy_frame(
+                frame, measure.frame_len, frame_buf, frame_buf_max, &frame, &frame_len);
         }
-    } else if(frame && frame_len > 0U) {
-        size_t copy_len = frame_len > frame_buf_max ? frame_buf_max : frame_len;
-        memcpy(frame_buf, frame, copy_len);
-        frame = frame_buf;
-        frame_len = copy_len;
     }
 
     out->frame = frame;

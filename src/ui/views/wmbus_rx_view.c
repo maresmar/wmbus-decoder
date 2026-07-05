@@ -143,11 +143,7 @@ static void
     out[0] = '\0';
     if(!entry) return;
 
-    char volume[WMBUS_PACKET_VALUE_MAX] = {0};
-    if(wmbus_application_format_total_volume_m3(
-           &entry->application, volume, sizeof(volume), false)) {
-        snprintf(out, out_size, "%sm3", volume);
-    }
+    wmbus_application_format_total_volume_m3(&entry->application, out, out_size, true);
 }
 
 static void wmbus_rx_format_quality_flags(
