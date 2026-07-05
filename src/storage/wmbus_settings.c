@@ -62,7 +62,8 @@ bool wmbus_settings_load(Storage* storage, WmBusSettings* settings) {
             settings->mode = (WmBusRxMode)mode;
             settings->csv_logging = (WmBusCsvLogging)csv_logging;
             settings->min_rssi_dbm = wmbus_settings_normalize_min_rssi(min_rssi_dbm);
-            settings->memory_quality = wmbus_packet_quality_clamp((WmBusPacketQuality)memory_quality);
+            settings->memory_quality =
+                wmbus_packet_quality_clamp((WmBusPacketQuality)memory_quality);
             settings->csv_quality = wmbus_packet_quality_clamp((WmBusPacketQuality)csv_quality);
             settings->debug_overlay = debug_overlay;
             loaded = true;

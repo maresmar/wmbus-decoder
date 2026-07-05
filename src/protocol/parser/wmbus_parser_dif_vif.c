@@ -114,8 +114,7 @@ static int wmbus_packet_data_len_from_dif(uint8_t dif, bool* is_bcd, bool* is_va
     }
 }
 
-static WmBusApplicationMeasurementType
-    wmbus_packet_measurement_type_from_dif(uint8_t dif) {
+static WmBusApplicationMeasurementType wmbus_packet_measurement_type_from_dif(uint8_t dif) {
     switch(dif & 0x30U) {
     case 0x00U:
         return WmBusApplicationMeasurementTypeInstantaneous;
@@ -130,10 +129,8 @@ static WmBusApplicationMeasurementType
     }
 }
 
-static void wmbus_packet_map_vif(
-    WmBusApplicationRecord* record,
-    uint8_t first_vife,
-    bool has_first_vife) {
+static void
+    wmbus_packet_map_vif(WmBusApplicationRecord* record, uint8_t first_vife, bool has_first_vife) {
     if(!record) return;
 
     record->quantity = WmBusApplicationQuantityUnknown;
@@ -323,8 +320,7 @@ static uint8_t wmbus_packet_count_meaningful_records(
     return count;
 }
 
-bool wmbus_parser_dif_vif_probe(
-    const WmBusParserPacketView* packet) {
+bool wmbus_parser_dif_vif_probe(const WmBusParserPacketView* packet) {
     return packet && packet->payload && packet->payload->has_application_payload &&
            packet->payload->application_len > 0U;
 }

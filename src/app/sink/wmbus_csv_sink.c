@@ -13,8 +13,7 @@ static void wmbus_csv_sink_consume(
     }
 
     if(settings->csv_logging == WmBusCsvLoggingNone ||
-       !wmbus_packet_record_passes_policy(
-           record, settings->csv_quality, settings->min_rssi_dbm)) {
+       !wmbus_packet_record_passes_policy(record, settings->csv_quality, settings->min_rssi_dbm)) {
         return;
     }
 

@@ -6,11 +6,11 @@
 #include <stdint.h>
 #include <string.h>
 
-#define Nb       4
-#define BLOCKLEN 16
-#define Nk       4
-#define KEYLEN   16
-#define Nr       10
+#define Nb         4
+#define BLOCKLEN   16
+#define Nk         4
+#define KEYLEN     16
+#define Nr         10
 #define keyExpSize 176
 
 typedef uint8_t state_t[4][4];
@@ -60,18 +60,7 @@ static const uint8_t rsbox[256] = {
     0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c,
     0x7d};
 
-static const uint8_t Rcon[11] = {
-    0x8d,
-    0x01,
-    0x02,
-    0x04,
-    0x08,
-    0x10,
-    0x20,
-    0x40,
-    0x80,
-    0x1b,
-    0x36};
+static const uint8_t Rcon[11] = {0x8d, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36};
 
 static uint8_t get_sbox_value(uint8_t num) {
     return sbox[num];
@@ -165,8 +154,7 @@ static uint8_t xtime(uint8_t x) {
 
 static uint8_t multiply(uint8_t x, uint8_t y) {
     return (uint8_t)(((y & 1U) * x) ^ ((y >> 1 & 1U) * xtime(x)) ^
-                     ((y >> 2 & 1U) * xtime(xtime(x))) ^
-                     ((y >> 3 & 1U) * xtime(xtime(xtime(x)))) ^
+                     ((y >> 2 & 1U) * xtime(xtime(x))) ^ ((y >> 3 & 1U) * xtime(xtime(xtime(x)))) ^
                      ((y >> 4 & 1U) * xtime(xtime(xtime(xtime(x))))));
 }
 
@@ -181,14 +169,14 @@ static void inv_mix_columns(void) {
         c = (*state)[i][2];
         d = (*state)[i][3];
 
-        (*state)[i][0] =
-            multiply(a, 0x0eU) ^ multiply(b, 0x0bU) ^ multiply(c, 0x0dU) ^ multiply(d, 0x09U);
-        (*state)[i][1] =
-            multiply(a, 0x09U) ^ multiply(b, 0x0eU) ^ multiply(c, 0x0bU) ^ multiply(d, 0x0dU);
-        (*state)[i][2] =
-            multiply(a, 0x0dU) ^ multiply(b, 0x09U) ^ multiply(c, 0x0eU) ^ multiply(d, 0x0bU);
-        (*state)[i][3] =
-            multiply(a, 0x0bU) ^ multiply(b, 0x0dU) ^ multiply(c, 0x09U) ^ multiply(d, 0x0eU);
+        (*state)[i][0] = multiply(a, 0x0eU) ^ multiply(b, 0x0bU) ^ multiply(c, 0x0dU) ^
+                         multiply(d, 0x09U);
+        (*state)[i][1] = multiply(a, 0x09U) ^ multiply(b, 0x0eU) ^ multiply(c, 0x0bU) ^
+                         multiply(d, 0x0dU);
+        (*state)[i][2] = multiply(a, 0x0dU) ^ multiply(b, 0x09U) ^ multiply(c, 0x0eU) ^
+                         multiply(d, 0x0bU);
+        (*state)[i][3] = multiply(a, 0x0bU) ^ multiply(b, 0x0dU) ^ multiply(c, 0x09U) ^
+                         multiply(d, 0x0eU);
     }
 }
 

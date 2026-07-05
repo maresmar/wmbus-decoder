@@ -32,14 +32,7 @@ bool wmbus_frame_format_id_bcd(const uint8_t id[4], char out[WMBUS_ID_STR_LEN]) 
 void wmbus_frame_format_id(const uint8_t id[4], char out[WMBUS_ID_STR_LEN], bool* is_bcd) {
     bool bcd = wmbus_frame_format_id_bcd(id, out);
     if(!bcd) {
-        snprintf(
-            out,
-            WMBUS_ID_STR_LEN,
-            "%02X%02X%02X%02X",
-            id[3],
-            id[2],
-            id[1],
-            id[0]);
+        snprintf(out, WMBUS_ID_STR_LEN, "%02X%02X%02X%02X", id[3], id[2], id[1], id[0]);
     }
     if(is_bcd) {
         *is_bcd = bcd;
@@ -380,7 +373,8 @@ bool wmbus_frame_normalize(
         if(!wmbus_frame_crc_check(format, frame, expected_len)) continue;
 
         size_t trimmed_len = 0;
-        if(!wmbus_frame_trim_crc(format, frame, expected_len, normalized, normalized_max, &trimmed_len)) {
+        if(!wmbus_frame_trim_crc(
+               format, frame, expected_len, normalized, normalized_max, &trimmed_len)) {
             return false;
         }
 

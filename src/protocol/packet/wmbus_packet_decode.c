@@ -6,7 +6,7 @@
 #include "../frame/wmbus_frame.h"
 #include "../parser/wmbus_parser.h"
 
-#define WMBUS_DECODE_MAX 256U
+#define WMBUS_DECODE_MAX         256U
 #define WMBUS_T_SYNC_SEARCH_BITS 8U
 
 typedef struct {
@@ -98,8 +98,7 @@ static void wmbus_packet_extract_dll_tpl_info(
             }
             ell.has_session = true;
             ell.sn = (uint32_t)frame[pos] | ((uint32_t)frame[pos + 1U] << 8U) |
-                     ((uint32_t)frame[pos + 2U] << 16U) |
-                     ((uint32_t)frame[pos + 3U] << 24U);
+                     ((uint32_t)frame[pos + 2U] << 16U) | ((uint32_t)frame[pos + 3U] << 24U);
             ell.security_mode = wmbus_parser_ell_security_mode(ell.sn);
             pos += 4U;
             ell.payload_crc = (uint16_t)frame[pos] | ((uint16_t)frame[pos + 1U] << 8U);
@@ -133,9 +132,8 @@ static int wmbus_score_t_decode_candidate(const WmBusTDecodeResult* candidate) {
     return score;
 }
 
-static void wmbus_packet_upgrade_quality(
-    WmBusPacketQuality* quality,
-    WmBusPacketQuality candidate) {
+static void
+    wmbus_packet_upgrade_quality(WmBusPacketQuality* quality, WmBusPacketQuality candidate) {
     if(!quality) return;
     if(wmbus_packet_quality_meets(candidate, *quality)) {
         *quality = candidate;
@@ -232,7 +230,12 @@ static bool wmbus_try_decode_t_candidate(
     uint8_t normalized[WMBUS_DECODE_MAX] = {0};
     WmBusFrameNormalizeResult normalized_result = {0};
     if(wmbus_frame_normalize(
-           WmBusRxModeT, decoded, expected_len, normalized, sizeof(normalized), &normalized_result)) {
+           WmBusRxModeT,
+           decoded,
+           expected_len,
+           normalized,
+           sizeof(normalized),
+           &normalized_result)) {
         frame = normalized;
         frame_len = normalized_result.normalized_len;
         wmbus_packet_upgrade_quality_from_normalize(&result->quality, &normalized_result);
@@ -325,12 +328,7 @@ bool wmbus_packet_decode_capture(
 
         WmBusFrameNormalizeResult normalized_result = {0};
         if(wmbus_frame_normalize(
-               capture->mode,
-               frame,
-               frame_len,
-               frame_buf,
-               frame_buf_max,
-               &normalized_result)) {
+               capture->mode, frame, frame_len, frame_buf, frame_buf_max, &normalized_result)) {
             frame = frame_buf;
             frame_len = normalized_result.normalized_len;
             wmbus_packet_upgrade_quality_from_normalize(&out->quality, &normalized_result);
@@ -345,15 +343,12 @@ bool wmbus_packet_decode_capture(
     return true;
 }
 
-void wmbus_packet_store_frame(
-    WmBusPacketRecord* record,
-    const uint8_t* frame,
-    size_t frame_len) {
+void wmbus_packet_store_frame(WmBusPacketRecord* record, const uint8_t* frame, size_t frame_len) {
     if(!record || !frame || frame_len == 0U) return;
 
-    record->packet_len =
-        (uint16_t)((frame_len > sizeof(record->packet_bytes)) ? sizeof(record->packet_bytes) :
-                                                              frame_len);
+    record->packet_len = (uint16_t)((frame_len > sizeof(record->packet_bytes)) ?
+                                        sizeof(record->packet_bytes) :
+                                        frame_len);
     memcpy(record->packet_bytes, frame, record->packet_len);
     wmbus_packet_extract_dll_tpl_info(frame, frame_len, record);
 }

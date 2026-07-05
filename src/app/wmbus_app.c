@@ -199,8 +199,7 @@ static WmBusApp* wmbus_app_alloc(void) {
         .set_freq_valid = wmbus_app_set_freq_valid,
         .set_live_rssi = wmbus_app_set_live_rssi,
     };
-    app->rx_service = wmbus_radio_rx_service_alloc(
-        &rx_callbacks, &app->settings, &key_store);
+    app->rx_service = wmbus_radio_rx_service_alloc(&rx_callbacks, &app->settings, &key_store);
     if(!app->rx_service) {
         wmbus_app_free(app);
         return NULL;

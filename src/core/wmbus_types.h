@@ -41,7 +41,7 @@ typedef enum {
     WmBusCsvLoggingCount,
 } WmBusCsvLogging;
 
-#define WMBUS_PACKET_DETAIL_MAX  320U
+#define WMBUS_PACKET_DETAIL_MAX 320U
 
 static inline WmBusPacketQuality wmbus_packet_quality_clamp(WmBusPacketQuality quality) {
     if(quality >= WmBusPacketQualityCount) return WmBusPacketQualityAnyCapture;

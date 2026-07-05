@@ -85,9 +85,7 @@ static void wmbus_packet_copy_application_payload(
     memcpy(payload->application_bytes, &frame[offset], payload_len);
 }
 
-static void wmbus_packet_set_payload_packet_slice(
-    WmBusPacketRecord* record,
-    size_t frame_len) {
+static void wmbus_packet_set_payload_packet_slice(WmBusPacketRecord* record, size_t frame_len) {
     if(!record) return;
 
     size_t offset = record->tpl.header_len;
@@ -159,12 +157,11 @@ bool wmbus_packet_resolve_application_payload(
     wmbus_packet_set_payload_packet_slice(record, frame_len);
     wmbus_packet_reset_application_payload(&record->payload);
 
-    bool has_check_bytes =
-        record->payload.packet_len >= 2U &&
-        record->packet_bytes[record->payload.packet_offset] == 0x2FU &&
-        record->packet_bytes[record->payload.packet_offset + 1U] == 0x2FU;
-    bool needs_decrypt =
-        record->tpl.has_short_tpl && wmbus_parser_short_tpl_security_likely_encrypted(record->tpl.cfg);
+    bool has_check_bytes = record->payload.packet_len >= 2U &&
+                           record->packet_bytes[record->payload.packet_offset] == 0x2FU &&
+                           record->packet_bytes[record->payload.packet_offset + 1U] == 0x2FU;
+    bool needs_decrypt = record->tpl.has_short_tpl &&
+                         wmbus_parser_short_tpl_security_likely_encrypted(record->tpl.cfg);
     if(has_check_bytes || !needs_decrypt) {
         wmbus_packet_copy_application_payload(
             &record->payload, frame, frame_len, record->tpl.header_len);
@@ -190,8 +187,7 @@ bool wmbus_packet_resolve_application_payload(
             continue;
         }
 
-        if(wmbus_packet_try_key(
-               frame, frame_len, key, record, &record->payload, decrypt_frame)) {
+        if(wmbus_packet_try_key(frame, frame_len, key, record, &record->payload, decrypt_frame)) {
             record->tpl.decrypted = true;
             record->tpl.key_index = i;
             return true;

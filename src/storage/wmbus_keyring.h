@@ -26,6 +26,4 @@ bool wmbus_keyring_append(
     Storage* storage,
     WmBusKeyring* keyring,
     const uint8_t key[WMBUS_KEY_BYTES]);
-void wmbus_keyring_copy_key_store(
-    const WmBusKeyring* keyring,
-    WmBusCryptoKeyStore* out_key_store);
+void wmbus_keyring_copy_key_store(const WmBusKeyring* keyring, WmBusCryptoKeyStore* out_key_store);

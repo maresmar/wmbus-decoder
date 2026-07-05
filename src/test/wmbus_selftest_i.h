@@ -15,14 +15,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define TAG                     "WmBusSelftest"
-#define WMBUS_SELFTEST_BUF_MAX  256U
-#define WMBUS_SELFTEST_LINE_MAX 256U
-#define WMBUS_BIT_NONE          SIZE_MAX
-#define WMBUS_BYTE_LAST         (SIZE_MAX - 1U)
-#define WMBUS_APATOR_A_LEN      111U
-#define WMBUS_APATOR_B_LEN      79U
-#define WMBUS_APATOR_C_LEN      63U
+#define TAG                                       "WmBusSelftest"
+#define WMBUS_SELFTEST_BUF_MAX                    256U
+#define WMBUS_SELFTEST_LINE_MAX                   256U
+#define WMBUS_BIT_NONE                            SIZE_MAX
+#define WMBUS_BYTE_LAST                           (SIZE_MAX - 1U)
+#define WMBUS_APATOR_A_LEN                        111U
+#define WMBUS_APATOR_B_LEN                        79U
+#define WMBUS_APATOR_C_LEN                        63U
 #define WMBUS_SELFTEST_APATOR_PUBLIC_VECTOR_COUNT 14U
 
 typedef struct {

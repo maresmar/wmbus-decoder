@@ -10,7 +10,7 @@
 
 #include "../protocol/format/wmbus_hex_utils.h"
 
-#define WMBUS_KEYRING_LINE_MAX  (WMBUS_KEY_BYTES * 2U + 2U)
+#define WMBUS_KEYRING_LINE_MAX (WMBUS_KEY_BYTES * 2U + 2U)
 
 static void wmbus_keyring_set_status(WmBusKeyring* keyring, const char* format, ...) {
     if(!keyring || !format) return;
@@ -77,9 +77,7 @@ void wmbus_keyring_init(WmBusKeyring* keyring) {
     wmbus_keyring_set_status(keyring, "missing");
 }
 
-void wmbus_keyring_copy_key_store(
-    const WmBusKeyring* keyring,
-    WmBusCryptoKeyStore* out_key_store) {
+void wmbus_keyring_copy_key_store(const WmBusKeyring* keyring, WmBusCryptoKeyStore* out_key_store) {
     if(!out_key_store) {
         return;
     }

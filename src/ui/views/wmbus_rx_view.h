@@ -30,6 +30,4 @@ void wmbus_rx_view_push_packet(
     bool rssi_gate_ok,
     bool store_in_history);
 bool wmbus_rx_view_has_selected_packet(WmBusRxView* rx_view);
-bool wmbus_rx_view_build_selected_detail_text(
-    WmBusRxView* rx_view,
-    FuriString* out);
+bool wmbus_rx_view_build_selected_detail_text(WmBusRxView* rx_view, FuriString* out);

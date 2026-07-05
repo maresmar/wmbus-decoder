@@ -5,8 +5,5 @@
 
 typedef struct {
     void* context;
-    void (*consume)(
-        void* context,
-        const WmBusSettings* settings,
-        const WmBusPacketRecord* record);
+    void (*consume)(void* context, const WmBusSettings* settings, const WmBusPacketRecord* record);
 } WmBusPacketSink;

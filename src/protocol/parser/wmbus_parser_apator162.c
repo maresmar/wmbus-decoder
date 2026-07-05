@@ -278,8 +278,7 @@ static bool wmbus_parser_apator162_scan_stream(
  * Requires short-TPL CI=0x7A and the known Apator 162 identity fields:
  * version 0x05, device type 0x06 or 0x07, and manufacturer "APA" or legacy 0x8614.
  */
-bool wmbus_parser_apator162_probe(
-    const WmBusParserPacketView* packet) {
+bool wmbus_parser_apator162_probe(const WmBusParserPacketView* packet) {
     if(!packet || !packet->dll || !packet->tpl || !packet->identity || !packet->payload ||
        !packet->payload->has_application_payload || packet->payload->application_len == 0U) {
         return false;

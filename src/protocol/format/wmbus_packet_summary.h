@@ -17,6 +17,5 @@ void wmbus_packet_summary_format_security_text(
 uint8_t wmbus_packet_summary_security_mode(
     const WmBusPacketEllData* ell,
     const WmBusPacketTplData* tpl);
-uint8_t wmbus_packet_summary_key_index(
-    const WmBusPacketEllData* ell,
-    const WmBusPacketTplData* tpl);
+uint8_t
+    wmbus_packet_summary_key_index(const WmBusPacketEllData* ell, const WmBusPacketTplData* tpl);

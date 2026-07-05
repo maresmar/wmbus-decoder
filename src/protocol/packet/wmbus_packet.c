@@ -58,9 +58,9 @@ bool wmbus_packet_process_capture(
 
     memset(record, 0, sizeof(*record));
     record->mode = capture->mode;
-    record->capture_len =
-        (uint16_t)((capture->len > sizeof(record->capture_bytes)) ? sizeof(record->capture_bytes) :
-                                                                capture->len);
+    record->capture_len = (uint16_t)((capture->len > sizeof(record->capture_bytes)) ?
+                                         sizeof(record->capture_bytes) :
+                                         capture->len);
     record->best_offset = -1;
     record->rssi = capture->rssi;
     record->rx_tick = furi_get_tick();
@@ -89,8 +89,8 @@ bool wmbus_packet_process_capture(
     }
 
     if(has_complete_frame && crc_ok) {
-        bool payload_ready =
-            wmbus_packet_resolve_application_payload(decode.frame, decode.frame_len, record, key_store);
+        bool payload_ready = wmbus_packet_resolve_application_payload(
+            decode.frame, decode.frame_len, record, key_store);
         if(payload_ready) {
             bool parser_succeeded = wmbus_packet_parse_application(record);
             if(parser_succeeded) {

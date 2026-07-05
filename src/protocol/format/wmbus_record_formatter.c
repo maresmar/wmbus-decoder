@@ -48,8 +48,8 @@ static const char*
     }
 }
 
-static bool wmbus_record_formatter_is_primary_summary_candidate(
-    const WmBusApplicationRecord* record) {
+static bool
+    wmbus_record_formatter_is_primary_summary_candidate(const WmBusApplicationRecord* record) {
     if(!record || !wmbus_application_record_is_meaningful(record)) {
         return false;
     }
@@ -148,8 +148,7 @@ static bool wmbus_record_formatter_format_value_buf(
         return true;
     case WmBusApplicationValueRaw:
         if(record->quantity == WmBusApplicationQuantityStatus) {
-            return wmbus_hex_encode_le(
-                record->value_unsigned, record->data_len, out, out_size);
+            return wmbus_hex_encode_le(record->value_unsigned, record->data_len, out, out_size);
         }
         return false;
     case WmBusApplicationValueNone:
@@ -200,21 +199,24 @@ static bool wmbus_record_formatter_format_context_label_buf(
     }
 
     if(include_storage) {
-        len = snprintf(&out[write], out_size - write, "%sS%u", need_sep ? "," : "", record->storage_no);
+        len = snprintf(
+            &out[write], out_size - write, "%sS%u", need_sep ? "," : "", record->storage_no);
         if(len < 0 || (size_t)len >= (out_size - write)) return false;
         write += (size_t)len;
         need_sep = true;
     }
 
     if(include_tariff) {
-        len = snprintf(&out[write], out_size - write, "%sT%u", need_sep ? "," : "", record->tariff);
+        len =
+            snprintf(&out[write], out_size - write, "%sT%u", need_sep ? "," : "", record->tariff);
         if(len < 0 || (size_t)len >= (out_size - write)) return false;
         write += (size_t)len;
         need_sep = true;
     }
 
     if(include_subunit) {
-        len = snprintf(&out[write], out_size - write, "%sU%u", need_sep ? "," : "", record->subunit);
+        len =
+            snprintf(&out[write], out_size - write, "%sU%u", need_sep ? "," : "", record->subunit);
         if(len < 0 || (size_t)len >= (out_size - write)) return false;
         write += (size_t)len;
     }
@@ -230,10 +232,10 @@ static bool wmbus_record_formatter_format_field_buf(
     size_t out_size) {
     char label[WMBUS_PACKET_LABEL_MAX] = {0};
     char value[WMBUS_PACKET_VALUE_MAX] = {0};
-    bool have_label = include_context ?
-                          wmbus_record_formatter_format_context_label_buf(
-                              record, label, sizeof(label)) :
-                          wmbus_record_formatter_format_label_buf(record, label, sizeof(label));
+    bool have_label =
+        include_context ?
+            wmbus_record_formatter_format_context_label_buf(record, label, sizeof(label)) :
+            wmbus_record_formatter_format_label_buf(record, label, sizeof(label));
     bool have_value = wmbus_record_formatter_format_value_buf(record, value, sizeof(value));
     if(!have_label || !have_value || label[0] == '\0' || value[0] == '\0') {
         if(out && out_size > 0U) out[0] = '\0';
@@ -275,8 +277,7 @@ bool wmbus_record_formatter_format_joined(
             const WmBusApplicationRecord* record = &records[i];
             char field[WMBUS_PACKET_DETAIL_MAX] = {0};
 
-            if(!wmbus_record_formatter_format_field_buf(
-                   record, true, field, sizeof(field))) {
+            if(!wmbus_record_formatter_format_field_buf(record, true, field, sizeof(field))) {
                 continue;
             }
             if(record->quantity > WmBusApplicationQuantityStatus ||

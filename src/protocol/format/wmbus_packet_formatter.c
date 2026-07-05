@@ -8,10 +8,8 @@
 #include "../model/wmbus_application_record.h"
 #include "../parser/wmbus_parser.h"
 
-static void wmbus_packet_formatter_append_line(
-    FuriString* out,
-    const char* line,
-    bool* wrote_any) {
+static void
+    wmbus_packet_formatter_append_line(FuriString* out, const char* line, bool* wrote_any) {
     if(!out || !line || line[0] == '\0' || !wrote_any) {
         return;
     }
@@ -142,9 +140,8 @@ static void wmbus_packet_formatter_format_application_detail(
     furi_string_free(status_field);
 }
 
-static void wmbus_packet_formatter_format_frame_detail(
-    const WmBusPacketRecord* record,
-    FuriString* out) {
+static void
+    wmbus_packet_formatter_format_frame_detail(const WmBusPacketRecord* record, FuriString* out) {
     FuriString* application_body = furi_string_alloc();
     if(!application_body) {
         furi_string_set(out, "");
@@ -152,7 +149,8 @@ static void wmbus_packet_formatter_format_frame_detail(
     }
 
     char security[48] = {0};
-    wmbus_packet_summary_format_security_text(&record->ell, &record->tpl, security, sizeof(security));
+    wmbus_packet_summary_format_security_text(
+        &record->ell, &record->tpl, security, sizeof(security));
     if(security[0] == '\0') {
         snprintf(security, sizeof(security), "-");
     }
@@ -174,9 +172,8 @@ static void wmbus_packet_formatter_format_frame_detail(
     furi_string_free(application_body);
 }
 
-static void wmbus_packet_formatter_format_raw_detail(
-    const WmBusPacketRecord* record,
-    FuriString* out) {
+static void
+    wmbus_packet_formatter_format_raw_detail(const WmBusPacketRecord* record, FuriString* out) {
     furi_string_printf(
         out,
         "MFC: -  DT: --  CI: --\nID: -\nMode: %c  RSSI: %d\n---\nQuality: %s\nParser: %s\nSecurity: -\n---\nLen=%u bytes",

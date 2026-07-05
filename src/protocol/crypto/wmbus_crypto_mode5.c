@@ -13,9 +13,7 @@ static bool wmbus_crypto_mode5_payload_has_check_bytes(const uint8_t* frame, siz
            frame[WMBUS_SHORT_TPL_POS + 1U] == 0x2F;
 }
 
-static void wmbus_crypto_mode5_build_iv(
-    const uint8_t* frame,
-    uint8_t iv[WMBUS_AES_BLOCK_LEN]) {
+static void wmbus_crypto_mode5_build_iv(const uint8_t* frame, uint8_t iv[WMBUS_AES_BLOCK_LEN]) {
     memcpy(iv, &frame[2], 8U);
     memset(&iv[8], frame[11], 8U);
 }

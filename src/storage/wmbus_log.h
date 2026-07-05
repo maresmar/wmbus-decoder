@@ -6,7 +6,4 @@
 
 #include "../protocol/packet/wmbus_packet.h"
 
-bool wmbus_log_append(
-    Storage* storage,
-    WmBusCsvLogging logging,
-    const WmBusPacketRecord* record);
+bool wmbus_log_append(Storage* storage, WmBusCsvLogging logging, const WmBusPacketRecord* record);

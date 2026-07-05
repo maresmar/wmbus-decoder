@@ -27,8 +27,7 @@ static void wmbus_packet_summary_format_security_mode(
     size_t out_size) {
     if(!out || out_size == 0U) return;
 
-    const char* known_mode =
-        wmbus_packet_summary_security_mode_name(security_mode, ell_security);
+    const char* known_mode = wmbus_packet_summary_security_mode_name(security_mode, ell_security);
     if(known_mode) {
         snprintf(out, out_size, "%s", known_mode);
     } else {
@@ -90,7 +89,8 @@ void wmbus_packet_summary_format_security_text(
         wmbus_packet_summary_format_security_mode(ell->security_mode, true, mode, sizeof(mode));
 
         if(ell->decrypted) {
-            snprintf(out, out_size, "ELL %s, decrypted key #%u", mode, (unsigned int)ell->key_index);
+            snprintf(
+                out, out_size, "ELL %s, decrypted key #%u", mode, (unsigned int)ell->key_index);
         } else if(wmbus_parser_ell_security_likely_encrypted(ell->sn)) {
             snprintf(out, out_size, "ELL %s, encrypted", mode);
         } else {
@@ -122,9 +122,8 @@ uint8_t wmbus_packet_summary_security_mode(
     return tpl ? tpl->security_mode : 0U;
 }
 
-uint8_t wmbus_packet_summary_key_index(
-    const WmBusPacketEllData* ell,
-    const WmBusPacketTplData* tpl) {
+uint8_t
+    wmbus_packet_summary_key_index(const WmBusPacketEllData* ell, const WmBusPacketTplData* tpl) {
     if(ell && ell->has_ell && ell->has_session) {
         return ell->key_index;
     }

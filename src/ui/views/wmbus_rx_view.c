@@ -130,7 +130,8 @@ static void
            (strcmp(crypto, "ENC") == 0 || strcmp(crypto, "EENC") == 0)) {
             snprintf(out, out_size, "%s", crypto);
         } else {
-            snprintf(out, out_size, "%s REC:%u", crypto, (unsigned int)entry->application.record_count);
+            snprintf(
+                out, out_size, "%s REC:%u", crypto, (unsigned int)entry->application.record_count);
         }
     } else {
         snprintf(out, out_size, "REC:%u", (unsigned int)entry->application.record_count);
@@ -146,10 +147,8 @@ static void
     wmbus_application_format_total_volume_m3(&entry->application, out, out_size, true);
 }
 
-static void wmbus_rx_format_quality_flags(
-    const WmBusRxHistoryEntry* entry,
-    char* out,
-    size_t out_size) {
+static void
+    wmbus_rx_format_quality_flags(const WmBusRxHistoryEntry* entry, char* out, size_t out_size) {
     if(!out || out_size == 0U) return;
     out[0] = '\0';
     if(!entry) return;
@@ -214,10 +213,7 @@ static void wmbus_rx_draw(Canvas* canvas, void* model) {
     canvas_draw_str(canvas, 0, 18, line);
 
     snprintf(
-        line,
-        sizeof(line),
-        "Quality:%s",
-        entry ? wmbus_packet_quality_str(entry->quality) : "--");
+        line, sizeof(line), "Quality:%s", entry ? wmbus_packet_quality_str(entry->quality) : "--");
     canvas_draw_str(canvas, 0, 38, line);
 
     snprintf(line, sizeof(line), "RSSI:%d", entry ? entry->rssi : m->rssi);
@@ -439,9 +435,8 @@ static void wmbus_rx_history_fill_entry(
     entry->application = record->application;
 }
 
-static void wmbus_rx_history_entry_to_record(
-    const WmBusRxHistoryEntry* entry,
-    WmBusPacketRecord* record) {
+static void
+    wmbus_rx_history_entry_to_record(const WmBusRxHistoryEntry* entry, WmBusPacketRecord* record) {
     if(!entry || !record) {
         return;
     }
