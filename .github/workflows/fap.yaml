@@ -1,0 +1,25 @@
+name: "FAP: Build and lint"
+on: [push, pull_request]
+jobs:
+  ufbt-build-action:
+    runs-on: ubuntu-latest
+    name: 'ufbt: Build for Dev branch'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Lint sources
+        uses: flipperdevices/flipperzero-ufbt-action@v0.1.3
+        with:
+          sdk-channel: release
+          task: lint
+      - name: Build with ufbt
+        uses: flipperdevices/flipperzero-ufbt-action@v0.1.3
+        id: build-app
+        with:
+          # skip SDK setup, we already did it in previous step
+          skip-setup: true
+      - name: Upload app artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ github.event.repository.name }}-${{ steps.build-app.outputs.suffix }}
+          path: ${{ steps.build-app.outputs.fap-artifacts }}
