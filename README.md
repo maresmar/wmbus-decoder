@@ -101,15 +101,15 @@ Format:
 
 ## Build
 
-From the firmware root:
+From this app directory:
 
 ```bash
-./fbt fap_wmbus_decoder
+ufbt
 ```
 
 Output:
 
-`build/f7-firmware-D/.extapps/wmbus_decoder.fap`
+`dist/wmbus_decoder.fap`
 
 ## Tests
 
@@ -120,7 +120,7 @@ The app runs its selftests at startup and writes the report to:
 After building and launching the app on a device, fetch the report with the Flipper CLI:
 
 ```bash
-./fbt cli
+ufbt cli
 ```
 
 Then run:
@@ -134,3 +134,7 @@ Expected result ends with:
 ```text
 selftests done total=58 passed=58 failed=0
 ```
+
+## Credits
+
+- Inspired by [wmbusmeters](https://wmbusmeters.org/)
