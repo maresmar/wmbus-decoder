@@ -418,52 +418,72 @@ static bool wmbus_selftest_check_frame_normalize_format_b_wire_frame(char* detai
     return true;
 }
 
-static bool wmbus_selftest_check_packet_process_c_crc_bad_keeps_raw_diagnostic(
+static bool wmbus_selftest_check_packet_process_c_crc_bad_keeps_complete_header(
     char* detail,
     size_t detail_len) {
     uint8_t frame[WMBUS_SELFTEST_BUF_MAX] = {0};
     size_t frame_len = 0;
+    uint8_t capture[WMBUS_SELFTEST_BUF_MAX] = {0};
+    const size_t tail_len = 5U;
     WmBusPacketRecord record = {0};
 
-    if(!wmbus_frame_build_format_a(wmbus_apator_b, WMBUS_APATOR_B_LEN, frame, sizeof(frame), &frame_len)) {
-        wmbus_selftest_set_detail(detail, detail_len, "build format-A failed");
+    if(!wmbus_frame_build_format_b(wmbus_apator_c, WMBUS_APATOR_C_LEN, frame, sizeof(frame), &frame_len)) {
+        wmbus_selftest_set_detail(detail, detail_len, "build format-B failed");
+        return false;
+    }
+    if(frame_len + tail_len > sizeof(capture)) {
+        wmbus_selftest_set_detail(detail, detail_len, "capture overflow");
         return false;
     }
 
     frame[5] ^= 0x01U;
 
-    if(wmbus_frame_crc_check(WmBusFrameFormatA, frame, frame_len)) {
+    if(wmbus_frame_crc_check(WmBusFrameFormatB, frame, frame_len)) {
         wmbus_selftest_set_detail(detail, detail_len, "corrupt frame unexpectedly passed CRC");
+        return false;
+    }
+
+    WmBusFrameMeasureResult measure = {0};
+    if(!wmbus_frame_measure(WmBusRxModeC, frame, frame_len, &measure) || !measure.complete ||
+       measure.format != WmBusFrameFormatB || measure.frame_len != frame_len ||
+       measure.normalized_len != WMBUS_APATOR_C_LEN) {
+        wmbus_selftest_set_detail(
+            detail,
+            detail_len,
+            "unexpected measure complete=%u format=%u wire=%u norm=%u",
+            measure.complete ? 1U : 0U,
+            (unsigned int)measure.format,
+            (unsigned int)measure.frame_len,
+            (unsigned int)measure.normalized_len);
         return false;
     }
 
     uint8_t normalized[WMBUS_SELFTEST_BUF_MAX] = {0};
     WmBusFrameNormalizeResult normalize = {0};
     if(wmbus_frame_normalize(WmBusRxModeC, frame, frame_len, normalized, sizeof(normalized), &normalize) ||
-       !normalize.crc_known || normalize.crc_ok || !normalize.length_ok ||
-       normalize.format != WmBusFrameFormatA || normalize.computed_len != frame_len ||
-       normalize.normalized_len != WMBUS_APATOR_B_LEN) {
+       normalize.length_ok || normalize.crc_known || normalize.crc_ok) {
         wmbus_selftest_set_detail(
             detail,
             detail_len,
-            "unexpected normalize crc_known=%u crc_ok=%u len_ok=%u format=%u computed=%u norm=%u",
-            normalize.crc_known ? 1U : 0U,
-            normalize.crc_ok ? 1U : 0U,
+            "unexpected normalize len_ok=%u crc_known=%u crc_ok=%u",
             normalize.length_ok ? 1U : 0U,
-            (unsigned int)normalize.format,
-            (unsigned int)normalize.computed_len,
-            (unsigned int)normalize.normalized_len);
+            normalize.crc_known ? 1U : 0U,
+            normalize.crc_ok ? 1U : 0U);
         return false;
     }
 
-    if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, NULL, &record)) {
+    memcpy(capture, frame, frame_len);
+    memset(&capture[frame_len], 0xA5, tail_len);
+
+    if(!wmbus_selftest_process_capture_record(
+           WmBusRxModeC, capture, frame_len + tail_len, NULL, &record)) {
         wmbus_selftest_set_detail(detail, detail_len, "process failed");
         return false;
     }
 
     if(record.quality != WmBusPacketQualityFrameComplete || record.packet_len != frame_len ||
        memcmp(record.packet_bytes, frame, frame_len) != 0 ||
-       record.application.parser_id != WmBusParserIdEll) {
+       record.application.parser_id != WmBusParserIdShortTpl) {
         wmbus_selftest_set_detail(
             detail,
             detail_len,
@@ -474,23 +494,18 @@ static bool wmbus_selftest_check_packet_process_c_crc_bad_keeps_raw_diagnostic(
         return false;
     }
 
-    wmbus_selftest_set_detail(detail, detail_len, "mode=C crc_bad complete ell header kept");
+    wmbus_selftest_set_detail(
+        detail, detail_len, "mode=C crc_bad complete header kept tail=%u", (unsigned int)tail_len);
     return true;
 }
 
 static bool wmbus_selftest_check_capture_state_reset(char* detail, size_t detail_len) {
-    WmBusCaptureStateT state_t = {.raw_len = 9U, .in_packet = true, .last_byte_tick = 1234U};
-    WmBusCaptureStateC state_c = {.raw_len = 12U, .in_packet = true, .last_byte_tick = 5678U};
+    WmBusCaptureState state = {.raw_len = 9U, .in_packet = true, .last_byte_tick = 1234U};
 
-    wmbus_capture_state_t_reset(&state_t);
-    wmbus_capture_state_c_reset(&state_c);
+    wmbus_capture_state_reset(&state);
 
-    if(state_t.raw_len != 0U || state_t.in_packet || state_t.last_byte_tick != 0U) {
-        wmbus_selftest_set_detail(detail, detail_len, "T state reset failed");
-        return false;
-    }
-    if(state_c.raw_len != 0U || state_c.in_packet || state_c.last_byte_tick != 0U) {
-        wmbus_selftest_set_detail(detail, detail_len, "C state reset failed");
+    if(state.raw_len != 0U || state.in_packet || state.last_byte_tick != 0U) {
+        wmbus_selftest_set_detail(detail, detail_len, "state reset failed");
         return false;
     }
 
@@ -508,7 +523,7 @@ static const WmBusSelftestCheck wmbus_selftest_checks_modes[] = {
     {"check_frame_normalize_format_a_wire_frame", wmbus_selftest_check_frame_normalize_format_a_wire_frame},
     {"check_frame_normalize_c_mode_format_a_wire_frame", wmbus_selftest_check_frame_normalize_c_mode_format_a_wire_frame},
     {"check_frame_normalize_format_b_wire_frame", wmbus_selftest_check_frame_normalize_format_b_wire_frame},
-    {"check_packet_process_c_crc_bad_keeps_raw_diagnostic", wmbus_selftest_check_packet_process_c_crc_bad_keeps_raw_diagnostic},
+    {"check_packet_process_c_crc_bad_keeps_complete_header", wmbus_selftest_check_packet_process_c_crc_bad_keeps_complete_header},
     {"check_capture_state_reset", wmbus_selftest_check_capture_state_reset},
 };
 

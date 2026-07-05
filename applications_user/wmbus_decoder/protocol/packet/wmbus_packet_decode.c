@@ -77,35 +77,38 @@ static void wmbus_packet_extract_dll_tpl_info(
 
     if(frame_len >= 13U && wmbus_parser_ci_has_ell(frame[10])) {
         size_t pos = 10U;
-        record->ell.has_ell = true;
-        record->ell.ci_field = frame[pos++];
-        record->ell.cc = frame[pos++];
-        record->ell.acc = frame[pos++];
+        WmBusPacketEllData ell = {
+            .has_ell = true,
+            .header_len = 11U,
+        };
+        ell.ci_field = frame[pos++];
+        ell.cc = frame[pos++];
+        ell.acc = frame[pos++];
 
-        if(record->ell.ci_field == 0x8EU || record->ell.ci_field == 0x8FU) {
+        if(ell.ci_field == 0x8EU || ell.ci_field == 0x8FU) {
             if(frame_len < pos + 8U) {
                 return;
             }
             pos += 8U;
         }
 
-        if(wmbus_parser_ell_has_session_fields(record->ell.ci_field)) {
+        if(wmbus_parser_ell_has_session_fields(ell.ci_field)) {
             if(frame_len < pos + 6U) {
                 return;
             }
-            record->ell.has_session = true;
-            record->ell.sn = (uint32_t)frame[pos] | ((uint32_t)frame[pos + 1U] << 8U) |
-                             ((uint32_t)frame[pos + 2U] << 16U) |
-                             ((uint32_t)frame[pos + 3U] << 24U);
-            record->ell.security_mode = wmbus_parser_ell_security_mode(record->ell.sn);
+            ell.has_session = true;
+            ell.sn = (uint32_t)frame[pos] | ((uint32_t)frame[pos + 1U] << 8U) |
+                     ((uint32_t)frame[pos + 2U] << 16U) |
+                     ((uint32_t)frame[pos + 3U] << 24U);
+            ell.security_mode = wmbus_parser_ell_security_mode(ell.sn);
             pos += 4U;
-            record->ell.payload_crc =
-                (uint16_t)frame[pos] | ((uint16_t)frame[pos + 1U] << 8U);
+            ell.payload_crc = (uint16_t)frame[pos] | ((uint16_t)frame[pos + 1U] << 8U);
             pos += 2U;
         }
 
         if(pos <= UINT8_MAX) {
-            record->ell.header_len = (uint8_t)pos;
+            ell.header_len = (uint8_t)pos;
+            record->ell = ell;
         }
     }
 
@@ -151,6 +154,15 @@ static void wmbus_packet_upgrade_quality_from_normalize(
     }
 }
 
+static void wmbus_packet_upgrade_quality_from_measure(
+    WmBusPacketQuality* quality,
+    const WmBusFrameMeasureResult* measure) {
+    if(!quality || !measure) return;
+    if(measure->complete) {
+        wmbus_packet_upgrade_quality(quality, WmBusPacketQualityFrameComplete);
+    }
+}
+
 static bool wmbus_try_decode_t_candidate(
     const WmBusCaptureFrame* capture,
     size_t bit_offset,
@@ -190,15 +202,21 @@ static bool wmbus_try_decode_t_candidate(
 
     const uint8_t* frame = decoded;
     size_t frame_len = expected_len;
+    WmBusFrameMeasureResult measure = {0};
+    if(wmbus_frame_measure(WmBusRxModeT, decoded, expected_len, &measure)) {
+        frame_len = measure.frame_len;
+        wmbus_packet_upgrade_quality_from_measure(&result->quality, &measure);
+    }
+
     uint8_t normalized[WMBUS_DECODE_MAX] = {0};
     WmBusFrameNormalizeResult normalized_result = {0};
     if(wmbus_frame_normalize(
            WmBusRxModeT, decoded, expected_len, normalized, sizeof(normalized), &normalized_result)) {
         frame = normalized;
         frame_len = normalized_result.normalized_len;
+        wmbus_packet_upgrade_quality_from_normalize(&result->quality, &normalized_result);
     }
 
-    wmbus_packet_upgrade_quality_from_normalize(&result->quality, &normalized_result);
     result->frame_len = frame_len;
     memcpy(result->frame, frame, frame_len);
     return true;
@@ -279,6 +297,11 @@ bool wmbus_packet_decode_capture(
     }
 
     if(frame && !use_3of6) {
+        WmBusFrameMeasureResult measure = {0};
+        if(wmbus_frame_measure(capture->mode, frame, frame_len, &measure)) {
+            wmbus_packet_upgrade_quality_from_measure(&out->quality, &measure);
+        }
+
         WmBusFrameNormalizeResult normalized_result = {0};
         if(wmbus_frame_normalize(
                capture->mode,
@@ -289,8 +312,12 @@ bool wmbus_packet_decode_capture(
                &normalized_result)) {
             frame = frame_buf;
             frame_len = normalized_result.normalized_len;
+            wmbus_packet_upgrade_quality_from_normalize(&out->quality, &normalized_result);
+        } else if(measure.complete && measure.frame_len <= frame_buf_max) {
+            memcpy(frame_buf, frame, measure.frame_len);
+            frame = frame_buf;
+            frame_len = measure.frame_len;
         }
-        wmbus_packet_upgrade_quality_from_normalize(&out->quality, &normalized_result);
     } else if(frame && frame_len > 0U) {
         size_t copy_len = frame_len > frame_buf_max ? frame_buf_max : frame_len;
         memcpy(frame_buf, frame, copy_len);

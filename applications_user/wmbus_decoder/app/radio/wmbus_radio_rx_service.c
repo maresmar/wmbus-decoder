@@ -306,11 +306,12 @@ static bool wmbus_capture_append_fifo(
     return true;
 }
 
-static bool wmbus_capture_t_step(
-    WmBusCaptureStateT* state,
+static bool wmbus_capture_step(
+    WmBusCaptureState* state,
     WmBusCaptureFrame* frame,
     bool* had_data,
-    uint32_t gap_ticks) {
+    uint32_t gap_ticks,
+    WmBusRxMode mode) {
     if(!state || !frame || !had_data) return false;
 
     while(true) {
@@ -323,52 +324,7 @@ static bool wmbus_capture_t_step(
                &overflow,
                &state->last_byte_tick)) {
             if(overflow) {
-                wmbus_capture_state_t_reset(state);
-            }
-            break;
-        }
-
-        state->in_packet = true;
-        if(state->raw_len >= sizeof(state->raw)) break;
-    }
-
-    if(state->in_packet) {
-        uint32_t now = furi_get_tick();
-        bool gap = (!*had_data && (now - state->last_byte_tick) >= gap_ticks);
-        bool full = (state->raw_len >= sizeof(state->raw));
-
-        if((gap || full) && state->raw_len > 0U) {
-            memcpy(frame->data, state->raw, state->raw_len);
-            frame->len = state->raw_len;
-            frame->rssi = (int)furi_hal_subghz_get_rssi();
-            frame->mode = WmBusRxModeT;
-            wmbus_capture_state_t_reset(state);
-            wmbus_radio_recover_rx();
-            return true;
-        }
-    }
-
-    return false;
-}
-
-static bool wmbus_capture_c_step(
-    WmBusCaptureStateC* state,
-    WmBusCaptureFrame* frame,
-    bool* had_data,
-    uint32_t gap_ticks) {
-    if(!state || !frame || !had_data) return false;
-
-    while(true) {
-        bool overflow = false;
-        if(!wmbus_capture_append_fifo(
-               state->raw,
-               &state->raw_len,
-               sizeof(state->raw),
-               had_data,
-               &overflow,
-               &state->last_byte_tick)) {
-            if(overflow) {
-                wmbus_capture_state_c_reset(state);
+                wmbus_capture_state_reset(state);
             }
             break;
         }
@@ -387,8 +343,8 @@ static bool wmbus_capture_c_step(
     memcpy(frame->data, state->raw, state->raw_len);
     frame->len = state->raw_len;
     frame->rssi = (int)furi_hal_subghz_get_rssi();
-    frame->mode = WmBusRxModeC;
-    wmbus_capture_state_c_reset(state);
+    frame->mode = mode;
+    wmbus_capture_state_reset(state);
     wmbus_radio_recover_rx();
     return true;
 }
@@ -417,10 +373,10 @@ static int32_t wmbus_radio_rx_service_thread(void* context) {
     WmBusRxMode mode = runtime_settings.mode;
     wmbus_radio_apply_mode(mode);
 
-    WmBusCaptureStateT capture_t = {0};
-    WmBusCaptureStateC capture_c = {0};
-    wmbus_capture_state_t_reset(&capture_t);
-    wmbus_capture_state_c_reset(&capture_c);
+    WmBusCaptureState capture_t = {0};
+    WmBusCaptureState capture_c = {0};
+    wmbus_capture_state_reset(&capture_t);
+    wmbus_capture_state_reset(&capture_c);
 
     uint32_t t_gap_ticks = wmbus_ticks_from_ms(WMBUS_T_GAP_TIMEOUT_MS);
     uint32_t c_gap_ticks = wmbus_ticks_from_ms(WMBUS_C_READ_TIMEOUT_MS);
@@ -447,8 +403,8 @@ static int32_t wmbus_radio_rx_service_thread(void* context) {
                 if(mode_changed) {
                     mode = runtime_settings.mode;
                     wmbus_radio_apply_mode(mode);
-                    wmbus_capture_state_t_reset(&capture_t);
-                    wmbus_capture_state_c_reset(&capture_c);
+                    wmbus_capture_state_reset(&capture_t);
+                    wmbus_capture_state_reset(&capture_c);
                 }
             }
         }
@@ -457,9 +413,10 @@ static int32_t wmbus_radio_rx_service_thread(void* context) {
 
         bool had_data = false;
         WmBusCaptureFrame capture = {0};
-        bool frame_ready = (mode == WmBusRxModeT) ?
-                               wmbus_capture_t_step(&capture_t, &capture, &had_data, t_gap_ticks) :
-                               wmbus_capture_c_step(&capture_c, &capture, &had_data, c_gap_ticks);
+        bool frame_ready =
+            (mode == WmBusRxModeT) ?
+                wmbus_capture_step(&capture_t, &capture, &had_data, t_gap_ticks, WmBusRxModeT) :
+                wmbus_capture_step(&capture_c, &capture, &had_data, c_gap_ticks, WmBusRxModeC);
 
         if(frame_ready) {
             uint32_t pulse_now = furi_get_tick();

@@ -18,14 +18,6 @@ typedef struct {
     size_t raw_len;
     bool in_packet;
     uint32_t last_byte_tick;
-} WmBusCaptureStateT;
+} WmBusCaptureState;
 
-typedef struct {
-    uint8_t raw[256];
-    size_t raw_len;
-    bool in_packet;
-    uint32_t last_byte_tick;
-} WmBusCaptureStateC;
-
-void wmbus_capture_state_t_reset(WmBusCaptureStateT* state);
-void wmbus_capture_state_c_reset(WmBusCaptureStateC* state);
+void wmbus_capture_state_reset(WmBusCaptureState* state);
