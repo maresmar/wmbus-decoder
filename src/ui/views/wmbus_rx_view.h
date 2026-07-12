@@ -15,6 +15,7 @@ typedef enum {
     WmBusRxViewEventOpenConfig = 1,
     WmBusRxViewEventOpenDetails,
     WmBusRxViewEventToggleDebug,
+    WmBusRxViewEventOpenApplicationRecords,
 } WmBusRxViewEvent;
 
 WmBusRxView* wmbus_rx_view_alloc(void);
@@ -31,3 +32,4 @@ void wmbus_rx_view_push_packet(
     bool store_in_history);
 bool wmbus_rx_view_has_selected_packet(WmBusRxView* rx_view);
 bool wmbus_rx_view_build_selected_detail_text(WmBusRxView* rx_view, FuriString* out);
+bool wmbus_rx_view_build_selected_application_text(WmBusRxView* rx_view, FuriString* out);

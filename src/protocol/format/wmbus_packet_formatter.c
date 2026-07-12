@@ -195,3 +195,19 @@ void wmbus_packet_format_detail_text(const WmBusPacketRecord* record, FuriString
         wmbus_packet_formatter_format_raw_detail(record, out);
     }
 }
+
+void wmbus_packet_format_application_text(const WmBusPacketRecord* record, FuriString* out) {
+    if(!out) return;
+    furi_string_reset(out);
+    if(!record) return;
+
+    if(!wmbus_packet_quality_meets(record->quality, WmBusPacketQualityFrameComplete)) {
+        furi_string_set(out, "No complete frame.");
+        return;
+    }
+
+    wmbus_packet_formatter_format_application_detail(record, out);
+    if(furi_string_equal_str(out, "-")) {
+        furi_string_set(out, "No application records.");
+    }
+}

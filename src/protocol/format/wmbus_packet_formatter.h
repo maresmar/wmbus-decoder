@@ -10,3 +10,10 @@
  * The caller owns `out`.
  */
 void wmbus_packet_format_detail_text(const WmBusPacketRecord* record, FuriString* out);
+
+/**
+ * Format only application records for UI.
+ * Resets `out`. Empty output is valid only when `record` is `NULL`.
+ * The caller owns `out`.
+ */
+void wmbus_packet_format_application_text(const WmBusPacketRecord* record, FuriString* out);

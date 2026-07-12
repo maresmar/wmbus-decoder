@@ -357,7 +357,7 @@ static bool wmbus_rx_input(InputEvent* event, void* context) {
     }
 
     if(event->type == InputTypeLong && event->key == InputKeyDown) {
-        return wmbus_rx_send_event(ctx, WmBusRxViewEventOpenDetails);
+        return wmbus_rx_send_event(ctx, WmBusRxViewEventOpenApplicationRecords);
     }
 
     return false;
@@ -556,6 +556,27 @@ bool wmbus_rx_view_build_selected_detail_text(WmBusRxView* rx_view, FuriString* 
                 WmBusPacketRecord record = {0};
                 wmbus_rx_history_entry_to_record(entry, &record);
                 wmbus_packet_format_detail_text(&record, out);
+                found = true;
+            }
+        },
+        false);
+    return found;
+}
+
+bool wmbus_rx_view_build_selected_application_text(WmBusRxView* rx_view, FuriString* out) {
+    if(!rx_view || !out) return false;
+    furi_string_reset(out);
+
+    bool found = false;
+    with_view_model(
+        rx_view->view,
+        WmBusRxViewModel * model,
+        {
+            const WmBusRxHistoryEntry* entry = wmbus_rx_display_entry_get(model);
+            if(entry) {
+                WmBusPacketRecord record = {0};
+                wmbus_rx_history_entry_to_record(entry, &record);
+                wmbus_packet_format_application_text(&record, out);
                 found = true;
             }
         },

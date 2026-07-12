@@ -11,7 +11,10 @@ void wmbus_scene_packet_detail_on_enter(void* context) {
     }
 
     widget_reset(app->detail_widget);
-    if(!wmbus_rx_view_build_selected_detail_text(app->rx_view, detail)) {
+    bool has_detail = app->detail_application_only ?
+                          wmbus_rx_view_build_selected_application_text(app->rx_view, detail) :
+                          wmbus_rx_view_build_selected_detail_text(app->rx_view, detail);
+    if(!has_detail) {
         furi_string_set(detail, "No packet selected.");
     }
     widget_add_text_scroll_element(

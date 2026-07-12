@@ -30,6 +30,7 @@ typedef enum {
     WmBusCustomEventOpenConfig = WmBusRxViewEventOpenConfig,
     WmBusCustomEventOpenDetails = WmBusRxViewEventOpenDetails,
     WmBusCustomEventToggleDebug = WmBusRxViewEventToggleDebug,
+    WmBusCustomEventOpenApplicationRecords = WmBusRxViewEventOpenApplicationRecords,
     WmBusCustomEventConfigOpenKeyInput = 100,
     WmBusCustomEventConfigKeyInputDone,
 } WmBusCustomEvent;
@@ -44,6 +45,7 @@ struct WmBusApp {
     VariableItemList* config_list;
     ByteInput* key_input;
     Widget* detail_widget;
+    bool detail_application_only;
     WmBusRxView* rx_view;
 
     WmBusCsvSink csv_sink;

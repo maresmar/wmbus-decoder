@@ -20,6 +20,14 @@ bool wmbus_scene_rx_on_event(void* context, SceneManagerEvent event) {
         if(!wmbus_rx_view_has_selected_packet(app->rx_view)) {
             return false;
         }
+        app->detail_application_only = false;
+        scene_manager_next_scene(app->scene_manager, WmBusScenePacketDetail);
+        return true;
+    case WmBusCustomEventOpenApplicationRecords:
+        if(!wmbus_rx_view_has_selected_packet(app->rx_view)) {
+            return false;
+        }
+        app->detail_application_only = true;
         scene_manager_next_scene(app->scene_manager, WmBusScenePacketDetail);
         return true;
     case WmBusCustomEventToggleDebug:
