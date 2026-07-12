@@ -59,9 +59,8 @@ Parser inputs come through `WmBusParserPacketView`, which exposes DLL, TPL, payl
 
 - `OK`: switch between `Latest` and `History`
 - `Up` / `Down`: browse saved packets in `History`
-- `Long OK`: open config
-- `Long Up`: toogle debug overlay
-- `Long Down`: open packet detail for the selected history entry
+- `Left`: open config
+- `Right`: open packet detail for the selected history entry
 - `Back`: exit
 
 ## Configuration

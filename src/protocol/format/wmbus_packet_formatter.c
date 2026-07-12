@@ -158,7 +158,7 @@ static void
     wmbus_packet_formatter_format_application_detail(record, application_body);
     furi_string_printf(
         out,
-        "MFC: %s  DT: %02X  CI: %02X\nID: %s\nMode: %c  RSSI: %d\n---\nQuality: %s\nParser: %s\nSecurity: %s\n---\n",
+        "Manufacturer: %s\nDevice type: %02X\nCI field: %02X\nMeter ID: %s\nRadio mode: %c\nRSSI: %d dBm\n---\nQuality: %s\nParser: %s\nSecurity: %s\n---\n",
         record->identity.manufacturer,
         record->dll.dev_type,
         record->dll.ci_field,
@@ -176,7 +176,7 @@ static void
     wmbus_packet_formatter_format_raw_detail(const WmBusPacketRecord* record, FuriString* out) {
     furi_string_printf(
         out,
-        "MFC: -  DT: --  CI: --\nID: -\nMode: %c  RSSI: %d\n---\nQuality: %s\nParser: %s\nSecurity: -\n---\nLen=%u bytes",
+        "Manufacturer: -\nDevice type: --\nCI field: --\nMeter ID: -\nRadio mode: %c\nRSSI: %d dBm\n---\nQuality: %s\nParser: %s\nSecurity: -\n---\nPacket length=%u bytes",
         record->mode == WmBusRxModeT ? 'T' : 'C',
         record->rssi,
         wmbus_packet_quality_str(record->quality),

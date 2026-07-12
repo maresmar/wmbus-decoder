@@ -165,6 +165,21 @@ static void
         entry->rssi_gate_ok ? "RSSI" : "rssi");
 }
 
+static void wmbus_rx_draw_nav_footer(Canvas* canvas) {
+    const char* left = "< Config";
+    const char* center = "OK History";
+    const char* right = "Detail >";
+    const uint8_t y = 58U;
+
+    canvas_draw_str(canvas, 0, y, left);
+    if(canvas_string_width(canvas, left) + canvas_string_width(canvas, center) +
+           canvas_string_width(canvas, right) + 12U <=
+       canvas_width(canvas)) {
+        canvas_draw_str_aligned(canvas, canvas_width(canvas) / 2U, y, AlignCenter, AlignBottom, center);
+    }
+    canvas_draw_str_aligned(canvas, canvas_width(canvas), y, AlignRight, AlignBottom, right);
+}
+
 static void wmbus_rx_draw(Canvas* canvas, void* model) {
     const WmBusRxViewModel* m = model;
     char line[64];
@@ -200,6 +215,7 @@ static void wmbus_rx_draw(Canvas* canvas, void* model) {
     if(!m->freq_valid) {
         canvas_draw_str(canvas, 0, 22, "Freq not allowed");
         canvas_draw_str(canvas, 0, 32, "Check region");
+        wmbus_rx_draw_nav_footer(canvas);
         return;
     }
 
@@ -212,21 +228,20 @@ static void wmbus_rx_draw(Canvas* canvas, void* model) {
         m->packets_decoded);
     canvas_draw_str(canvas, 0, 18, line);
 
-    snprintf(
-        line, sizeof(line), "Quality:%s", entry ? wmbus_packet_quality_str(entry->quality) : "--");
+    snprintf(line, sizeof(line), "%s", entry ? wmbus_packet_quality_str(entry->quality) : "--");
     canvas_draw_str(canvas, 0, 38, line);
 
     snprintf(line, sizeof(line), "RSSI:%d", entry ? entry->rssi : m->rssi);
     canvas_draw_str_aligned(canvas, canvas_width(canvas), 38, AlignRight, AlignBottom, line);
 
     if(age[0] != '\0') {
-        snprintf(line, sizeof(line), "A:%s", age);
+        snprintf(line, sizeof(line), "Age:%s", age);
         canvas_draw_str_aligned(canvas, canvas_width(canvas), 28, AlignRight, AlignBottom, line);
     }
 
     if(!entry) {
         canvas_draw_str(canvas, 0, 48, "Waiting for RX...");
-        canvas_draw_str(canvas, 0, 58, "[ok] History [OK] Config");
+        wmbus_rx_draw_nav_footer(canvas);
     } else if(m->debug_mode) {
         char hex[WMBUS_PACKET_VALUE_MAX];
         size_t preview_len = entry->packet_preview_len;
@@ -238,7 +253,7 @@ static void wmbus_rx_draw(Canvas* canvas, void* model) {
         canvas_draw_str(canvas, 0, 58, line);
     } else if(!wmbus_packet_quality_meets(entry->quality, WmBusPacketQualityFrameComplete)) {
         canvas_draw_str(canvas, 0, 48, "Waiting for complete frame...");
-        canvas_draw_str(canvas, 0, 58, "[UP] Debug [DOWN] Detail");
+        wmbus_rx_draw_nav_footer(canvas);
     } else {
         char right[20];
         char footer_left[24];
@@ -323,6 +338,14 @@ static bool wmbus_rx_input(InputEvent* event, void* context) {
             },
             true);
         return true;
+    }
+
+    if(event->type == InputTypeShort && event->key == InputKeyLeft) {
+        return wmbus_rx_send_event(ctx, WmBusRxViewEventOpenConfig);
+    }
+
+    if(event->type == InputTypeShort && event->key == InputKeyRight) {
+        return wmbus_rx_send_event(ctx, WmBusRxViewEventOpenDetails);
     }
 
     if(event->type == InputTypeLong && event->key == InputKeyOk) {
