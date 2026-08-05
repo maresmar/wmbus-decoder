@@ -16,10 +16,9 @@
 #define WMBUS_T_GAP_TIMEOUT_MS             5U
 #define WMBUS_C_READ_TIMEOUT_MS            25U
 #define WMBUS_CC1101_PKTCTRL0_INFINITE_LEN 0x02U
-#define WMBUS_CC1101_PKTCTRL0_WHITE_DATA   0x40U
 #define WMBUS_CC1101_PKTCTRL0_T_MODE       WMBUS_CC1101_PKTCTRL0_INFINITE_LEN
-#define WMBUS_CC1101_PKTCTRL0_C_MODE \
-    (WMBUS_CC1101_PKTCTRL0_WHITE_DATA | WMBUS_CC1101_PKTCTRL0_INFINITE_LEN)
+#define WMBUS_CC1101_PKTCTRL0_C_MODE       WMBUS_CC1101_PKTCTRL0_INFINITE_LEN
+#define WMBUS_CC1101_MDMCFG2_2FSK_SYNC_16_CS 0x06U
 
 typedef enum {
     WmBusControlCmdStop = 0,
@@ -154,8 +153,8 @@ static const uint8_t wmbus_cc1101_t_mode_preset_regs[] = {
 };
 
 static const uint8_t wmbus_cc1101_c_mode_preset_regs[] = {
-    // C-mode uses the same 2-FSK/sync settings as T-mode, but enables CC1101
-    // data whitening so the FIFO contains dewhitened Link-B frame bytes.
+    // Match the common first 16 bits of the C-mode sync (54 3D) exactly. The
+    // capture layer validates the Frame-A (54 CD) or Frame-B (54 3D) remainder.
     CC1101_IOCFG1,
     0x2E,
     CC1101_IOCFG0,
@@ -191,7 +190,7 @@ static const uint8_t wmbus_cc1101_c_mode_preset_regs[] = {
     CC1101_MDMCFG3,
     0x04,
     CC1101_MDMCFG2,
-    0x05,
+    WMBUS_CC1101_MDMCFG2_2FSK_SYNC_16_CS,
     CC1101_MDMCFG1,
     0x22,
     CC1101_MDMCFG0,
@@ -513,13 +512,11 @@ static bool wmbus_capture_step(
     bool full = (state->raw_len >= sizeof(state->raw));
     if(!(gap || full) || state->raw_len == 0U) return false;
 
-    memcpy(frame->data, state->raw, state->raw_len);
-    frame->len = state->raw_len;
-    frame->rssi = (int)furi_hal_subghz_get_rssi();
-    frame->mode = mode;
+    bool frame_valid = wmbus_capture_frame_from_fifo(
+        mode, state->raw, state->raw_len, (int)furi_hal_subghz_get_rssi(), frame);
     wmbus_capture_state_reset(state);
     wmbus_radio_recover_rx();
-    return true;
+    return frame_valid;
 }
 
 static uint32_t wmbus_ticks_from_ms(uint32_t ms) {

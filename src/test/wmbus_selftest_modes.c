@@ -474,6 +474,115 @@ static bool wmbus_selftest_check_capture_c_accepts_access_demand(char* detail, s
     return true;
 }
 
+static bool wmbus_selftest_check_real_c_capture_24008355(
+    const char* capture_hex,
+    uint8_t expected_access,
+    uint32_t expected_total_m3_x1000,
+    char* detail,
+    size_t detail_len) {
+    uint8_t capture[WMBUS_SELFTEST_BUF_MAX] = {0};
+    size_t capture_len = 0U;
+    WmBusCaptureFrame frame = {0};
+    WmBusPacketRecord record = {0};
+    uint32_t total_m3_x1000 = 0U;
+
+    if(!wmbus_selftest_hex_to_bytes(capture_hex, capture, sizeof(capture), &capture_len) ||
+       capture_len != sizeof(capture)) {
+        wmbus_selftest_set_detail(detail, detail_len, "real capture decode failed len=%u", (unsigned int)capture_len);
+        return false;
+    }
+    if(!wmbus_capture_frame_from_fifo(WmBusRxModeC, capture, capture_len, -60, &frame)) {
+        wmbus_selftest_set_detail(detail, detail_len, "C FIFO sync validation failed");
+        return false;
+    }
+    if(!wmbus_packet_process_capture(&frame, NULL, &record)) {
+        wmbus_selftest_set_detail(detail, detail_len, "process failed");
+        return false;
+    }
+
+    if(record.quality != WmBusPacketQualityParsed || record.packet_len != 79U ||
+       strcmp(record.identity.manufacturer, "MAD") != 0 ||
+       strcmp(record.identity.meter_id, "24008355") != 0 || record.dll.ci_field != 0x7AU ||
+       record.tpl.acc != expected_access || record.application.parser_id != WmBusParserIdDifVif ||
+       !wmbus_selftest_find_total_volume(&record, &total_m3_x1000) ||
+       total_m3_x1000 != expected_total_m3_x1000) {
+        wmbus_selftest_set_detail(
+            detail,
+            detail_len,
+            "q=%u len=%u mfg=%s id=%s ci=%02X acc=%02X parser=%u total=%lu",
+            (unsigned int)record.quality,
+            (unsigned int)record.packet_len,
+            record.identity.manufacturer,
+            record.identity.meter_id,
+            record.dll.ci_field,
+            record.tpl.acc,
+            (unsigned int)record.application.parser_id,
+            (unsigned long)total_m3_x1000);
+        return false;
+    }
+
+    wmbus_selftest_set_detail(
+        detail,
+        detail_len,
+        "real C capture MAD/24008355 acc=%02X total=%lu",
+        expected_access,
+        (unsigned long)total_m3_x1000);
+    return true;
+}
+
+static bool wmbus_selftest_check_real_c_capture_24008355_access_47(
+    char* detail,
+    size_t detail_len) {
+    return wmbus_selftest_check_real_c_capture_24008355(
+        wmbus_selftest_c_real_meter_capture_24008355_access_47,
+        0x47U,
+        29008U,
+        detail,
+        detail_len);
+}
+
+static bool wmbus_selftest_check_real_c_capture_24008355_access_48(
+    char* detail,
+    size_t detail_len) {
+    return wmbus_selftest_check_real_c_capture_24008355(
+        wmbus_selftest_c_real_meter_capture_24008355_access_48,
+        0x48U,
+        29009U,
+        detail,
+        detail_len);
+}
+
+static bool wmbus_selftest_check_c_capture_validates_sync_remainder(
+    char* detail,
+    size_t detail_len) {
+    const uint8_t frame_a_fifo[] = {0x54U, 0xCDU, 0x4EU, 0x44U};
+    const uint8_t frame_b_fifo[] = {0x54U, 0x3DU, 0x4EU, 0x44U};
+    const uint8_t invalid_fifo[] = {0x54U, 0x00U, 0x4EU, 0x44U};
+    WmBusCaptureFrame frame = {0};
+
+    if(!wmbus_capture_frame_from_fifo(
+           WmBusRxModeC, frame_a_fifo, sizeof(frame_a_fifo), -60, &frame) ||
+       frame.len != 2U || frame.data[0] != 0x4EU || frame.data[1] != 0x44U) {
+        wmbus_selftest_set_detail(detail, detail_len, "Frame-A 54CD remainder rejected");
+        return false;
+    }
+    if(!wmbus_capture_frame_from_fifo(
+           WmBusRxModeC, frame_b_fifo, sizeof(frame_b_fifo), -60, &frame) ||
+       frame.len != 2U || frame.data[0] != 0x4EU || frame.data[1] != 0x44U) {
+        wmbus_selftest_set_detail(detail, detail_len, "Frame-B 543D remainder rejected");
+        return false;
+    }
+    if(wmbus_capture_frame_from_fifo(
+           WmBusRxModeC, invalid_fifo, sizeof(invalid_fifo), -60, &frame)) {
+        wmbus_selftest_set_detail(detail, detail_len, "invalid 5400 remainder accepted");
+        return false;
+    }
+
+    wmbus_selftest_set_detail(
+        detail, detail_len, "hardware 543D + software Frame-A/Frame-B remainder validated");
+    return true;
+}
+
 static bool wmbus_selftest_check_packet_process_c_bad_header_keeps_raw_diagnostic(
     char* detail,
     size_t detail_len) {
@@ -711,6 +820,12 @@ static const WmBusSelftestCheck wmbus_selftest_checks_modes[] = {
      wmbus_selftest_check_packet_process_t_rejects_fifo_prefix},
     {"check_capture_c_accepts_access_demand",
      wmbus_selftest_check_capture_c_accepts_access_demand},
+    {"check_real_c_capture_24008355_access_47",
+     wmbus_selftest_check_real_c_capture_24008355_access_47},
+    {"check_real_c_capture_24008355_access_48",
+     wmbus_selftest_check_real_c_capture_24008355_access_48},
+    {"check_c_capture_validates_sync_remainder",
+     wmbus_selftest_check_c_capture_validates_sync_remainder},
     {"check_packet_process_c_bad_header_keeps_raw_diagnostic",
      wmbus_selftest_check_packet_process_c_bad_header_keeps_raw_diagnostic},
     {"check_frame_normalize_format_a_wire_frame",

@@ -90,6 +90,8 @@ extern const char* wmbus_selftest_apator_encrypted_mode5;
 extern const char* wmbus_selftest_apator_encrypted_mode5_gold;
 extern const char* wmbus_selftest_apator_encrypted_mode5_field_02991035;
 extern const char* wmbus_selftest_apator_encrypted_mode5_corrupt;
+extern const char* wmbus_selftest_c_real_meter_capture_24008355_access_47;
+extern const char* wmbus_selftest_c_real_meter_capture_24008355_access_48;
 extern const WmBusSelftestApatorPublicVector wmbus_selftest_apator_public_vectors[];
 extern const uint8_t wmbus_3of6_encode_lut[16];
 
