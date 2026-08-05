@@ -9,6 +9,12 @@
 #define WMBUS_MFG_STR_LEN 4U
 #define WMBUS_ID_STR_LEN  9U
 
+/* The common T/C receive limit.  In T mode L=149 produces the largest
+ * Format-A wire frame (170 bytes) whose 3-of-6 representation fits in the
+ * WMBUS_PHY_FRAME_MAX_BYTES capture buffer. */
+#define WMBUS_FRAME_L_FIELD_MIN 10U
+#define WMBUS_FRAME_L_FIELD_MAX 149U
+
 typedef struct {
     bool length_ok;
     bool crc_known;

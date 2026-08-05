@@ -39,9 +39,7 @@ typedef struct {
 } WmBusControlEvent;
 
 typedef struct {
-    const char* name;
     const uint8_t* regs;
-    size_t regs_size;
 } WmBusCc1101Profile;
 
 struct WmBusRadioRxService {
@@ -267,70 +265,15 @@ static const uint8_t wmbus_cc1101_c_mode_preset_regs[] = {
 };
 
 static const WmBusCc1101Profile wmbus_cc1101_t_mode_profile = {
-    .name = "T",
     .regs = wmbus_cc1101_t_mode_preset_regs,
-    .regs_size = sizeof(wmbus_cc1101_t_mode_preset_regs),
 };
 
 static const WmBusCc1101Profile wmbus_cc1101_c_mode_profile = {
-    .name = "C",
     .regs = wmbus_cc1101_c_mode_preset_regs,
-    .regs_size = sizeof(wmbus_cc1101_c_mode_preset_regs),
 };
-
-static const WmBusCc1101Profile* wmbus_cc1101_active_profile = &wmbus_cc1101_t_mode_profile;
 
 static const WmBusCc1101Profile* wmbus_radio_profile(WmBusRxMode mode) {
     return mode == WmBusRxModeC ? &wmbus_cc1101_c_mode_profile : &wmbus_cc1101_t_mode_profile;
-}
-
-static void wmbus_radio_select_profile(WmBusRxMode mode) {
-    wmbus_cc1101_active_profile = wmbus_radio_profile(mode);
-}
-
-static bool wmbus_radio_preset_loadable(const WmBusCc1101Profile* profile) {
-    if(!profile || !profile->regs || profile->regs_size < 10U) return false;
-
-    for(size_t i = 0; i + 1U < profile->regs_size; i += 2U) {
-        uint8_t reg = profile->regs[i];
-        uint8_t value = profile->regs[i + 1U];
-
-        if(reg == 0U && value == 0U) {
-            return i + 10U <= profile->regs_size;
-        }
-
-        if(reg == 0U) {
-            return false;
-        }
-    }
-
-    return false;
-}
-
-static bool
-    wmbus_radio_profile_get_reg(const WmBusCc1101Profile* profile, uint8_t reg, uint8_t* value) {
-    if(!profile || !profile->regs || !value) return false;
-
-    for(size_t i = 0; i + 1U < profile->regs_size; i += 2U) {
-        uint8_t profile_reg = profile->regs[i];
-        uint8_t profile_value = profile->regs[i + 1U];
-
-        if(profile_reg == 0U && profile_value == 0U) return false;
-        if(profile_reg == reg) {
-            *value = profile_value;
-            return true;
-        }
-    }
-
-    return false;
-}
-
-static uint8_t wmbus_radio_read_reg(uint8_t reg) {
-    uint8_t cmd[2] = {(uint8_t)(reg | CC1101_READ), 0U};
-    furi_hal_spi_acquire(&furi_hal_spi_bus_handle_subghz);
-    furi_hal_spi_bus_trx(&furi_hal_spi_bus_handle_subghz, cmd, cmd, sizeof(cmd), CC1101_TIMEOUT);
-    furi_hal_spi_release(&furi_hal_spi_bus_handle_subghz);
-    return cmd[1];
 }
 
 static void wmbus_radio_recover_rx(void) {
@@ -339,9 +282,9 @@ static void wmbus_radio_recover_rx(void) {
     furi_hal_subghz_rx();
 }
 
-static void wmbus_radio_reload_rx_preset(void) {
+static void wmbus_radio_reload_rx_preset(const WmBusCc1101Profile* profile) {
     furi_hal_subghz_reset();
-    furi_hal_subghz_load_custom_preset(wmbus_cc1101_active_profile->regs);
+    furi_hal_subghz_load_custom_preset(profile->regs);
     furi_hal_subghz_set_frequency_and_path(WMBUS_FREQ_HZ);
     furi_hal_subghz_flush_rx();
     furi_hal_subghz_rx();
@@ -351,77 +294,8 @@ static char wmbus_radio_mode_char(WmBusRxMode mode) {
     return mode == WmBusRxModeC ? 'C' : 'T';
 }
 
-static bool wmbus_radio_validate_mode_regs(WmBusRxMode mode) {
-    const WmBusCc1101Profile* profile = wmbus_radio_profile(mode);
-    uint8_t expected_iocfg0 = 0U;
-    uint8_t expected_pktctrl0 = 0U;
-    uint8_t expected_pktctrl1 = 0U;
-    uint8_t expected_mdmcfg2 = 0U;
-    uint8_t expected_sync1 = 0U;
-    uint8_t expected_sync0 = 0U;
-
-    bool expected_ok = wmbus_radio_profile_get_reg(profile, CC1101_IOCFG0, &expected_iocfg0) &&
-                       wmbus_radio_profile_get_reg(profile, CC1101_PKTCTRL0, &expected_pktctrl0) &&
-                       wmbus_radio_profile_get_reg(profile, CC1101_PKTCTRL1, &expected_pktctrl1) &&
-                       wmbus_radio_profile_get_reg(profile, CC1101_MDMCFG2, &expected_mdmcfg2) &&
-                       wmbus_radio_profile_get_reg(profile, CC1101_SYNC1, &expected_sync1) &&
-                       wmbus_radio_profile_get_reg(profile, CC1101_SYNC0, &expected_sync0);
-
-    uint8_t iocfg0 = wmbus_radio_read_reg(CC1101_IOCFG0);
-    uint8_t pktctrl0 = wmbus_radio_read_reg(CC1101_PKTCTRL0);
-    uint8_t pktctrl1 = wmbus_radio_read_reg(CC1101_PKTCTRL1);
-    uint8_t mdmcfg2 = wmbus_radio_read_reg(CC1101_MDMCFG2);
-    uint8_t sync1 = wmbus_radio_read_reg(CC1101_SYNC1);
-    uint8_t sync0 = wmbus_radio_read_reg(CC1101_SYNC0);
-
-    FURI_LOG_D(
-        TAG,
-        "%c cfg SYNC=%02X%02X IOCFG0=%02X PKTCTRL0=%02X PKTCTRL1=%02X MDMCFG2=%02X",
-        wmbus_radio_mode_char(mode),
-        sync1,
-        sync0,
-        iocfg0,
-        pktctrl0,
-        pktctrl1,
-        mdmcfg2);
-
-    bool ok = expected_ok && (iocfg0 == expected_iocfg0) && (pktctrl0 == expected_pktctrl0) &&
-              (pktctrl1 == expected_pktctrl1) && (mdmcfg2 == expected_mdmcfg2) &&
-              (sync1 == expected_sync1) && (sync0 == expected_sync0);
-    if(!ok) {
-        FURI_LOG_W(
-            TAG,
-            "%c cfg mismatch (SYNC=%02X%02X/%02X%02X IOCFG0=%02X/%02X PKTCTRL0=%02X/%02X PKTCTRL1=%02X/%02X MDMCFG2=%02X/%02X)",
-            wmbus_radio_mode_char(mode),
-            sync1,
-            sync0,
-            expected_sync1,
-            expected_sync0,
-            iocfg0,
-            expected_iocfg0,
-            pktctrl0,
-            expected_pktctrl0,
-            pktctrl1,
-            expected_pktctrl1,
-            mdmcfg2,
-            expected_mdmcfg2);
-    }
-    return ok;
-}
-
 static void wmbus_radio_apply_mode(WmBusRxMode mode) {
-    wmbus_radio_select_profile(mode);
-    furi_check(wmbus_radio_preset_loadable(wmbus_cc1101_active_profile));
-
-    wmbus_radio_reload_rx_preset();
-    if(!wmbus_radio_validate_mode_regs(mode)) {
-        wmbus_radio_reload_rx_preset();
-        if(!wmbus_radio_validate_mode_regs(mode)) {
-            FURI_LOG_W(
-                TAG, "%c cfg still mismatched after preset reload", wmbus_radio_mode_char(mode));
-            wmbus_radio_recover_rx();
-        }
-    }
+    wmbus_radio_reload_rx_preset(wmbus_radio_profile(mode));
 }
 
 static uint8_t wmbus_radio_read_status_locked(uint8_t reg) {

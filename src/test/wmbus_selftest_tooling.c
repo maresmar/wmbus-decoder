@@ -30,6 +30,60 @@ static bool wmbus_selftest_check_3of6_valid_single_byte(char* detail, size_t det
     return true;
 }
 
+static bool wmbus_selftest_check_supported_l_field_range(char* detail, size_t detail_len) {
+    const size_t max_wire_len = wmbus_frame_len_format_a(WMBUS_FRAME_L_FIELD_MAX);
+    const size_t max_t_raw_len = (max_wire_len * 12U + 7U) / 8U;
+    const size_t format_b_normalized_len = WMBUS_FRAME_L_FIELD_MAX - 3U;
+    uint8_t format_b_normalized[WMBUS_PHY_FRAME_MAX_BYTES] = {0};
+    uint8_t format_b_wire[WMBUS_PHY_FRAME_MAX_BYTES] = {0};
+    uint8_t format_b_roundtrip[WMBUS_PHY_FRAME_MAX_BYTES] = {0};
+    size_t format_b_wire_len = 0U;
+    WmBusFrameNormalizeResult format_b_result = {0};
+
+    format_b_normalized[0] = (uint8_t)(format_b_normalized_len - 1U);
+
+    if(!wmbus_frame_l_field_valid(WMBUS_FRAME_L_FIELD_MIN) ||
+       !wmbus_frame_l_field_valid(WMBUS_FRAME_L_FIELD_MAX) ||
+       wmbus_frame_l_field_valid(WMBUS_FRAME_L_FIELD_MAX + 1U) ||
+       max_t_raw_len > WMBUS_PHY_FRAME_MAX_BYTES ||
+       !wmbus_frame_build_format_b(
+           format_b_normalized,
+           format_b_normalized_len,
+           format_b_wire,
+           sizeof(format_b_wire),
+           &format_b_wire_len) ||
+       format_b_wire_len != (size_t)WMBUS_FRAME_L_FIELD_MAX + 1U ||
+       !wmbus_frame_normalize(
+           WmBusFrameFormatB,
+           format_b_wire,
+           format_b_wire_len,
+           format_b_roundtrip,
+           sizeof(format_b_roundtrip),
+           &format_b_result) ||
+       format_b_result.normalized_len != format_b_normalized_len ||
+       memcmp(format_b_normalized, format_b_roundtrip, format_b_normalized_len) != 0) {
+        wmbus_selftest_set_detail(
+            detail,
+            detail_len,
+            "range=%u..%u wire=%u raw=%u invalid",
+            (unsigned int)WMBUS_FRAME_L_FIELD_MIN,
+            (unsigned int)WMBUS_FRAME_L_FIELD_MAX,
+            (unsigned int)max_wire_len,
+            (unsigned int)max_t_raw_len);
+        return false;
+    }
+
+    wmbus_selftest_set_detail(
+        detail,
+        detail_len,
+        "range=%u..%u max_wire=%u max_t_raw=%u",
+        (unsigned int)WMBUS_FRAME_L_FIELD_MIN,
+        (unsigned int)WMBUS_FRAME_L_FIELD_MAX,
+        (unsigned int)max_wire_len,
+        (unsigned int)max_t_raw_len);
+    return true;
+}
+
 static bool wmbus_selftest_check_3of6_reject_dangling_nibble(char* detail, size_t detail_len) {
     const uint8_t raw[] = {0x58};
     uint8_t out[4] = {0};
@@ -474,6 +528,7 @@ static bool wmbus_selftest_check_packet_quality_policy(char* detail, size_t deta
 
 static const WmBusSelftestCheck wmbus_selftest_checks_tooling[] = {
     {"check_3of6_valid_single_byte", wmbus_selftest_check_3of6_valid_single_byte},
+    {"check_supported_l_field_range", wmbus_selftest_check_supported_l_field_range},
     {"check_3of6_reject_dangling_nibble", wmbus_selftest_check_3of6_reject_dangling_nibble},
     {"check_3of6_reject_invalid_symbol", wmbus_selftest_check_3of6_reject_invalid_symbol},
     {"check_parser_plausibility", wmbus_selftest_check_parser_plausibility},

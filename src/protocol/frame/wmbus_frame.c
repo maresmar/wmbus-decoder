@@ -110,7 +110,7 @@ static bool wmbus_frame_crc_check_b(const uint8_t* data, size_t len) {
 }
 
 bool wmbus_frame_l_field_valid(uint8_t l_field) {
-    return l_field >= 10U;
+    return l_field >= WMBUS_FRAME_L_FIELD_MIN && l_field <= WMBUS_FRAME_L_FIELD_MAX;
 }
 
 size_t wmbus_frame_len_format_a(uint8_t l_field) {
@@ -187,19 +187,38 @@ bool wmbus_frame_build_format_b(
     size_t out_max,
     size_t* out_len) {
     if(!normalized || !out || !out_len) return false;
-    if(normalized_len < 11U || normalized_len > 126U) return false;
+    if(normalized_len < 11U) return false;
     if(!wmbus_frame_l_field_valid(normalized[0])) return false;
     if(normalized_len != (size_t)normalized[0] + 1U) return false;
-    if(normalized_len + 2U > out_max) return false;
+    if(normalized_len <= 126U) {
+        if(normalized_len + 2U > out_max) return false;
 
-    memcpy(out, normalized, normalized_len);
-    out[0] = (uint8_t)(normalized[0] + 2U);
+        memcpy(out, normalized, normalized_len);
+        out[0] = (uint8_t)(normalized[0] + 2U);
 
-    uint16_t crc = wmbus_crc16_en13757(out, normalized_len);
-    out[normalized_len] = (uint8_t)(crc >> 8);
-    out[normalized_len + 1U] = (uint8_t)crc;
+        uint16_t crc = wmbus_crc16_en13757(out, normalized_len);
+        out[normalized_len] = (uint8_t)(crc >> 8);
+        out[normalized_len + 1U] = (uint8_t)crc;
+        *out_len = normalized_len + 2U;
+        return true;
+    }
 
-    *out_len = normalized_len + 2U;
+    if(normalized[0] > WMBUS_FRAME_L_FIELD_MAX - 4U || normalized_len + 4U > out_max) {
+        return false;
+    }
+
+    memcpy(out, normalized, 126U);
+    out[0] = (uint8_t)(normalized[0] + 4U);
+    uint16_t crc = wmbus_crc16_en13757(out, 126U);
+    out[126] = (uint8_t)(crc >> 8);
+    out[127] = (uint8_t)crc;
+
+    size_t second_block_len = normalized_len - 126U;
+    memcpy(&out[128], &normalized[126], second_block_len);
+    crc = wmbus_crc16_en13757(&out[128], second_block_len);
+    out[128U + second_block_len] = (uint8_t)(crc >> 8);
+    out[129U + second_block_len] = (uint8_t)crc;
+    *out_len = normalized_len + 4U;
     return true;
 }
 

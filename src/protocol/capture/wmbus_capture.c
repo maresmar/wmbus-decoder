@@ -66,7 +66,7 @@ WmBusCaptureLengthStatus wmbus_fifo_frame_length(
         format = WmBusFrameFormatA;
     }
 
-    if(expected_fifo_len == 0U || expected_fifo_len > 256U) {
+    if(expected_fifo_len == 0U || expected_fifo_len > WMBUS_PHY_FRAME_MAX_BYTES) {
         return WmBusCaptureLengthInvalid;
     }
 

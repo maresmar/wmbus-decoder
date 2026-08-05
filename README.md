@@ -136,7 +136,7 @@ storage read /ext/apps_data/wmbus_decoder/selftest.txt
 Expected result ends with:
 
 ```text
-selftests done total=52 passed=52 failed=0
+selftests done total=55 passed=55 failed=0
 ```
 
 ## Credits

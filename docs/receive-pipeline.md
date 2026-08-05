@@ -53,6 +53,13 @@ Frame B      54 3D      54 3D      54 3D 54 3D
 Raw FIFO state remains confined to the capture layer. It is never passed to
 packet parsing as though it were a Link Layer frame.
 
+## Supported length range
+
+The receiver accepts Link Layer L-fields from `0x0A` through `0x95` (10–149).
+The upper bound is shared by both modes: a Format-A frame at `L=149` occupies
+170 Link Layer bytes and 255 T-mode FIFO bytes after 3-of-6 coding, fitting the
+256-byte capture buffer. Larger L-fields are rejected before capture continues.
+
 ## Processing boundary
 
 The radio thread ends at a completed `WmBusPhyFrame`. It submits the frame to a

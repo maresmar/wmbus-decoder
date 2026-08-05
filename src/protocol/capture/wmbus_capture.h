@@ -8,7 +8,7 @@
 
 typedef struct {
     /* Decoded Link Layer wire frame starting at its L-field for every mode. */
-    uint8_t data[256];
+    uint8_t data[WMBUS_PHY_FRAME_MAX_BYTES];
     size_t len;
     int rssi;
     WmBusRxMode mode;
@@ -22,7 +22,7 @@ typedef enum {
 } WmBusCaptureLengthStatus;
 
 typedef struct {
-    uint8_t raw[256];
+    uint8_t raw[WMBUS_PHY_FRAME_MAX_BYTES];
     size_t raw_len;
     bool in_packet;
     /* Last observed sync/FIFO activity; owns the incomplete-frame timeout. */

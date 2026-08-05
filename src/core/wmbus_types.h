@@ -3,6 +3,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/* Maximum decoded Link Layer wire-frame size retained by the receive pipeline. */
+#define WMBUS_PHY_FRAME_MAX_BYTES 256U
+
 typedef enum {
     WmBusRxModeT = 0,
     WmBusRxModeC = 1,
