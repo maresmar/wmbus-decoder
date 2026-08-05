@@ -26,7 +26,8 @@
 
 ## Current Limitations
 
-- `C` mode exists, but is not considered fully validated on real hardware
+- `C` mode Frame A processing is validated against real FIFO captures; the C radio profile and
+  Frame B handling still need live on-air validation
 - the app is receive-only; it does not transmit or pair
 - device-specific parsing is limited; unsupported telegrams fall back to generic decode or remain undecoded
 - decryption support is limited to what the shared packet path and registered parsers can validate
@@ -132,7 +133,7 @@ storage read /ext/apps_data/wmbus_decoder/selftest.txt
 Expected result ends with:
 
 ```text
-selftests done total=61 passed=61 failed=0
+selftests done total=53 passed=53 failed=0
 ```
 
 ## Credits

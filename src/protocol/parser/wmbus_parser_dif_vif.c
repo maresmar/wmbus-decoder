@@ -109,6 +109,9 @@ static int wmbus_packet_data_len_from_dif(uint8_t dif, bool* is_bcd, bool* is_va
     case 0x0D:
         if(is_variable_text) *is_variable_text = true;
         return -2;
+    case 0x0E:
+        if(is_bcd) *is_bcd = true;
+        return 6;
     default:
         return -1;
     }

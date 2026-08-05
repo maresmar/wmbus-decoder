@@ -284,6 +284,41 @@ static bool wmbus_selftest_check_dif_vif_decode_reject_malformed(char* detail, s
     return true;
 }
 
+static bool wmbus_selftest_check_dif_vif_decode_12_digit_bcd(
+    char* detail,
+    size_t detail_len) {
+    /* The first record mirrors the real MAD telegram: DIF 0E is standard
+     * 12-digit BCD, while FF makes its value unavailable. A bad BCD value must
+     * remain raw without preventing the following standard volume record. */
+    static const uint8_t payload[] = {
+        0x0E, 0x78, 0x55, 0x83, 0x00, 0x24, 0x05, 0xFF,
+        0x04, 0x13, 0x50, 0x71, 0x00, 0x00,
+    };
+    WmBusApplicationRecord records[WMBUS_PACKET_RECORD_MAX] = {0};
+    uint8_t count = 0U;
+
+    if(!wmbus_packet_decode_application_records(
+           payload, sizeof(payload), records, COUNT_OF(records), &count) ||
+       count != 2U || records[0].dif != 0x0EU || records[0].data_len != 6U ||
+       records[0].value_type != WmBusApplicationValueRaw ||
+       records[1].quantity != WmBusApplicationQuantityVolume ||
+       records[1].value_type != WmBusApplicationValueUnsigned ||
+       records[1].value_unsigned != 29008U || records[1].scale10 != -3) {
+        wmbus_selftest_set_detail(
+            detail,
+            detail_len,
+            "decode/count mismatch count=%u first_type=%u total=%llu",
+            (unsigned int)count,
+            (unsigned int)records[0].value_type,
+            (unsigned long long)records[1].value_unsigned);
+        return false;
+    }
+
+    wmbus_selftest_set_detail(
+        detail, detail_len, "DIF=0E raw invalid BCD; following volume=29008");
+    return true;
+}
+
 static bool wmbus_selftest_check_format_fields_text_prefers_primary_records(
     char* detail,
     size_t detail_len) {
@@ -467,6 +502,7 @@ static const WmBusSelftestCheck wmbus_selftest_checks_tooling[] = {
     {"check_short_tpl_security_modes", wmbus_selftest_check_short_tpl_security_modes},
     {"check_ell_security_modes", wmbus_selftest_check_ell_security_modes},
     {"check_dif_vif_decode_basic", wmbus_selftest_check_dif_vif_decode_basic},
+    {"check_dif_vif_decode_12_digit_bcd", wmbus_selftest_check_dif_vif_decode_12_digit_bcd},
     {"check_dif_vif_decode_reject_malformed",
      wmbus_selftest_check_dif_vif_decode_reject_malformed},
     {"check_format_fields_text_prefers_primary_records",
