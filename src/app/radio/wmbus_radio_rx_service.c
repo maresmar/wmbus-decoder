@@ -11,6 +11,8 @@
 
 #define WMBUS_FREQ_HZ                      868950000UL
 #define WMBUS_FIFO_CHUNK                   64U
+#define WMBUS_RXBYTES_MAX                  (WMBUS_FIFO_CHUNK + 1U)
+#define WMBUS_STATUS_STABLE_READ_MAX       8U
 #define WMBUS_RSSI_UPDATE_HZ               5U
 #define WMBUS_LED_PULSE_MS                 40U
 #define WMBUS_T_GAP_TIMEOUT_MS             5U
@@ -19,6 +21,11 @@
 #define WMBUS_CC1101_PKTCTRL0_T_MODE       WMBUS_CC1101_PKTCTRL0_INFINITE_LEN
 #define WMBUS_CC1101_PKTCTRL0_C_MODE       WMBUS_CC1101_PKTCTRL0_INFINITE_LEN
 #define WMBUS_CC1101_MDMCFG2_2FSK_SYNC_16_CS 0x06U
+#define WMBUS_CC1101_PKTSTATUS_SFD          0x08U
+#define WMBUS_CC1101_MARCSTATE_MASK         0x1FU
+#define WMBUS_CC1101_MARCSTATE_RX           0x0DU
+#define WMBUS_CC1101_MARCSTATE_RX_END       0x0EU
+#define WMBUS_CC1101_MARCSTATE_RX_RST       0x0FU
 
 typedef enum {
     WmBusControlCmdStop = 0,
@@ -417,104 +424,182 @@ static void wmbus_radio_apply_mode(WmBusRxMode mode) {
     }
 }
 
-static uint8_t wmbus_radio_read_fifo_raw(uint8_t* data, uint8_t data_max, bool* overflowed) {
-    if(!data || data_max == 0U) return 0U;
-
-    uint8_t size = 0U;
-    bool overflow = false;
-    uint8_t rxbytes_cmd[2] = {CC1101_STATUS_RXBYTES | CC1101_READ | CC1101_BURST, 0U};
-
-    furi_hal_spi_acquire(&furi_hal_spi_bus_handle_subghz);
+static uint8_t wmbus_radio_read_status_locked(uint8_t reg) {
+    uint8_t cmd[2] = {reg | CC1101_READ | CC1101_BURST, 0U};
     furi_hal_spi_bus_trx(
-        &furi_hal_spi_bus_handle_subghz,
-        rxbytes_cmd,
-        rxbytes_cmd,
-        sizeof(rxbytes_cmd),
-        CC1101_TIMEOUT);
-    overflow = ((rxbytes_cmd[1] & 0x80U) != 0U);
-    size = (rxbytes_cmd[1] & 0x7FU);
-    if(size > data_max) size = data_max;
-
-    if(!overflow && size > 0U) {
-        uint8_t addr = CC1101_FIFO | CC1101_READ | CC1101_BURST;
-        furi_hal_spi_bus_tx(&furi_hal_spi_bus_handle_subghz, &addr, 1U, CC1101_TIMEOUT);
-        furi_hal_spi_bus_rx(&furi_hal_spi_bus_handle_subghz, data, size, CC1101_TIMEOUT);
-    }
-
-    furi_hal_spi_release(&furi_hal_spi_bus_handle_subghz);
-
-    if(overflow) {
-        wmbus_radio_recover_rx();
-        size = 0U;
-    }
-    if(overflowed) *overflowed = overflow;
-    return size;
+        &furi_hal_spi_bus_handle_subghz, cmd, cmd, sizeof(cmd), CC1101_TIMEOUT);
+    return cmd[1];
 }
 
-static bool wmbus_capture_append_fifo(
+static bool wmbus_radio_read_status_stable(uint8_t reg, uint8_t* out_value) {
+    if(!out_value) return false;
+
+    bool stable = false;
+    uint8_t value = 0U;
+    furi_hal_spi_acquire(&furi_hal_spi_bus_handle_subghz);
+    uint8_t previous = wmbus_radio_read_status_locked(reg);
+    for(size_t i = 0U; i < WMBUS_STATUS_STABLE_READ_MAX; i++) {
+        value = wmbus_radio_read_status_locked(reg);
+        if(value == previous) {
+            stable = true;
+            break;
+        }
+        previous = value;
+    }
+    furi_hal_spi_release(&furi_hal_spi_bus_handle_subghz);
+
+    if(stable) *out_value = value;
+    return stable;
+}
+
+static bool wmbus_radio_read_rxbytes_stable(uint8_t* out_count, bool* out_overflow) {
+    if(!out_count || !out_overflow) return false;
+
+    /* CC1101 errata SWRZ020: RXBYTES is continuously updated across clock
+     * domains and is trusted only after the same value is observed twice. */
+    uint8_t value = 0U;
+    if(!wmbus_radio_read_status_stable(CC1101_STATUS_RXBYTES, &value)) return false;
+    *out_overflow = (value & 0x80U) != 0U;
+    *out_count = value & 0x7FU;
+    /* RXBYTES includes the one-byte prefetch buffer, so 65 is valid even
+     * though an SPI FIFO read is limited to the 64-byte FIFO capacity. */
+    return *out_overflow || *out_count <= WMBUS_RXBYTES_MAX;
+}
+
+static bool wmbus_radio_marcstate_is_rx(uint8_t raw_state) {
+    switch(raw_state & WMBUS_CC1101_MARCSTATE_MASK) {
+    case WMBUS_CC1101_MARCSTATE_RX:
+    case WMBUS_CC1101_MARCSTATE_RX_END:
+    case WMBUS_CC1101_MARCSTATE_RX_RST:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static bool wmbus_radio_read_fifo_exact(uint8_t* data, uint8_t size) {
+    if(!data || size == 0U || size > WMBUS_FIFO_CHUNK) return false;
+
+    uint8_t addr = CC1101_FIFO | CC1101_READ | CC1101_BURST;
+    furi_hal_spi_acquire(&furi_hal_spi_bus_handle_subghz);
+    furi_hal_spi_bus_tx(&furi_hal_spi_bus_handle_subghz, &addr, 1U, CC1101_TIMEOUT);
+    furi_hal_spi_bus_rx(&furi_hal_spi_bus_handle_subghz, data, size, CC1101_TIMEOUT);
+    furi_hal_spi_release(&furi_hal_spi_bus_handle_subghz);
+    return true;
+}
+
+static bool wmbus_capture_read_fifo(
     uint8_t* raw,
     size_t* raw_len,
     size_t raw_max,
+    size_t read_size,
     bool* had_data,
-    bool* overflowed,
-    uint32_t* last_byte_tick) {
+    uint32_t* last_activity_tick) {
     uint8_t temp[WMBUS_FIFO_CHUNK];
-    bool overflow = false;
-    uint8_t chunk_len = wmbus_radio_read_fifo_raw(temp, sizeof(temp), &overflow);
-    if(overflowed) *overflowed = overflow;
-    if(overflow || chunk_len == 0U) {
+    if(!raw || !raw_len || !had_data || !last_activity_tick || *raw_len > raw_max ||
+       read_size == 0U || read_size > sizeof(temp) || read_size > raw_max - *raw_len) {
         return false;
     }
+    if(!wmbus_radio_read_fifo_exact(temp, (uint8_t)read_size)) return false;
 
-    size_t copy = raw_max - *raw_len;
-    if(copy > 0U) {
-        if(chunk_len < copy) copy = chunk_len;
-        memcpy(&raw[*raw_len], temp, copy);
-        *raw_len += copy;
-    }
+    memcpy(&raw[*raw_len], temp, read_size);
+    *raw_len += read_size;
 
     *had_data = true;
-    *last_byte_tick = furi_get_tick();
+    *last_activity_tick = furi_get_tick();
     return true;
 }
 
 static bool wmbus_capture_step(
-    WmBusCaptureState* state,
-    WmBusCaptureFrame* frame,
+    WmBusFifoCaptureState* state,
+    WmBusPhyFrame* frame,
     bool* had_data,
     uint32_t gap_ticks,
     WmBusRxMode mode) {
     if(!state || !frame || !had_data) return false;
 
+    bool invalid = false;
+    bool complete = false;
+    size_t expected_fifo_len = 0U;
+    WmBusFrameFormat format = WmBusFrameFormatUnknown;
+
     while(true) {
+        WmBusCaptureLengthStatus length_status = wmbus_fifo_frame_length(
+            mode, state->raw, state->raw_len, &expected_fifo_len, &format);
+        if(length_status == WmBusCaptureLengthInvalid) {
+            invalid = true;
+            break;
+        }
+        if(length_status == WmBusCaptureLengthKnown && state->raw_len >= expected_fifo_len) {
+            complete = true;
+            break;
+        }
+
+        uint8_t available = 0U;
         bool overflow = false;
-        if(!wmbus_capture_append_fifo(
+        if(!wmbus_radio_read_rxbytes_stable(&available, &overflow)) break;
+        if(overflow) {
+            wmbus_fifo_capture_state_reset(state);
+            wmbus_radio_recover_rx();
+            return false;
+        }
+
+        if(available > 0U) {
+            if(!state->in_packet) {
+                wmbus_fifo_capture_note_activity(state, furi_get_tick());
+            }
+        } else if(!state->in_packet) {
+            /* In infinite-length mode SFD can remain asserted after a false
+             * sync even when no full byte reaches RX FIFO. Start the same
+             * bounded incomplete-frame timeout from the hardware sync. */
+            uint8_t pktstatus = 0U;
+            if(wmbus_radio_read_status_stable(CC1101_STATUS_PKTSTATUS, &pktstatus) &&
+               (pktstatus & WMBUS_CC1101_PKTSTATUS_SFD) != 0U) {
+                wmbus_fifo_capture_note_activity(state, furi_get_tick());
+            }
+        }
+
+        size_t read_size = wmbus_fifo_safe_read_size(
+            mode, length_status, state->raw_len, expected_fifo_len, available);
+        if(read_size == 0U) break;
+
+        if(!wmbus_capture_read_fifo(
                state->raw,
                &state->raw_len,
                sizeof(state->raw),
+               read_size,
                had_data,
-               &overflow,
-               &state->last_byte_tick)) {
-            if(overflow) {
-                wmbus_capture_state_reset(state);
-            }
+               &state->last_activity_tick)) {
             break;
         }
 
         state->in_packet = true;
-        if(state->raw_len >= sizeof(state->raw)) break;
     }
 
+    if(invalid) {
+        wmbus_fifo_capture_state_reset(state);
+        wmbus_radio_recover_rx();
+        return false;
+    }
     if(!state->in_packet) return false;
 
     uint32_t now = furi_get_tick();
-    bool gap = (!*had_data && (now - state->last_byte_tick) >= gap_ticks);
-    bool full = (state->raw_len >= sizeof(state->raw));
-    if(!(gap || full) || state->raw_len == 0U) return false;
+    bool timed_out = (!*had_data && (now - state->last_activity_tick) >= gap_ticks);
+    if(!complete) {
+        if(!timed_out) return false;
+        FURI_LOG_D(
+            TAG,
+            "%c incomplete RX timeout: captured=%u",
+            wmbus_radio_mode_char(mode),
+            (unsigned int)state->raw_len);
+        wmbus_fifo_capture_state_reset(state);
+        wmbus_radio_recover_rx();
+        return false;
+    }
 
-    bool frame_valid = wmbus_capture_frame_from_fifo(
+    bool frame_valid = wmbus_phy_frame_from_fifo(
         mode, state->raw, state->raw_len, (int)furi_hal_subghz_get_rssi(), frame);
-    wmbus_capture_state_reset(state);
+    wmbus_fifo_capture_state_reset(state);
     wmbus_radio_recover_rx();
     return frame_valid;
 }
@@ -543,10 +628,10 @@ static int32_t wmbus_radio_rx_service_thread(void* context) {
     WmBusRxMode mode = runtime_settings.mode;
     wmbus_radio_apply_mode(mode);
 
-    WmBusCaptureState capture_t = {0};
-    WmBusCaptureState capture_c = {0};
-    wmbus_capture_state_reset(&capture_t);
-    wmbus_capture_state_reset(&capture_c);
+    WmBusFifoCaptureState capture_t = {0};
+    WmBusFifoCaptureState capture_c = {0};
+    wmbus_fifo_capture_state_reset(&capture_t);
+    wmbus_fifo_capture_state_reset(&capture_c);
 
     uint32_t t_gap_ticks = wmbus_ticks_from_ms(WMBUS_T_GAP_TIMEOUT_MS);
     uint32_t c_gap_ticks = wmbus_ticks_from_ms(WMBUS_C_READ_TIMEOUT_MS);
@@ -554,6 +639,7 @@ static int32_t wmbus_radio_rx_service_thread(void* context) {
     uint32_t led_pulse_ticks = wmbus_ticks_from_ms(WMBUS_LED_PULSE_MS);
 
     uint32_t last_rssi_tick = 0U;
+    uint8_t rssi_log_divider = 0U;
     uint32_t led_pulse_off_tick = 0U;
     bool led_pulse_on = false;
     bool running = true;
@@ -573,8 +659,8 @@ static int32_t wmbus_radio_rx_service_thread(void* context) {
                 if(mode_changed) {
                     mode = runtime_settings.mode;
                     wmbus_radio_apply_mode(mode);
-                    wmbus_capture_state_reset(&capture_t);
-                    wmbus_capture_state_reset(&capture_c);
+                    wmbus_fifo_capture_state_reset(&capture_t);
+                    wmbus_fifo_capture_state_reset(&capture_c);
                 }
             }
         }
@@ -582,20 +668,20 @@ static int32_t wmbus_radio_rx_service_thread(void* context) {
         if(!running) break;
 
         bool had_data = false;
-        WmBusCaptureFrame capture = {0};
+        WmBusPhyFrame frame = {0};
         bool frame_ready =
             (mode == WmBusRxModeT) ?
-                wmbus_capture_step(&capture_t, &capture, &had_data, t_gap_ticks, WmBusRxModeT) :
-                wmbus_capture_step(&capture_c, &capture, &had_data, c_gap_ticks, WmBusRxModeC);
+                wmbus_capture_step(&capture_t, &frame, &had_data, t_gap_ticks, WmBusRxModeT) :
+                wmbus_capture_step(&capture_c, &frame, &had_data, c_gap_ticks, WmBusRxModeC);
 
         if(frame_ready) {
             uint32_t pulse_now = furi_get_tick();
             furi_hal_light_set(LightGreen, 0xFF);
             led_pulse_on = true;
             led_pulse_off_tick = pulse_now + led_pulse_ticks;
-            if(service->callbacks.handle_capture) {
-                service->callbacks.handle_capture(
-                    service->callbacks.context, &runtime_settings, &runtime_key_store, &capture);
+            if(service->callbacks.handle_frame) {
+                service->callbacks.handle_frame(
+                    service->callbacks.context, &runtime_settings, &runtime_key_store, &frame);
             }
         }
 
@@ -606,9 +692,48 @@ static int32_t wmbus_radio_rx_service_thread(void* context) {
         }
 
         if(last_rssi_tick == 0U || (now_tick - last_rssi_tick) >= rssi_ticks) {
+            int live_rssi = (int)furi_hal_subghz_get_rssi();
+            uint8_t marcstate = 0U;
+            bool marcstate_valid =
+                wmbus_radio_read_status_stable(CC1101_STATUS_MARCSTATE, &marcstate);
+            if(marcstate_valid && !wmbus_radio_marcstate_is_rx(marcstate)) {
+                FURI_LOG_W(
+                    TAG,
+                    "%c RX watchdog recovery: MARCSTATE=%02X capture=%u",
+                    wmbus_radio_mode_char(mode),
+                    (unsigned int)(marcstate & WMBUS_CC1101_MARCSTATE_MASK),
+                    (unsigned int)(mode == WmBusRxModeT ? capture_t.raw_len :
+                                                              capture_c.raw_len));
+                wmbus_fifo_capture_state_reset(
+                    mode == WmBusRxModeT ? &capture_t : &capture_c);
+                wmbus_radio_recover_rx();
+            }
+
             if(service->callbacks.set_live_rssi) {
-                service->callbacks.set_live_rssi(
-                    service->callbacks.context, (int)furi_hal_subghz_get_rssi());
+                service->callbacks.set_live_rssi(service->callbacks.context, live_rssi);
+            }
+
+            if(++rssi_log_divider >= WMBUS_RSSI_UPDATE_HZ) {
+                uint8_t pktstatus = 0U;
+                uint8_t rxbytes = 0U;
+                bool overflow = false;
+                bool pktstatus_valid =
+                    wmbus_radio_read_status_stable(CC1101_STATUS_PKTSTATUS, &pktstatus);
+                bool rxbytes_valid = wmbus_radio_read_rxbytes_stable(&rxbytes, &overflow);
+                FURI_LOG_D(
+                    TAG,
+                    "%c RX health: RSSI=%d MARC=%02X PKT=%02X RXB=%u%s capture=%u",
+                    wmbus_radio_mode_char(mode),
+                    live_rssi,
+                    (unsigned int)(marcstate_valid ?
+                                       (marcstate & WMBUS_CC1101_MARCSTATE_MASK) :
+                                       0xFFU),
+                    (unsigned int)(pktstatus_valid ? pktstatus : 0xFFU),
+                    (unsigned int)(rxbytes_valid ? rxbytes : 0xFFU),
+                    overflow ? "!" : "",
+                    (unsigned int)(mode == WmBusRxModeT ? capture_t.raw_len :
+                                                              capture_c.raw_len));
+                rssi_log_divider = 0U;
             }
             last_rssi_tick = now_tick;
         }
@@ -656,6 +781,7 @@ WmBusRadioRxService* wmbus_radio_rx_service_alloc(
         free(service);
         return NULL;
     }
+    furi_thread_set_priority(service->thread, FuriThreadPriorityHigh);
 
     furi_thread_start(service->thread);
     return service;

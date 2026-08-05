@@ -8,11 +8,11 @@ typedef struct WmBusRadioRxService WmBusRadioRxService;
 
 typedef struct {
     void* context;
-    void (*handle_capture)(
+    void (*handle_frame)(
         void* context,
         const WmBusSettings* settings,
         const WmBusCryptoKeyStore* key_store,
-        const WmBusCaptureFrame* capture);
+        const WmBusPhyFrame* phy_frame);
     void (*set_freq_valid)(void* context, bool freq_valid);
     void (*set_live_rssi)(void* context, int rssi);
 } WmBusRadioRxCallbacks;

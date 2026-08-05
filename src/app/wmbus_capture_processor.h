@@ -13,8 +13,9 @@ void wmbus_capture_processor_free(WmBusCaptureProcessor* processor);
 bool wmbus_capture_processor_add_sink(
     WmBusCaptureProcessor* processor,
     const WmBusPacketSink* sink);
-void wmbus_capture_processor_handle(
+bool wmbus_capture_processor_start(WmBusCaptureProcessor* processor);
+bool wmbus_capture_processor_submit_frame(
     WmBusCaptureProcessor* processor,
     const WmBusSettings* settings,
     const WmBusCryptoKeyStore* key_store,
-    const WmBusCaptureFrame* capture);
+    const WmBusPhyFrame* phy_frame);

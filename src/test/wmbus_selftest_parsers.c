@@ -55,7 +55,7 @@ static bool wmbus_selftest_check_parser_apator162_public_vectors(char* detail, s
             return false;
         }
         if(!wmbus_frame_normalize(
-               WmBusRxModeC, frame, frame_len, roundtrip, sizeof(roundtrip), &result)) {
+               WmBusFrameFormatB, frame, frame_len, roundtrip, sizeof(roundtrip), &result)) {
             wmbus_selftest_set_detail(
                 detail, detail_len, "vector %s normalize failed", vector->id);
             return false;
@@ -73,7 +73,8 @@ static bool wmbus_selftest_check_parser_apator162_public_vectors(char* detail, s
                 detail, detail_len, "vector expected id=%s got=%s", vector->id, id);
             return false;
         }
-        if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, NULL, &record)) {
+        if(!wmbus_selftest_process_phy_frame_record(
+               WmBusRxModeC, WmBusFrameFormatB, frame, frame_len, NULL, &record)) {
             wmbus_selftest_set_detail(
                 detail, detail_len, "vector %s packet process failed", vector->id);
             return false;
@@ -143,7 +144,8 @@ static bool wmbus_selftest_check_parser_apator162_old_style_ci_b6_rejected(
         wmbus_selftest_set_detail(detail, detail_len, "format-B build failed");
         return false;
     }
-    if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, NULL, &record)) {
+    if(!wmbus_selftest_process_phy_frame_record(
+           WmBusRxModeC, WmBusFrameFormatB, frame, frame_len, NULL, &record)) {
         wmbus_selftest_set_detail(detail, detail_len, "packet process failed");
         return false;
     }
@@ -200,8 +202,13 @@ static bool wmbus_selftest_check_parser_apator162_mode5_configured_zero_key_vect
                 detail, detail_len, "vector %s unexpected cipher state", vectors[i].id);
             return false;
         }
-        if(!wmbus_selftest_process_capture_record(
-               WmBusRxModeC, frame, frame_len, &key_store, &record)) {
+        if(!wmbus_selftest_process_phy_frame_record(
+               WmBusRxModeC,
+               WmBusFrameFormatB,
+               frame,
+               frame_len,
+               &key_store,
+               &record)) {
             wmbus_selftest_set_detail(
                 detail, detail_len, "vector %s packet process failed", vectors[i].id);
             return false;
@@ -249,8 +256,13 @@ static bool wmbus_selftest_check_packet_process_mode5_no_key_does_not_decrypt(
         wmbus_selftest_set_detail(detail, detail_len, "format-B build failed");
         return false;
     }
-    if(!wmbus_selftest_process_capture_record(
-           WmBusRxModeC, frame, frame_len, &key_store, &record)) {
+    if(!wmbus_selftest_process_phy_frame_record(
+           WmBusRxModeC,
+           WmBusFrameFormatB,
+           frame,
+           frame_len,
+           &key_store,
+           &record)) {
         wmbus_selftest_set_detail(detail, detail_len, "packet process failed");
         return false;
     }
@@ -297,8 +309,13 @@ static bool wmbus_selftest_check_packet_process_mode5_parser_configured_zero_key
                 detail, detail_len, "vector %s format-B build failed", vectors[i].id);
             return false;
         }
-        if(!wmbus_selftest_process_capture_record(
-               WmBusRxModeC, frame, frame_len, &key_store, &record)) {
+        if(!wmbus_selftest_process_phy_frame_record(
+               WmBusRxModeC,
+               WmBusFrameFormatB,
+               frame,
+               frame_len,
+               &key_store,
+               &record)) {
             wmbus_selftest_set_detail(
                 detail, detail_len, "vector %s packet process failed", vectors[i].id);
             return false;
@@ -355,8 +372,13 @@ static bool wmbus_selftest_check_packet_process_mode5_configured_zero_key_slot(
                 detail, detail_len, "vector %s format-B build failed", vectors[i].id);
             return false;
         }
-        if(!wmbus_selftest_process_capture_record(
-               WmBusRxModeC, frame, frame_len, &key_store, &record)) {
+        if(!wmbus_selftest_process_phy_frame_record(
+               WmBusRxModeC,
+               WmBusFrameFormatB,
+               frame,
+               frame_len,
+               &key_store,
+               &record)) {
             wmbus_selftest_set_detail(
                 detail, detail_len, "vector %s packet process failed", vectors[i].id);
             return false;
@@ -409,8 +431,13 @@ static bool wmbus_selftest_check_packet_process_mode5_multiple_keys_uses_matchin
         wmbus_selftest_set_detail(detail, detail_len, "format-B build failed");
         return false;
     }
-    if(!wmbus_selftest_process_capture_record(
-           WmBusRxModeC, frame, frame_len, &key_store, &record)) {
+    if(!wmbus_selftest_process_phy_frame_record(
+           WmBusRxModeC,
+           WmBusFrameFormatB,
+           frame,
+           frame_len,
+           &key_store,
+           &record)) {
         wmbus_selftest_set_detail(detail, detail_len, "packet process failed");
         return false;
     }
@@ -460,8 +487,13 @@ static bool wmbus_selftest_check_packet_process_mode5_wrong_key_does_not_decrypt
                 detail, detail_len, "vector %s format-B build failed", vectors[i].id);
             return false;
         }
-        if(!wmbus_selftest_process_capture_record(
-               WmBusRxModeC, frame, frame_len, &key_store, &record)) {
+        if(!wmbus_selftest_process_phy_frame_record(
+               WmBusRxModeC,
+               WmBusFrameFormatB,
+               frame,
+               frame_len,
+               &key_store,
+               &record)) {
             wmbus_selftest_set_detail(
                 detail, detail_len, "vector %s packet process failed", vectors[i].id);
             return false;
@@ -503,7 +535,8 @@ static bool
         wmbus_selftest_set_detail(detail, detail_len, "format-B build failed");
         return false;
     }
-    if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, NULL, &record)) {
+    if(!wmbus_selftest_process_phy_frame_record(
+           WmBusRxModeC, WmBusFrameFormatB, frame, frame_len, NULL, &record)) {
         wmbus_selftest_set_detail(detail, detail_len, "packet process failed");
         return false;
     }
@@ -541,7 +574,8 @@ static bool
         wmbus_selftest_set_detail(detail, detail_len, "format-B build failed");
         return false;
     }
-    if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, NULL, &record)) {
+    if(!wmbus_selftest_process_phy_frame_record(
+           WmBusRxModeC, WmBusFrameFormatB, frame, frame_len, NULL, &record)) {
         wmbus_selftest_set_detail(detail, detail_len, "packet process failed");
         return false;
     }
@@ -580,7 +614,8 @@ static bool
         wmbus_selftest_set_detail(detail, detail_len, "format-B build failed");
         return false;
     }
-    if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, NULL, &record)) {
+    if(!wmbus_selftest_process_phy_frame_record(
+           WmBusRxModeC, WmBusFrameFormatB, frame, frame_len, NULL, &record)) {
         wmbus_selftest_set_detail(detail, detail_len, "packet process failed");
         return false;
     }
@@ -618,7 +653,8 @@ static bool wmbus_selftest_check_parser_apator162_invalid_payload_not_claimed(
         wmbus_selftest_set_detail(detail, detail_len, "format-B build failed");
         return false;
     }
-    if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, NULL, &record)) {
+    if(!wmbus_selftest_process_phy_frame_record(
+           WmBusRxModeC, WmBusFrameFormatB, frame, frame_len, NULL, &record)) {
         wmbus_selftest_set_detail(detail, detail_len, "packet process failed");
         return false;
     }
@@ -649,7 +685,8 @@ static bool wmbus_selftest_check_packet_sections_clear_payload(char* detail, siz
         wmbus_selftest_set_detail(detail, detail_len, "format-B build failed");
         return false;
     }
-    if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, NULL, &record)) {
+    if(!wmbus_selftest_process_phy_frame_record(
+           WmBusRxModeC, WmBusFrameFormatB, frame, frame_len, NULL, &record)) {
         wmbus_selftest_set_detail(detail, detail_len, "packet process failed");
         return false;
     }
@@ -691,8 +728,13 @@ static bool
         wmbus_selftest_set_detail(detail, detail_len, "format-B build failed");
         return false;
     }
-    if(!wmbus_selftest_process_capture_record(
-           WmBusRxModeC, frame, frame_len, &key_store, &record)) {
+    if(!wmbus_selftest_process_phy_frame_record(
+           WmBusRxModeC,
+           WmBusFrameFormatB,
+           frame,
+           frame_len,
+           &key_store,
+           &record)) {
         wmbus_selftest_set_detail(detail, detail_len, "packet process failed");
         return false;
     }
@@ -738,7 +780,8 @@ static bool
     }
     frame[14] = 0x88U;
 
-    if(!wmbus_selftest_process_capture_record(WmBusRxModeC, frame, frame_len, NULL, &record)) {
+    if(!wmbus_selftest_process_phy_frame_record(
+           WmBusRxModeC, WmBusFrameFormatB, frame, frame_len, NULL, &record)) {
         wmbus_selftest_set_detail(detail, detail_len, "packet process failed");
         return false;
     }

@@ -32,7 +32,6 @@ typedef struct {
     bool is_t_raw;
     bool expect_plausible;
     bool expect_crc_ok;
-    uint8_t expected_offset;
 } WmBusTestVector;
 
 typedef struct {
@@ -54,7 +53,6 @@ typedef struct {
     bool has_identity;
     uint8_t l_field;
     size_t computed_len;
-    int best_offset;
     char manufacturer[WMBUS_MFG_STR_LEN];
     char id[WMBUS_ID_STR_LEN];
 } WmBusSelftestResult;
@@ -114,10 +112,9 @@ bool wmbus_selftest_prepare_frame(
     const WmBusSelftestCase* test_case,
     const uint8_t** frame,
     size_t* frame_len);
-bool wmbus_selftest_generate_t_3of6_raw_with_offset(
+bool wmbus_selftest_generate_t_3of6_raw(
     const uint8_t* decoded,
     size_t decoded_len,
-    uint8_t expected_offset,
     uint8_t* out,
     size_t out_max,
     size_t* out_len,
@@ -126,14 +123,16 @@ void wmbus_selftest_corrupt_t_raw_bit(uint8_t* raw, size_t raw_bit_len, size_t b
 void wmbus_selftest_result_from_record(
     const WmBusPacketRecord* record,
     WmBusSelftestResult* result);
-bool wmbus_selftest_process_capture_record(
+bool wmbus_selftest_process_phy_frame_record(
     WmBusRxMode mode,
+    WmBusFrameFormat format,
     const uint8_t* data,
     size_t data_len,
     const WmBusCryptoKeyStore* key_store,
     WmBusPacketRecord* record);
-bool wmbus_selftest_run_capture(
+bool wmbus_selftest_run_phy_frame(
     WmBusRxMode mode,
+    WmBusFrameFormat format,
     const uint8_t* data,
     size_t data_len,
     const WmBusCryptoKeyStore* key_store,

@@ -8,9 +8,8 @@ typedef struct {
     WmBusPacketQuality quality;
 } WmBusPacketDecodeState;
 
-bool wmbus_packet_decode_capture(
-    const WmBusCaptureFrame* capture,
-    WmBusPacketRecord* record,
+bool wmbus_packet_decode_phy_frame(
+    const WmBusPhyFrame* phy_frame,
     uint8_t* frame_buf,
     size_t frame_buf_max,
     WmBusPacketDecodeState* out);

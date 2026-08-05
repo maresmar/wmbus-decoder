@@ -27,17 +27,17 @@ static void wmbus_app_copy_key_store(const WmBusApp* app, WmBusCryptoKeyStore* o
     furi_check(furi_mutex_release(app->keyring_mutex) == FuriStatusOk);
 }
 
-static void wmbus_app_handle_capture(
+static void wmbus_app_handle_frame(
     void* context,
     const WmBusSettings* settings,
     const WmBusCryptoKeyStore* key_store,
-    const WmBusCaptureFrame* capture) {
+    const WmBusPhyFrame* phy_frame) {
     WmBusApp* app = context;
     if(!app || !app->capture_processor) {
         return;
     }
 
-    wmbus_capture_processor_handle(app->capture_processor, settings, key_store, capture);
+    wmbus_capture_processor_submit_frame(app->capture_processor, settings, key_store, phy_frame);
 }
 
 static void wmbus_app_set_freq_valid(void* context, bool freq_valid) {
@@ -186,7 +186,8 @@ static WmBusApp* wmbus_app_alloc(void) {
     wmbus_csv_sink_init(&app->csv_sink, app->storage);
     wmbus_history_sink_init(&app->history_sink, app->rx_view);
     if(!wmbus_capture_processor_add_sink(app->capture_processor, &app->csv_sink.sink) ||
-       !wmbus_capture_processor_add_sink(app->capture_processor, &app->history_sink.sink)) {
+       !wmbus_capture_processor_add_sink(app->capture_processor, &app->history_sink.sink) ||
+       !wmbus_capture_processor_start(app->capture_processor)) {
         wmbus_app_free(app);
         return NULL;
     }
@@ -195,7 +196,7 @@ static WmBusApp* wmbus_app_alloc(void) {
     wmbus_app_copy_key_store(app, &key_store);
     WmBusRadioRxCallbacks rx_callbacks = {
         .context = app,
-        .handle_capture = wmbus_app_handle_capture,
+        .handle_frame = wmbus_app_handle_frame,
         .set_freq_valid = wmbus_app_set_freq_valid,
         .set_live_rssi = wmbus_app_set_live_rssi,
     };

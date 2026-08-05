@@ -6,16 +6,6 @@
 #include "../frame/wmbus_frame.h"
 #include "../parser/wmbus_parser.h"
 
-#define WMBUS_DECODE_MAX         256U
-#define WMBUS_T_SYNC_SEARCH_BITS 8U
-
-typedef struct {
-    WmBusPacketQuality quality;
-    size_t frame_len;
-    int best_offset;
-    uint8_t frame[WMBUS_DECODE_MAX];
-} WmBusTDecodeResult;
-
 static void wmbus_packet_populate_identity(WmBusPacketRecord* record) {
     if(!record) return;
 
@@ -123,15 +113,6 @@ static void wmbus_packet_extract_dll_tpl_info(
     record->tpl.header_len = wmbus_packet_header_payload_offset(record);
 }
 
-static int wmbus_score_t_decode_candidate(const WmBusTDecodeResult* candidate) {
-    int score = 0;
-    if(candidate->quality != WmBusPacketQualityAnyCapture) score += 1;
-    if(wmbus_packet_quality_meets(candidate->quality, WmBusPacketQualityHeaderOk)) score += 4;
-    if(wmbus_packet_quality_meets(candidate->quality, WmBusPacketQualityFrameComplete)) score += 2;
-    if(wmbus_packet_quality_meets(candidate->quality, WmBusPacketQualityCrcOk)) score += 1;
-    return score;
-}
-
 static void
     wmbus_packet_upgrade_quality(WmBusPacketQuality* quality, WmBusPacketQuality candidate) {
     if(!quality) return;
@@ -182,153 +163,45 @@ static bool wmbus_packet_decode_copy_frame(
     return true;
 }
 
-static bool wmbus_try_decode_t_candidate(
-    const WmBusCaptureFrame* capture,
-    size_t bit_offset,
-    WmBusTDecodeResult* result) {
-    if(!capture || !result) return false;
-
-    size_t raw_bit_len = capture->len * 8U;
-
-    memset(result, 0, sizeof(*result));
-    result->best_offset = -1;
-
-    uint8_t decoded[WMBUS_DECODE_MAX] = {0};
-    size_t decoded_len = 0;
-    size_t l_bit_len = bit_offset + 12U;
-    if(raw_bit_len < l_bit_len ||
-       !wmbus_decode_3of6_bits(capture->data, l_bit_len, bit_offset, decoded, 1U, &decoded_len) ||
-       decoded_len != 1U) {
-        return false;
-    }
-
-    uint8_t l_field = decoded[0];
-    if(!wmbus_frame_l_field_valid(l_field)) return false;
-
-    size_t expected_len = wmbus_frame_len_format_a(l_field);
-    size_t expected_bit_len = bit_offset + expected_len * 12U;
-    if(raw_bit_len < expected_bit_len) return false;
-
-    if(!wmbus_decode_3of6_bits(
-           capture->data, expected_bit_len, bit_offset, decoded, sizeof(decoded), &decoded_len) ||
-       decoded_len < expected_len) {
-        return false;
-    }
-
-    if(!wmbus_decode_is_plausible_frame(decoded, decoded_len)) return false;
-    result->best_offset = (int)bit_offset;
-    wmbus_packet_upgrade_quality(&result->quality, WmBusPacketQualityHeaderOk);
-
-    const uint8_t* frame = decoded;
-    size_t frame_len = expected_len;
-    WmBusFrameMeasureResult measure = {0};
-    if(wmbus_frame_measure(WmBusRxModeT, decoded, expected_len, &measure)) {
-        frame_len = measure.frame_len;
-        wmbus_packet_upgrade_quality_from_measure(&result->quality, &measure);
-    }
-
-    uint8_t normalized[WMBUS_DECODE_MAX] = {0};
-    WmBusFrameNormalizeResult normalized_result = {0};
-    if(wmbus_frame_normalize(
-           WmBusRxModeT,
-           decoded,
-           expected_len,
-           normalized,
-           sizeof(normalized),
-           &normalized_result)) {
-        frame = normalized;
-        frame_len = normalized_result.normalized_len;
-        wmbus_packet_upgrade_quality_from_normalize(&result->quality, &normalized_result);
-    }
-
-    result->frame_len = frame_len;
-    memcpy(result->frame, frame, frame_len);
-    return true;
-}
-
-static void wmbus_decode_t_capture(const WmBusCaptureFrame* capture, WmBusTDecodeResult* result) {
-    if(!capture || !result) return;
-
-    memset(result, 0, sizeof(*result));
-    result->best_offset = -1;
-
-    int best_score = -1;
-
-    size_t raw_bit_len = capture->len * 8U;
-    // Sync-based RX should put FIFO at frame data. Scan only the possible bit
-    // alignments within the first byte; wider prefix recovery belongs in radio
-    // validation, not packet normalization.
-    size_t scan_bits = raw_bit_len;
-    if(scan_bits > WMBUS_T_SYNC_SEARCH_BITS) {
-        scan_bits = WMBUS_T_SYNC_SEARCH_BITS;
-    }
-
-    for(size_t bit_offset = 0; bit_offset < scan_bits; bit_offset++) {
-        WmBusTDecodeResult candidate = {0};
-        if(!wmbus_try_decode_t_candidate(capture, bit_offset, &candidate)) {
-            continue;
-        }
-
-        int score = wmbus_score_t_decode_candidate(&candidate);
-        bool better = false;
-        if(score > best_score) {
-            better = true;
-        } else if(score == best_score && score >= 0) {
-            if(result->best_offset < 0 || candidate.best_offset < result->best_offset) {
-                better = true;
-            }
-        }
-
-        if(better) {
-            *result = candidate;
-            best_score = score;
-        }
-    }
-}
-
-bool wmbus_packet_decode_capture(
-    const WmBusCaptureFrame* capture,
-    WmBusPacketRecord* record,
+bool wmbus_packet_decode_phy_frame(
+    const WmBusPhyFrame* phy_frame,
     uint8_t* frame_buf,
     size_t frame_buf_max,
     WmBusPacketDecodeState* out) {
-    if(!capture || !record || !frame_buf || frame_buf_max == 0U || !out) {
+    if(!phy_frame || !frame_buf || frame_buf_max == 0U || !out) {
+        return false;
+    }
+    if((phy_frame->mode == WmBusRxModeT && phy_frame->format != WmBusFrameFormatA) ||
+       (phy_frame->mode == WmBusRxModeC && phy_frame->format != WmBusFrameFormatA &&
+        phy_frame->format != WmBusFrameFormatB) ||
+       (phy_frame->mode != WmBusRxModeT && phy_frame->mode != WmBusRxModeC)) {
         return false;
     }
 
     memset(out, 0, sizeof(*out));
-    bool use_3of6 = (capture->mode == WmBusRxModeT);
-
     const uint8_t* frame = NULL;
     size_t frame_len = 0U;
 
-    if(use_3of6) {
-        WmBusTDecodeResult t_result = {0};
-        wmbus_decode_t_capture(capture, &t_result);
-        record->best_offset = t_result.best_offset;
-        out->quality = t_result.quality;
-
-        if(wmbus_packet_quality_meets(t_result.quality, WmBusPacketQualityHeaderOk)) {
-            wmbus_packet_decode_copy_frame(
-                t_result.frame, t_result.frame_len, frame_buf, frame_buf_max, &frame, &frame_len);
-        }
-    } else {
-        if(wmbus_decode_is_plausible_frame(capture->data, capture->len)) {
-            frame = capture->data;
-            frame_len = capture->len;
-            wmbus_packet_upgrade_quality(&out->quality, WmBusPacketQualityHeaderOk);
-        }
+    if(wmbus_decode_is_plausible_frame(phy_frame->data, phy_frame->len)) {
+        frame = phy_frame->data;
+        frame_len = phy_frame->len;
+        wmbus_packet_upgrade_quality(&out->quality, WmBusPacketQualityHeaderOk);
     }
 
-    if(frame && !use_3of6) {
+    if(frame) {
         WmBusFrameMeasureResult measure = {0};
-        if(wmbus_frame_measure(capture->mode, frame, frame_len, &measure)) {
+        if(wmbus_frame_measure(phy_frame->format, frame, frame_len, &measure)) {
             wmbus_packet_upgrade_quality_from_measure(&out->quality, &measure);
         }
 
         WmBusFrameNormalizeResult normalized_result = {0};
         if(wmbus_frame_normalize(
-               capture->mode, frame, frame_len, frame_buf, frame_buf_max, &normalized_result)) {
+               phy_frame->format,
+               frame,
+               frame_len,
+               frame_buf,
+               frame_buf_max,
+               &normalized_result)) {
             frame = frame_buf;
             frame_len = normalized_result.normalized_len;
             wmbus_packet_upgrade_quality_from_normalize(&out->quality, &normalized_result);

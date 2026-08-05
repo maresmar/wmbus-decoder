@@ -50,17 +50,16 @@ static uint8_t wmbus_decode_get_bits_msb(const uint8_t* data, size_t bit_pos, si
     return out;
 }
 
-bool wmbus_decode_3of6_bits(
+bool wmbus_decode_3of6(
     const uint8_t* raw,
     size_t raw_bit_len,
-    size_t bit_offset,
     uint8_t* out,
     size_t out_max,
     size_t* out_len) {
     if(!raw || !out || !out_len) return false;
-    if(raw_bit_len <= bit_offset) return false;
+    if(raw_bit_len == 0U) return false;
 
-    size_t bit_pos = bit_offset;
+    size_t bit_pos = 0U;
     size_t out_idx = 0;
     bool have_high = false;
     uint8_t high_nibble = 0;

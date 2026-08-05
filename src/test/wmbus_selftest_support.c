@@ -148,8 +148,9 @@ const char* wmbus_selftest_apator_encrypted_mode5_corrupt =
 
 /*
  * Real C-mode FIFO captures from water meter 24008355.  The leading 54 CD is
- * the unconsumed C-mode sync tail, not part of the Link Layer frame.  Each
- * capture reached the 256-byte FIFO diagnostic limit after its valid telegram.
+ * the unconsumed C-mode sync tail, not part of the Link Layer frame. The valid
+ * Frame A capture is 93 FIFO bytes; bytes after that calculated length are
+ * intentionally ignored.
  */
 const char* wmbus_selftest_c_real_meter_capture_24008355_access_47 =
     "54CD4E44243455830024050785DE7A470000202F2F041350710000046D0F11888E5A3704FD17000000000"
@@ -307,7 +308,6 @@ bool wmbus_selftest_write_report_line(File* file, const char* format, ...) {
 
 void wmbus_selftest_result_reset(WmBusSelftestResult* result) {
     memset(result, 0, sizeof(*result));
-    result->best_offset = -1;
     memcpy(result->manufacturer, "???", WMBUS_MFG_STR_LEN);
     memcpy(result->id, "????????", WMBUS_ID_STR_LEN);
 }
@@ -384,18 +384,17 @@ bool wmbus_selftest_prepare_frame(
     return true;
 }
 
-bool wmbus_selftest_generate_t_3of6_raw_with_offset(
+bool wmbus_selftest_generate_t_3of6_raw(
     const uint8_t* decoded,
     size_t decoded_len,
-    uint8_t expected_offset,
     uint8_t* out,
     size_t out_max,
     size_t* out_len,
     size_t* out_bit_len) {
-    if(!decoded || !out || !out_len || !out_bit_len || expected_offset > 7U) return false;
+    if(!decoded || !out || !out_len || !out_bit_len) return false;
 
-    size_t bit_pos = expected_offset;
-    size_t total_bits = expected_offset + decoded_len * 12U;
+    size_t bit_pos = 0U;
+    size_t total_bits = decoded_len * 12U;
     size_t raw_len = (total_bits + 7U) / 8U;
     if(raw_len > out_max) return false;
 
@@ -434,8 +433,6 @@ void wmbus_selftest_result_from_record(
     result->length_ok =
         wmbus_packet_quality_meets(record->quality, WmBusPacketQualityFrameComplete);
     result->crc_ok = wmbus_packet_quality_meets(record->quality, WmBusPacketQualityCrcOk);
-    result->best_offset = record->best_offset;
-
     if(record->packet_len > 0U) {
         result->l_field = record->packet_bytes[0];
         result->has_l_field = true;
@@ -448,27 +445,33 @@ void wmbus_selftest_result_from_record(
     }
 }
 
-bool wmbus_selftest_process_capture_record(
+bool wmbus_selftest_process_phy_frame_record(
     WmBusRxMode mode,
+    WmBusFrameFormat format,
     const uint8_t* data,
     size_t data_len,
     const WmBusCryptoKeyStore* key_store,
     WmBusPacketRecord* record) {
-    WmBusCaptureFrame capture = {0};
+    WmBusPhyFrame phy_frame = {0};
 
-    if(!data || !record || data_len > sizeof(capture.data)) return false;
+    if(!data || !record || data_len > sizeof(phy_frame.data) ||
+       (format != WmBusFrameFormatA && format != WmBusFrameFormatB)) {
+        return false;
+    }
 
     memset(record, 0, sizeof(*record));
-    memcpy(capture.data, data, data_len);
-    capture.len = data_len;
-    capture.rssi = -60;
-    capture.mode = mode;
+    memcpy(phy_frame.data, data, data_len);
+    phy_frame.len = data_len;
+    phy_frame.rssi = -60;
+    phy_frame.mode = mode;
+    phy_frame.format = format;
 
-    return wmbus_packet_process_capture(&capture, key_store, record);
+    return wmbus_packet_process_phy_frame(&phy_frame, key_store, record);
 }
 
-bool wmbus_selftest_run_capture(
+bool wmbus_selftest_run_phy_frame(
     WmBusRxMode mode,
+    WmBusFrameFormat format,
     const uint8_t* data,
     size_t data_len,
     const WmBusCryptoKeyStore* key_store,
@@ -476,7 +479,8 @@ bool wmbus_selftest_run_capture(
     WmBusPacketRecord record = {0};
 
     if(!data || !result) return false;
-    if(!wmbus_selftest_process_capture_record(mode, data, data_len, key_store, &record)) {
+    if(!wmbus_selftest_process_phy_frame_record(
+           mode, format, data, data_len, key_store, &record)) {
         wmbus_selftest_result_reset(result);
         return false;
     }

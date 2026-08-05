@@ -23,6 +23,7 @@ typedef struct {
 typedef struct {
     WmBusPacketQuality quality;
     WmBusRxMode mode;
+    WmBusFrameFormat format;
     bool rssi_gate_ok;
     int8_t rssi;
     uint32_t rx_tick;
@@ -231,7 +232,10 @@ static void wmbus_rx_draw(Canvas* canvas, void* model) {
     snprintf(line, sizeof(line), "%s", entry ? wmbus_packet_quality_str(entry->quality) : "--");
     canvas_draw_str(canvas, 0, 38, line);
 
-    snprintf(line, sizeof(line), "RSSI:%d", entry ? entry->rssi : m->rssi);
+    /* The active RX view reports receiver state. Packet RSSI is shown only
+     * while browsing a frozen history entry and remains available in detail. */
+    int displayed_rssi = (m->freeze_display && entry) ? entry->rssi : m->rssi;
+    snprintf(line, sizeof(line), "RSSI:%d", displayed_rssi);
     canvas_draw_str_aligned(canvas, canvas_width(canvas), 38, AlignRight, AlignBottom, line);
 
     if(age[0] != '\0') {
@@ -418,11 +422,6 @@ void wmbus_rx_view_set_freq_valid(WmBusRxView* rx_view, bool freq_valid) {
         rx_view->view, WmBusRxViewModel * model, { model->freq_valid = freq_valid; }, true);
 }
 
-void wmbus_rx_view_set_live_rssi(WmBusRxView* rx_view, int rssi) {
-    if(!rx_view) return;
-    with_view_model(rx_view->view, WmBusRxViewModel * model, { model->rssi = rssi; }, true);
-}
-
 static void wmbus_rx_rssi_hist_push(WmBusRxViewModel* model, int rssi) {
     uint8_t next = (model->rssi_hist_count == 0U) ?
                        0U :
@@ -434,6 +433,18 @@ static void wmbus_rx_rssi_hist_push(WmBusRxViewModel* model, int rssi) {
     model->rssi_hist[model->rssi_hist_head] = (int8_t)rssi;
 }
 
+void wmbus_rx_view_set_live_rssi(WmBusRxView* rx_view, int rssi) {
+    if(!rx_view) return;
+    with_view_model(
+        rx_view->view,
+        WmBusRxViewModel * model,
+        {
+            model->rssi = rssi;
+            wmbus_rx_rssi_hist_push(model, rssi);
+        },
+        true);
+}
+
 static void wmbus_rx_history_fill_entry(
     WmBusRxHistoryEntry* entry,
     const WmBusPacketRecord* record,
@@ -443,6 +454,7 @@ static void wmbus_rx_history_fill_entry(
     memset(entry, 0, sizeof(*entry));
     entry->quality = record->quality;
     entry->mode = record->mode;
+    entry->format = record->format;
     entry->rssi_gate_ok = rssi_gate_ok;
     entry->rssi = (int8_t)record->rssi;
     entry->rx_tick = record->rx_tick;
@@ -467,6 +479,7 @@ static void
     memset(record, 0, sizeof(*record));
     record->quality = entry->quality;
     record->mode = entry->mode;
+    record->format = entry->format;
     record->rssi = entry->rssi;
     record->rx_tick = entry->rx_tick;
     record->packet_len = entry->packet_len;
@@ -492,7 +505,7 @@ void wmbus_rx_view_push_packet(
             wmbus_rx_history_fill_entry(&model->latest, record, rssi_gate_ok);
             model->has_latest = true;
 
-            if(record->capture_len > 0U) {
+            if(record->wire_len > 0U) {
                 model->packets_rx++;
             }
 
@@ -503,8 +516,6 @@ void wmbus_rx_view_push_packet(
             if(wmbus_packet_quality_meets(record->quality, WmBusPacketQualityCrcOk)) {
                 model->packets_crc_ok++;
             }
-
-            wmbus_rx_rssi_hist_push(model, record->rssi);
 
             if(store_in_history) {
                 uint8_t next = (model->hist_count == 0U) ?

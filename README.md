@@ -15,6 +15,9 @@
 
 ### Packet flow
 
+The mode-specific radio and capture contract is documented in
+[Receive Pipeline](docs/receive-pipeline.md).
+
 1. radio RX captures raw telegram data in `T` or `C` mode
 2. capture code reconstructs a candidate WM-Bus frame for the selected mode
 3. packet processing validates plausibility, length, and CRC
@@ -54,7 +57,7 @@ Minimum steps:
 5. place it before any broader parser it should override
 6. add or update selftests in `applications_user/wmbus_decoder/test/`
 
-Parser inputs come through `WmBusParserPacketView`, which exposes DLL, TPL, payload, and identity data from the shared packet pipeline. New parser tests should exercise the full packet path through `wmbus_packet_process_capture(...)` rather than calling parser internals directly.
+Parser inputs come through `WmBusParserPacketView`, which exposes DLL, TPL, payload, and identity data from the shared packet pipeline. New parser tests should exercise the full packet path through `wmbus_packet_process_phy_frame(...)` rather than calling parser internals directly.
 
 ## Runtime Controls
 
@@ -133,7 +136,7 @@ storage read /ext/apps_data/wmbus_decoder/selftest.txt
 Expected result ends with:
 
 ```text
-selftests done total=53 passed=53 failed=0
+selftests done total=52 passed=52 failed=0
 ```
 
 ## Credits

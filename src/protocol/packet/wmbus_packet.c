@@ -50,25 +50,25 @@ bool wmbus_packet_record_passes_policy(
     return wmbus_packet_quality_meets(record->quality, min_quality);
 }
 
-bool wmbus_packet_process_capture(
-    const WmBusCaptureFrame* capture,
+bool wmbus_packet_process_phy_frame(
+    const WmBusPhyFrame* phy_frame,
     const WmBusCryptoKeyStore* key_store,
     WmBusPacketRecord* record) {
-    if(!capture || !record) return false;
+    if(!phy_frame || !record) return false;
 
     memset(record, 0, sizeof(*record));
-    record->mode = capture->mode;
-    record->capture_len = (uint16_t)((capture->len > sizeof(record->capture_bytes)) ?
-                                         sizeof(record->capture_bytes) :
-                                         capture->len);
-    record->best_offset = -1;
-    record->rssi = capture->rssi;
+    record->mode = phy_frame->mode;
+    record->format = phy_frame->format;
+    record->wire_len = (uint16_t)((phy_frame->len > sizeof(record->wire_bytes)) ?
+                                      sizeof(record->wire_bytes) :
+                                      phy_frame->len);
+    record->rssi = phy_frame->rssi;
     record->rx_tick = furi_get_tick();
-    memcpy(record->capture_bytes, capture->data, record->capture_len);
+    memcpy(record->wire_bytes, phy_frame->data, record->wire_len);
 
     uint8_t normalized[256] = {0};
     WmBusPacketDecodeState decode = {0};
-    if(!wmbus_packet_decode_capture(capture, record, normalized, sizeof(normalized), &decode)) {
+    if(!wmbus_packet_decode_phy_frame(phy_frame, normalized, sizeof(normalized), &decode)) {
         return false;
     }
 
@@ -82,10 +82,10 @@ bool wmbus_packet_process_capture(
     if(has_complete_frame) {
         wmbus_packet_store_frame(record, decode.frame, decode.frame_len);
     } else {
-        record->packet_len = (uint16_t)((capture->len > sizeof(record->packet_bytes)) ?
+        record->packet_len = (uint16_t)((phy_frame->len > sizeof(record->packet_bytes)) ?
                                             sizeof(record->packet_bytes) :
-                                            capture->len);
-        memcpy(record->packet_bytes, capture->data, record->packet_len);
+                                            phy_frame->len);
+        memcpy(record->packet_bytes, phy_frame->data, record->packet_len);
     }
 
     if(has_complete_frame && crc_ok) {

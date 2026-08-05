@@ -61,13 +61,13 @@ bool wmbus_frame_trim_crc(
 bool wmbus_frame_crc_check(WmBusFrameFormat format, const uint8_t* data, size_t len);
 
 bool wmbus_frame_measure(
-    WmBusRxMode mode,
+    WmBusFrameFormat format,
     const uint8_t* frame,
     size_t frame_len,
     WmBusFrameMeasureResult* out);
 
 bool wmbus_frame_normalize(
-    WmBusRxMode mode,
+    WmBusFrameFormat format,
     const uint8_t* frame,
     size_t frame_len,
     uint8_t* normalized,

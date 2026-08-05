@@ -16,7 +16,7 @@ static bool wmbus_selftest_check_3of6_valid_single_byte(char* detail, size_t det
     uint8_t out[4] = {0};
     size_t out_len = 0;
 
-    if(!wmbus_decode_3of6_bits(raw, sizeof(raw) * 8U, 0U, out, sizeof(out), &out_len)) {
+    if(!wmbus_decode_3of6(raw, sizeof(raw) * 8U, out, sizeof(out), &out_len)) {
         wmbus_selftest_set_detail(detail, detail_len, "decode failed");
         return false;
     }
@@ -30,31 +30,12 @@ static bool wmbus_selftest_check_3of6_valid_single_byte(char* detail, size_t det
     return true;
 }
 
-static bool wmbus_selftest_check_3of6_valid_single_byte_offset_1(char* detail, size_t detail_len) {
-    const uint8_t raw[] = {0x2C, 0x68, 0x00};
-    uint8_t out[4] = {0};
-    size_t out_len = 0;
-
-    if(!wmbus_decode_3of6_bits(raw, 17U, 1U, out, sizeof(out), &out_len)) {
-        wmbus_selftest_set_detail(detail, detail_len, "decode failed at offset=1");
-        return false;
-    }
-    if(out_len != 1U || out[0] != 0x01U) {
-        wmbus_selftest_set_detail(
-            detail, detail_len, "unexpected out_len=%u out0=%02X", (unsigned int)out_len, out[0]);
-        return false;
-    }
-
-    wmbus_selftest_set_detail(detail, detail_len, "decoded=01 len=1 offset=1");
-    return true;
-}
-
 static bool wmbus_selftest_check_3of6_reject_dangling_nibble(char* detail, size_t detail_len) {
     const uint8_t raw[] = {0x58};
     uint8_t out[4] = {0};
     size_t out_len = 0;
 
-    if(wmbus_decode_3of6_bits(raw, sizeof(raw) * 8U, 0U, out, sizeof(out), &out_len)) {
+    if(wmbus_decode_3of6(raw, sizeof(raw) * 8U, out, sizeof(out), &out_len)) {
         wmbus_selftest_set_detail(detail, detail_len, "dangling nibble accepted");
         return false;
     }
@@ -68,7 +49,7 @@ static bool wmbus_selftest_check_3of6_reject_invalid_symbol(char* detail, size_t
     uint8_t out[4] = {0};
     size_t out_len = 0;
 
-    if(wmbus_decode_3of6_bits(raw, sizeof(raw) * 8U, 0U, out, sizeof(out), &out_len)) {
+    if(wmbus_decode_3of6(raw, sizeof(raw) * 8U, out, sizeof(out), &out_len)) {
         wmbus_selftest_set_detail(detail, detail_len, "invalid symbol accepted");
         return false;
     }
@@ -493,8 +474,6 @@ static bool wmbus_selftest_check_packet_quality_policy(char* detail, size_t deta
 
 static const WmBusSelftestCheck wmbus_selftest_checks_tooling[] = {
     {"check_3of6_valid_single_byte", wmbus_selftest_check_3of6_valid_single_byte},
-    {"check_3of6_valid_single_byte_offset_1",
-     wmbus_selftest_check_3of6_valid_single_byte_offset_1},
     {"check_3of6_reject_dangling_nibble", wmbus_selftest_check_3of6_reject_dangling_nibble},
     {"check_3of6_reject_invalid_symbol", wmbus_selftest_check_3of6_reject_invalid_symbol},
     {"check_parser_plausibility", wmbus_selftest_check_parser_plausibility},

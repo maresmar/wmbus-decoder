@@ -16,12 +16,12 @@
 typedef struct {
     WmBusPacketQuality quality;
     WmBusRxMode mode;
-    uint16_t capture_len;
+    WmBusFrameFormat format;
+    uint16_t wire_len;
     uint16_t packet_len; /**< Stored byte count of `packet_bytes`, not the same as `dll.l_field`. */
-    int best_offset;
     int rssi;
     uint32_t rx_tick;
-    uint8_t capture_bytes[256];
+    uint8_t wire_bytes[256];
     uint8_t packet_bytes[256];
     WmBusPacketDllData dll;
     WmBusPacketEllData ell;
@@ -31,8 +31,8 @@ typedef struct {
     WmBusPacketApplicationData application;
 } WmBusPacketRecord;
 
-bool wmbus_packet_process_capture(
-    const WmBusCaptureFrame* capture,
+bool wmbus_packet_process_phy_frame(
+    const WmBusPhyFrame* phy_frame,
     const WmBusCryptoKeyStore* key_store,
     WmBusPacketRecord* record);
 
