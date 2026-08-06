@@ -248,6 +248,13 @@ static bool wmbus_record_formatter_format_field_buf(
     return true;
 }
 
+bool wmbus_record_formatter_format_value_text(
+    const WmBusApplicationRecord* record,
+    char* out,
+    size_t out_size) {
+    return wmbus_record_formatter_format_value_buf(record, out, out_size);
+}
+
 bool wmbus_record_formatter_format_field(const WmBusApplicationRecord* record, FuriString* out) {
     char field[WMBUS_PACKET_DETAIL_MAX] = {0};
     if(!out) return false;

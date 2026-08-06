@@ -5,6 +5,15 @@
 #include "../model/wmbus_application_types.h"
 
 /**
+ * Format one application record value without allocating.
+ * Returns false when the value has no printable representation.
+ */
+bool wmbus_record_formatter_format_value_text(
+    const WmBusApplicationRecord* record,
+    char* out,
+    size_t out_size);
+
+/**
  * Format one application record as `label=value`.
  * Resets `out`. Empty output is valid when either side is not printable.
  * The caller owns `out`.

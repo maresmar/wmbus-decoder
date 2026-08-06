@@ -3,6 +3,7 @@
 #include "../../protocol/format/wmbus_packet_formatter.h"
 #include "../../protocol/format/wmbus_hex_utils.h"
 #include "../../protocol/format/wmbus_packet_summary.h"
+#include "../../protocol/format/wmbus_record_formatter.h"
 #include "../../protocol/model/wmbus_application_record.h"
 
 #include <furi.h>
@@ -145,7 +146,28 @@ static void
     out[0] = '\0';
     if(!entry) return;
 
-    wmbus_application_format_total_volume_m3(&entry->application, out, out_size, true);
+    static const WmBusApplicationQuantity preferred_quantities[] = {
+        WmBusApplicationQuantityVolume,
+        WmBusApplicationQuantityEnergy,
+        WmBusApplicationQuantityPower,
+        WmBusApplicationQuantityHeatCostAllocation,
+    };
+
+    for(size_t quantity_index = 0U; quantity_index < COUNT_OF(preferred_quantities);
+        quantity_index++) {
+        for(uint8_t record_index = 0U; record_index < entry->application.record_count;
+            record_index++) {
+            const WmBusApplicationRecord* record = &entry->application.records[record_index];
+            if(record->quantity != preferred_quantities[quantity_index] || record->storage_no != 0U ||
+               record->value_type != WmBusApplicationValueUnsigned) {
+                continue;
+            }
+
+            if(wmbus_record_formatter_format_value_text(record, out, out_size)) {
+                return;
+            }
+        }
+    }
 }
 
 static void
@@ -261,7 +283,7 @@ static void wmbus_rx_draw(Canvas* canvas, void* model) {
     } else {
         char right[20];
         char footer_left[24];
-        char footer_right[24];
+        char footer_right[40];
         snprintf(
             line,
             sizeof(line),
