@@ -6,11 +6,15 @@
 #include "../parser/wmbus_parser_id.h"
 
 #define WMBUS_PACKET_RECORD_MAX 12U
+/* EN 13757-3 permits at most ten DIFE and ten VIFE bytes per record. */
+#define WMBUS_APPLICATION_DIFE_MAX 10U
+#define WMBUS_APPLICATION_VIFE_MAX 10U
 
 typedef enum {
     WmBusApplicationValueNone = 0,
     WmBusApplicationValueUnsigned,
     WmBusApplicationValueDateTime,
+    WmBusApplicationValueUnavailable,
     WmBusApplicationValueRaw,
 } WmBusApplicationValueType;
 
@@ -31,6 +35,7 @@ typedef enum {
     WmBusApplicationQuantityFlowTemperature,
     WmBusApplicationQuantityReturnTemperature,
     WmBusApplicationQuantityTemperatureDifference,
+    WmBusApplicationQuantityHeatCostAllocation,
     WmBusApplicationQuantityDate,
     WmBusApplicationQuantityDateTime,
     WmBusApplicationQuantityStatus,
@@ -48,9 +53,9 @@ typedef struct {
 typedef struct {
     uint8_t dif;
     uint8_t vif;
-    uint16_t storage_no;
-    uint8_t tariff;
-    uint8_t subunit;
+    uint64_t storage_no;
+    uint32_t tariff;
+    uint16_t subunit;
     uint8_t data_len;
     WmBusApplicationValueType value_type;
     WmBusApplicationMeasurementType measurement_type;

@@ -47,7 +47,9 @@ WmBusCaptureLengthStatus wmbus_fifo_frame_length(
         format = fifo[1] == WMBUS_C_FRAME_A_SYNC_REMAINDER_1 ? WmBusFrameFormatA :
                                                                WmBusFrameFormatB;
         l_field = fifo[WMBUS_C_SYNC_REMAINDER_LEN];
-        if(!wmbus_frame_l_field_valid(l_field)) return WmBusCaptureLengthInvalid;
+        if(!wmbus_frame_l_field_valid_for_format(l_field, format)) {
+            return WmBusCaptureLengthInvalid;
+        }
         expected_fifo_len = WMBUS_C_SYNC_REMAINDER_LEN +
                             wmbus_frame_expected_len(l_field, format);
     } else {
@@ -56,7 +58,7 @@ WmBusCaptureLengthStatus wmbus_fifo_frame_length(
 
         size_t decoded_len = 0U;
         if(!wmbus_decode_3of6(fifo, 12U, &l_field, 1U, &decoded_len) || decoded_len != 1U ||
-           !wmbus_frame_l_field_valid(l_field)) {
+           !wmbus_frame_l_field_valid_for_format(l_field, WmBusFrameFormatA)) {
             return WmBusCaptureLengthInvalid;
         }
 

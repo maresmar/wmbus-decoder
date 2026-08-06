@@ -83,7 +83,13 @@ static bool wmbus_frame_crc_check_a(const uint8_t* data, size_t len) {
 }
 
 static bool wmbus_frame_crc_check_b(const uint8_t* data, size_t len) {
-    if(len < 12) return false;
+    if(!data || !wmbus_frame_l_field_valid_for_format(data[0], WmBusFrameFormatB)) {
+        return false;
+    }
+
+    const size_t expected_len = wmbus_frame_expected_len(data[0], WmBusFrameFormatB);
+    if(expected_len == 0U || len < expected_len) return false;
+    len = expected_len;
 
     size_t crc1_pos = 0;
     size_t crc2_pos = 0;
@@ -113,6 +119,19 @@ bool wmbus_frame_l_field_valid(uint8_t l_field) {
     return l_field >= WMBUS_FRAME_L_FIELD_MIN && l_field <= WMBUS_FRAME_L_FIELD_MAX;
 }
 
+bool wmbus_frame_l_field_valid_for_format(uint8_t l_field, WmBusFrameFormat format) {
+    if(!wmbus_frame_l_field_valid(l_field)) return false;
+
+    if(format == WmBusFrameFormatA) return true;
+    if(format == WmBusFrameFormatB) {
+        return l_field >= WMBUS_FRAME_B_L_FIELD_MIN &&
+               (l_field <= WMBUS_FRAME_B_SINGLE_CRC_L_FIELD_MAX ||
+                l_field >= WMBUS_FRAME_B_DOUBLE_CRC_L_FIELD_MIN);
+    }
+
+    return false;
+}
+
 size_t wmbus_frame_len_format_a(uint8_t l_field) {
     size_t n = l_field;
     size_t len = 1U + n + 2U; // L + data + first CRC
@@ -129,6 +148,8 @@ size_t wmbus_frame_len_format_b(uint8_t l_field) {
 }
 
 size_t wmbus_frame_expected_len(uint8_t l_field, WmBusFrameFormat format) {
+    if(!wmbus_frame_l_field_valid_for_format(l_field, format)) return 0U;
+
     if(format == WmBusFrameFormatA) {
         return wmbus_frame_len_format_a(l_field);
     } else if(format == WmBusFrameFormatB) {
@@ -191,10 +212,14 @@ bool wmbus_frame_build_format_b(
     if(!wmbus_frame_l_field_valid(normalized[0])) return false;
     if(normalized_len != (size_t)normalized[0] + 1U) return false;
     if(normalized_len <= 126U) {
+        const uint8_t wire_l_field = (uint8_t)(normalized[0] + 2U);
+        if(!wmbus_frame_l_field_valid_for_format(wire_l_field, WmBusFrameFormatB)) {
+            return false;
+        }
         if(normalized_len + 2U > out_max) return false;
 
         memcpy(out, normalized, normalized_len);
-        out[0] = (uint8_t)(normalized[0] + 2U);
+        out[0] = wire_l_field;
 
         uint16_t crc = wmbus_crc16_en13757(out, normalized_len);
         out[normalized_len] = (uint8_t)(crc >> 8);
@@ -207,8 +232,13 @@ bool wmbus_frame_build_format_b(
         return false;
     }
 
+    const uint8_t wire_l_field = (uint8_t)(normalized[0] + 4U);
+    if(!wmbus_frame_l_field_valid_for_format(wire_l_field, WmBusFrameFormatB)) {
+        return false;
+    }
+
     memcpy(out, normalized, 126U);
-    out[0] = (uint8_t)(normalized[0] + 4U);
+    out[0] = wire_l_field;
     uint16_t crc = wmbus_crc16_en13757(out, 126U);
     out[126] = (uint8_t)(crc >> 8);
     out[127] = (uint8_t)crc;
@@ -263,7 +293,14 @@ static bool wmbus_frame_trim_crc_b(
     uint8_t* out,
     size_t out_max,
     size_t* out_len) {
-    if(!data || !out || !out_len || len < 12) return false;
+    if(!data || !out || !out_len ||
+       !wmbus_frame_l_field_valid_for_format(data[0], WmBusFrameFormatB)) {
+        return false;
+    }
+
+    const size_t expected_len = wmbus_frame_expected_len(data[0], WmBusFrameFormatB);
+    if(expected_len == 0U || len < expected_len) return false;
+    len = expected_len;
 
     size_t crc1_pos = 0;
     size_t crc2_pos = 0;
@@ -341,7 +378,7 @@ bool wmbus_frame_measure(
     memset(out, 0, sizeof(*out));
 
     uint8_t l_field = frame[0];
-    if(!wmbus_frame_l_field_valid(l_field)) return false;
+    if(!wmbus_frame_l_field_valid_for_format(l_field, format)) return false;
 
     size_t expected_len = wmbus_frame_expected_len(l_field, format);
     if(expected_len == 0U || frame_len < expected_len) return false;
@@ -367,7 +404,7 @@ bool wmbus_frame_normalize(
     memset(out, 0, sizeof(*out));
 
     uint8_t l_field = frame[0];
-    if(!wmbus_frame_l_field_valid(l_field)) return false;
+    if(!wmbus_frame_l_field_valid_for_format(l_field, format)) return false;
 
     size_t expected_len = wmbus_frame_expected_len(l_field, format);
     if(expected_len == 0U || frame_len < expected_len) return false;

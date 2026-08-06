@@ -160,6 +160,8 @@ static void
     } else if((record->vif & 0xFCU) == 0x60U) {
         record->quantity = WmBusApplicationQuantityTemperatureDifference;
         record->scale10 = (int8_t)(record->vif & 0x03U) - 3;
+    } else if(record->vif == 0x6EU) {
+        record->quantity = WmBusApplicationQuantityHeatCostAllocation;
     } else if(record->vif == 0x6CU) {
         record->quantity = WmBusApplicationQuantityDate;
     } else if(record->vif == 0x6DU) {
@@ -185,16 +187,20 @@ static void wmbus_packet_decode_record_value(
         return;
     }
 
-    if(record->quantity == WmBusApplicationQuantityDate && data_len == 2U) {
-        if(wmbus_packet_decode_date2(data, &record->value_datetime)) {
+    if(record->quantity == WmBusApplicationQuantityDate) {
+        if(data_len == 2U && wmbus_packet_decode_date2(data, &record->value_datetime)) {
             record->value_type = WmBusApplicationValueDateTime;
-            return;
+        } else {
+            record->value_type = WmBusApplicationValueUnavailable;
         }
-    } else if(record->quantity == WmBusApplicationQuantityDateTime && data_len == 4U) {
-        if(wmbus_packet_decode_datetime4(data, &record->value_datetime)) {
+        return;
+    } else if(record->quantity == WmBusApplicationQuantityDateTime) {
+        if(data_len == 4U && wmbus_packet_decode_datetime4(data, &record->value_datetime)) {
             record->value_type = WmBusApplicationValueDateTime;
-            return;
+        } else {
+            record->value_type = WmBusApplicationValueUnavailable;
         }
+        return;
     }
 
     if(record->quantity == WmBusApplicationQuantityStatus) {
@@ -255,17 +261,15 @@ bool wmbus_packet_decode_application_records(
         record->dif = payload[pos++];
         record->measurement_type = wmbus_packet_measurement_type_from_dif(record->dif);
 
-        uint16_t storage_no = (record->dif >> 6) & 0x01U;
-        uint8_t storage_shift = 1U;
+        uint64_t storage_no = (uint64_t)((record->dif >> 6) & 0x01U);
         uint8_t dife_index = 0U;
 
         while((record->dif & 0x80U) != 0U) {
-            if(pos >= payload_len) return false;
+            if(pos >= payload_len || dife_index >= WMBUS_APPLICATION_DIFE_MAX) return false;
             uint8_t dife = payload[pos++];
-            storage_no |= (uint16_t)(dife & 0x0FU) << storage_shift;
-            storage_shift += 4U;
-            record->tariff |= (uint8_t)((dife >> 4) & 0x03U) << (2U * dife_index);
-            record->subunit |= (uint8_t)((dife >> 6) & 0x01U) << dife_index;
+            storage_no |= (uint64_t)(dife & 0x0FU) << (1U + (4U * dife_index));
+            record->tariff |= (uint32_t)((dife >> 4) & 0x03U) << (2U * dife_index);
+            record->subunit |= (uint16_t)((dife >> 6) & 0x01U) << dife_index;
             dife_index++;
             if((dife & 0x80U) == 0U) break;
         }
@@ -276,13 +280,15 @@ bool wmbus_packet_decode_application_records(
 
         uint8_t first_vife = 0U;
         bool has_first_vife = false;
+        uint8_t vife_count = 0U;
         while((record->vif & 0x80U) != 0U) {
-            if(pos >= payload_len) return false;
+            if(pos >= payload_len || vife_count >= WMBUS_APPLICATION_VIFE_MAX) return false;
             uint8_t vife = payload[pos++];
             if(!has_first_vife) {
                 first_vife = vife;
                 has_first_vife = true;
             }
+            vife_count++;
             if((vife & 0x80U) == 0U) break;
         }
 

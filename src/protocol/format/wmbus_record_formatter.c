@@ -48,15 +48,6 @@ static const char*
     }
 }
 
-static bool
-    wmbus_record_formatter_is_primary_summary_candidate(const WmBusApplicationRecord* record) {
-    if(!record || !wmbus_application_record_is_meaningful(record)) {
-        return false;
-    }
-
-    return record->storage_no == 0U && record->tariff == 0U && record->subunit == 0U;
-}
-
 static bool wmbus_record_formatter_format_label_buf(
     const WmBusApplicationRecord* record,
     char* out,
@@ -88,11 +79,14 @@ static bool wmbus_record_formatter_format_label_buf(
     case WmBusApplicationQuantityTemperatureDifference:
         label = "Delta temp";
         break;
+    case WmBusApplicationQuantityHeatCostAllocation:
+        label = "HeatCA";
+        break;
     case WmBusApplicationQuantityDate:
         label = "Date";
         break;
     case WmBusApplicationQuantityDateTime:
-        label = "Measured at";
+        label = "DateTime";
         break;
     case WmBusApplicationQuantityStatus:
         label = "Status";
@@ -146,6 +140,9 @@ static bool wmbus_record_formatter_format_value_buf(
                 (unsigned int)record->value_datetime.day);
         }
         return true;
+    case WmBusApplicationValueUnavailable:
+        snprintf(out, out_size, "-");
+        return true;
     case WmBusApplicationValueRaw:
         if(record->quantity == WmBusApplicationQuantityStatus) {
             return wmbus_hex_encode_le(record->value_unsigned, record->data_len, out, out_size);
@@ -168,19 +165,10 @@ static bool wmbus_record_formatter_format_context_label_buf(
     if(!record || out[0] == '\0') return false;
 
     bool include_measurement_type =
-        ((record->quantity == WmBusApplicationQuantityVolume ||
-          record->quantity == WmBusApplicationQuantityEnergy ||
-          record->quantity == WmBusApplicationQuantityPower) &&
-         wmbus_record_formatter_is_primary_summary_candidate(record)) ||
-        (record->measurement_type != WmBusApplicationMeasurementTypeUnknown &&
-         record->measurement_type != WmBusApplicationMeasurementTypeInstantaneous);
-    bool include_storage = record->storage_no != 0U;
+        record->measurement_type != WmBusApplicationMeasurementTypeUnknown &&
+        record->measurement_type != WmBusApplicationMeasurementTypeInstantaneous;
     bool include_tariff = record->tariff != 0U;
     bool include_subunit = record->subunit != 0U;
-
-    if(!(include_measurement_type || include_storage || include_tariff || include_subunit)) {
-        return true;
-    }
 
     size_t write = strlen(out);
     int len = snprintf(&out[write], out_size - write, "[");
@@ -198,25 +186,39 @@ static bool wmbus_record_formatter_format_context_label_buf(
         }
     }
 
-    if(include_storage) {
+    if(record->storage_no == 0U) {
+        len = snprintf(&out[write], out_size - write, "%s*", need_sep ? " " : "");
+    } else {
         len = snprintf(
-            &out[write], out_size - write, "%sS%u", need_sep ? "," : "", record->storage_no);
-        if(len < 0 || (size_t)len >= (out_size - write)) return false;
-        write += (size_t)len;
-        need_sep = true;
+            &out[write],
+            out_size - write,
+            "%sS%llu",
+            need_sep ? " " : "",
+            (unsigned long long)record->storage_no);
     }
+    if(len < 0 || (size_t)len >= (out_size - write)) return false;
+    write += (size_t)len;
+    need_sep = true;
 
     if(include_tariff) {
-        len =
-            snprintf(&out[write], out_size - write, "%sT%u", need_sep ? "," : "", record->tariff);
+        len = snprintf(
+            &out[write],
+            out_size - write,
+            "%sT%lu",
+            need_sep ? " " : "",
+            (unsigned long)record->tariff);
         if(len < 0 || (size_t)len >= (out_size - write)) return false;
         write += (size_t)len;
         need_sep = true;
     }
 
     if(include_subunit) {
-        len =
-            snprintf(&out[write], out_size - write, "%sU%u", need_sep ? "," : "", record->subunit);
+        len = snprintf(
+            &out[write],
+            out_size - write,
+            "%sU%u",
+            need_sep ? " " : "",
+            (unsigned int)record->subunit);
         if(len < 0 || (size_t)len >= (out_size - write)) return false;
         write += (size_t)len;
     }
@@ -269,38 +271,21 @@ bool wmbus_record_formatter_format_joined(
     furi_string_reset(out);
     if(!records || record_count == 0U) return false;
 
-    bool quantity_seen[WmBusApplicationQuantityStatus + 1U] = {0};
     bool wrote_any = false;
 
-    for(uint8_t pass = 0U; pass < 2U; pass++) {
-        for(uint8_t i = 0; i < record_count; i++) {
-            const WmBusApplicationRecord* record = &records[i];
-            char field[WMBUS_PACKET_DETAIL_MAX] = {0};
+    for(uint8_t i = 0; i < record_count; i++) {
+        const WmBusApplicationRecord* record = &records[i];
+        char field[WMBUS_PACKET_DETAIL_MAX] = {0};
 
-            if(!wmbus_record_formatter_format_field_buf(record, true, field, sizeof(field))) {
-                continue;
-            }
-            if(record->quantity > WmBusApplicationQuantityStatus ||
-               quantity_seen[record->quantity]) {
-                continue;
-            }
-            if(pass == 0U && !wmbus_record_formatter_is_primary_summary_candidate(record)) {
-                continue;
-            }
-
-            if(wrote_any) {
-                furi_string_push_back(out, delimiter);
-            }
-            furi_string_cat_str(out, field);
-            wrote_any = true;
-            quantity_seen[record->quantity] = true;
-
-            if(record->quantity != WmBusApplicationQuantityDateTime &&
-               record->quantity != WmBusApplicationQuantityStatus &&
-               furi_string_size(out) >= (WMBUS_PACKET_DETAIL_MAX / 2U)) {
-                return true;
-            }
+        if(!wmbus_record_formatter_format_field_buf(record, true, field, sizeof(field))) {
+            continue;
         }
+
+        if(wrote_any) {
+            furi_string_push_back(out, delimiter);
+        }
+        furi_string_cat_str(out, field);
+        wrote_any = true;
     }
 
     return wrote_any;

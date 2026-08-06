@@ -37,7 +37,10 @@ static bool wmbus_selftest_check_supported_l_field_range(char* detail, size_t de
     uint8_t format_b_normalized[WMBUS_PHY_FRAME_MAX_BYTES] = {0};
     uint8_t format_b_wire[WMBUS_PHY_FRAME_MAX_BYTES] = {0};
     uint8_t format_b_roundtrip[WMBUS_PHY_FRAME_MAX_BYTES] = {0};
+    const uint8_t invalid_format_b_fifo[] = {0x54U, 0x3DU, 128U};
     size_t format_b_wire_len = 0U;
+    size_t invalid_fifo_len = 0U;
+    WmBusFrameFormat invalid_fifo_format = WmBusFrameFormatUnknown;
     WmBusFrameNormalizeResult format_b_result = {0};
 
     format_b_normalized[0] = (uint8_t)(format_b_normalized_len - 1U);
@@ -45,6 +48,18 @@ static bool wmbus_selftest_check_supported_l_field_range(char* detail, size_t de
     if(!wmbus_frame_l_field_valid(WMBUS_FRAME_L_FIELD_MIN) ||
        !wmbus_frame_l_field_valid(WMBUS_FRAME_L_FIELD_MAX) ||
        wmbus_frame_l_field_valid(WMBUS_FRAME_L_FIELD_MAX + 1U) ||
+       !wmbus_frame_l_field_valid_for_format(127U, WmBusFrameFormatB) ||
+       !wmbus_frame_l_field_valid_for_format(130U, WmBusFrameFormatB) ||
+       wmbus_frame_l_field_valid_for_format(128U, WmBusFrameFormatB) ||
+       wmbus_frame_l_field_valid_for_format(129U, WmBusFrameFormatB) ||
+       wmbus_frame_expected_len(128U, WmBusFrameFormatB) != 0U ||
+       wmbus_frame_expected_len(129U, WmBusFrameFormatB) != 0U ||
+       wmbus_fifo_frame_length(
+           WmBusRxModeC,
+           invalid_format_b_fifo,
+           sizeof(invalid_format_b_fifo),
+           &invalid_fifo_len,
+           &invalid_fifo_format) != WmBusCaptureLengthInvalid ||
        max_t_raw_len > WMBUS_PHY_FRAME_MAX_BYTES ||
        !wmbus_frame_build_format_b(
            format_b_normalized,
@@ -260,12 +275,12 @@ static bool wmbus_selftest_check_dif_vif_decode_basic(char* detail, size_t detai
 
     if(count != 10U || records[0].quantity != WmBusApplicationQuantityVolume ||
        records[0].value_type != WmBusApplicationValueUnsigned ||
-       records[0].value_unsigned != 123456U || !strstr(fields_text, "Volume[inst]=123.456 m3") ||
+       records[0].value_unsigned != 123456U || !strstr(fields_text, "Volume[*]=123.456 m3") ||
        records[1].quantity != WmBusApplicationQuantityEnergy ||
        records[1].value_type != WmBusApplicationValueUnsigned ||
-       records[1].value_unsigned != 123456U || !strstr(fields_text, "Energy[inst]=123456 Wh") ||
+       records[1].value_unsigned != 123456U || !strstr(fields_text, "Energy[*]=123456 Wh") ||
        records[2].storage_no != 2U || records[3].quantity != WmBusApplicationQuantityVolumeFlow ||
-       !strstr(fields_text, "Flow=12.345678 m3/h") ||
+       !strstr(fields_text, "Flow[*]=12.345678 m3/h") ||
        records[4].quantity != WmBusApplicationQuantityFlowTemperature ||
        records[4].value_type != WmBusApplicationValueUnsigned ||
        records[4].value_unsigned != 215U || records[4].scale10 != -1 ||
@@ -279,15 +294,16 @@ static bool wmbus_selftest_check_dif_vif_decode_basic(char* detail, size_t detai
        records[7].value_type != WmBusApplicationValueDateTime ||
        records[7].value_datetime.year != 2025U || records[7].value_datetime.month != 3U ||
        records[7].value_datetime.day != 12U || records[7].value_datetime.has_time ||
-       !strstr(fields_text, "Date=2025-03-12") ||
+       !strstr(fields_text, "Date[*]=2025-03-12") ||
        records[8].quantity != WmBusApplicationQuantityDateTime ||
        records[8].value_type != WmBusApplicationValueDateTime ||
        records[8].value_datetime.year != 2025U || records[8].value_datetime.month != 3U ||
        records[8].value_datetime.day != 12U || !records[8].value_datetime.has_time ||
        records[8].value_datetime.hour != 16U || records[8].value_datetime.minute != 37U ||
-       !strstr(fields_text, "Measured at=2025-03-12 16:37") ||
+       !strstr(fields_text, "DateTime[*]=2025-03-12 16:37") ||
        records[9].quantity != WmBusApplicationQuantityStatus ||
-       records[9].value_type != WmBusApplicationValueRaw || !strstr(fields_text, "Status=3412")) {
+       records[9].value_type != WmBusApplicationValueRaw ||
+       !strstr(fields_text, "Status[*]=3412")) {
         wmbus_selftest_set_detail(
             detail, detail_len, "count=%u fields=%s", (unsigned int)count, fields_text);
         furi_string_free(fields);
@@ -300,6 +316,142 @@ static bool wmbus_selftest_check_dif_vif_decode_basic(char* detail, size_t detai
         detail_len,
         "records=%u common_types=volume,energy,flow,temp,date,status",
         (unsigned int)count);
+    return true;
+}
+
+static bool wmbus_selftest_check_dif_vif_qcaloric_records(char* detail, size_t detail_len) {
+    static const uint8_t payload[] = {
+        0x0BU, 0x6EU, 0x19U, 0x03U, 0x00U,
+        0x4BU, 0x6EU, 0x06U, 0x12U, 0x00U,
+        0x42U, 0x6CU, 0x3FU, 0x3CU,
+        0xCBU, 0x08U, 0x6EU, 0x19U, 0x03U, 0x00U,
+        0xC2U, 0x08U, 0x6CU, 0x5FU, 0x37U,
+        0x32U, 0x6CU, 0xFFU, 0xFFU,
+        0x04U, 0x6DU, 0x0DU, 0x17U, 0x45U, 0x38U,
+    };
+    WmBusApplicationRecord records[WMBUS_PACKET_RECORD_MAX] = {0};
+    uint8_t count = 0U;
+    FuriString* unavailable = furi_string_alloc();
+    FuriString* fields = furi_string_alloc();
+    if(!unavailable || !fields) {
+        wmbus_selftest_set_detail(detail, detail_len, "alloc failed");
+        if(unavailable) furi_string_free(unavailable);
+        if(fields) furi_string_free(fields);
+        return false;
+    }
+
+    bool decoded = wmbus_packet_decode_application_records(
+        payload, sizeof(payload), records, COUNT_OF(records), &count);
+    if(decoded) {
+        wmbus_record_formatter_format_joined(records, count, ';', fields);
+    }
+    bool valid = decoded &&
+                 count == 7U &&
+                 records[0].quantity == WmBusApplicationQuantityHeatCostAllocation &&
+                 records[0].value_unsigned == 319U &&
+                 records[1].quantity == WmBusApplicationQuantityHeatCostAllocation &&
+                 records[1].storage_no == 1U && records[1].value_unsigned == 1206U &&
+                 records[2].quantity == WmBusApplicationQuantityDate &&
+                 records[2].storage_no == 1U && records[2].value_datetime.year == 2025U &&
+                 records[2].value_datetime.month == 12U && records[2].value_datetime.day == 31U &&
+                 records[3].quantity == WmBusApplicationQuantityHeatCostAllocation &&
+                 records[3].storage_no == 17U && records[3].value_unsigned == 319U &&
+                 records[4].quantity == WmBusApplicationQuantityDate &&
+                 records[4].storage_no == 17U && records[4].value_datetime.year == 2026U &&
+                 records[4].value_datetime.month == 7U && records[4].value_datetime.day == 31U &&
+                 records[5].quantity == WmBusApplicationQuantityDate &&
+                 records[5].measurement_type == WmBusApplicationMeasurementTypeAtError &&
+                 records[5].value_type == WmBusApplicationValueUnavailable &&
+                 wmbus_record_formatter_format_field(&records[5], unavailable) &&
+                 furi_string_equal_str(unavailable, "Date=-") &&
+                 records[6].quantity == WmBusApplicationQuantityDateTime &&
+                 records[6].value_datetime.year == 2026U && records[6].value_datetime.month == 8U &&
+                 records[6].value_datetime.day == 5U && records[6].value_datetime.hour == 23U &&
+                 records[6].value_datetime.minute == 13U &&
+                 furi_string_equal_str(
+                     fields,
+                     "HeatCA[*]=319;HeatCA[S1]=1206;Date[S1]=2025-12-31;HeatCA[S17]=319;"
+                     "Date[S17]=2026-07-31;Date[err *]=-;DateTime[*]=2026-08-05 23:13");
+    if(!valid) {
+        wmbus_selftest_set_detail(
+            detail,
+            detail_len,
+            "count=%u hca=%llu error_type=%u error=%s",
+            (unsigned int)count,
+            (unsigned long long)records[0].value_unsigned,
+            (unsigned int)records[5].value_type,
+            furi_string_get_cstr(unavailable));
+        furi_string_free(unavailable);
+        furi_string_free(fields);
+        return false;
+    }
+
+    furi_string_free(unavailable);
+    furi_string_free(fields);
+    wmbus_selftest_set_detail(
+        detail, detail_len, "HCA current/storage history and date contexts retained");
+    return true;
+}
+
+static bool wmbus_selftest_check_dif_vif_extension_limits(char* detail, size_t detail_len) {
+    static const uint8_t max_dife_payload[] = {
+        0x81U,
+        0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU,
+        0xFFU, 0xFFU, 0xFFU, 0xFFU, 0x7FU,
+        0x13U,
+        0x01U,
+    };
+    static const uint8_t too_many_dife_payload[] = {
+        0x81U,
+        0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU,
+        0xFFU, 0xFFU, 0xFFU, 0xFFU, 0x7FU,
+        0x13U,
+        0x01U,
+    };
+    static const uint8_t too_many_vife_payload[] = {
+        0x01U,
+        0x80U,
+        0x80U, 0x80U, 0x80U, 0x80U, 0x80U, 0x80U,
+        0x80U, 0x80U, 0x80U, 0x80U, 0x00U,
+        0x01U,
+    };
+    WmBusApplicationRecord records[WMBUS_PACKET_RECORD_MAX] = {0};
+    uint8_t count = 0U;
+
+    if(!wmbus_packet_decode_application_records(
+           max_dife_payload, sizeof(max_dife_payload), records, COUNT_OF(records), &count) ||
+       count != 1U || records[0].storage_no != UINT64_C(0x1FFFFFFFFFE) ||
+       records[0].tariff != UINT32_C(0xFFFFF) || records[0].subunit != UINT16_C(0x3FF) ||
+       records[0].quantity != WmBusApplicationQuantityVolume ||
+       records[0].value_unsigned != 1U) {
+        wmbus_selftest_set_detail(
+            detail,
+            detail_len,
+            "max DIFE decode failed count=%u storage=%llu tariff=%lu subunit=%u",
+            (unsigned int)count,
+            (unsigned long long)records[0].storage_no,
+            (unsigned long)records[0].tariff,
+            (unsigned int)records[0].subunit);
+        return false;
+    }
+
+    if(wmbus_packet_decode_application_records(
+           too_many_dife_payload,
+           sizeof(too_many_dife_payload),
+           records,
+           COUNT_OF(records),
+           &count) ||
+       wmbus_packet_decode_application_records(
+           too_many_vife_payload,
+           sizeof(too_many_vife_payload),
+           records,
+           COUNT_OF(records),
+           &count)) {
+        wmbus_selftest_set_detail(detail, detail_len, "more than 10 extensions accepted");
+        return false;
+    }
+
+    wmbus_selftest_set_detail(detail, detail_len, "10 DIFE preserved; 11 DIFE/VIFE rejected");
     return true;
 }
 
@@ -354,7 +506,7 @@ static bool wmbus_selftest_check_dif_vif_decode_12_digit_bcd(
     return true;
 }
 
-static bool wmbus_selftest_check_format_fields_text_prefers_primary_records(
+static bool wmbus_selftest_check_format_fields_text_uses_context(
     char* detail,
     size_t detail_len) {
     WmBusPacketApplicationData application = {0};
@@ -431,7 +583,8 @@ static bool wmbus_selftest_check_format_fields_text_prefers_primary_records(
 
     if(strcmp(
            furi_string_get_cstr(fields),
-           "Volume[inst]=0.150 m3;Energy[inst]=0.02 Wh;Status=9201") != 0) {
+           "Volume[*]=0.150 m3;Volume[S1]=93958776065412.89160 m3;Energy[*]=0.02 Wh;"
+           "Energy[* T1]=468274118951 Wh;Status[*]=9201") != 0) {
         wmbus_selftest_set_detail(detail, detail_len, "fields=%s", furi_string_get_cstr(fields));
         furi_string_free(fields);
         return false;
@@ -442,11 +595,11 @@ static bool wmbus_selftest_check_format_fields_text_prefers_primary_records(
     return true;
 }
 
-static bool
-    wmbus_selftest_check_packet_detail_omits_duplicate_volume(char* detail, size_t detail_len) {
+static bool wmbus_selftest_check_packet_detail_retains_volume(char* detail, size_t detail_len) {
     WmBusPacketRecord packet = {
         .quality = WmBusPacketQualityParsed,
         .mode = WmBusRxModeC,
+        .format = WmBusFrameFormatA,
         .rssi = -72,
         .dll.dev_type = 0x07,
         .dll.ci_field = 0x7A,
@@ -474,13 +627,14 @@ static bool
 
     wmbus_packet_format_detail_text(&packet, text);
     const char* detail_text = furi_string_get_cstr(text);
-    if(!strstr(detail_text, "\nVolume=0.150 m3") || strstr(detail_text, "Volume[inst]=")) {
+    if(!strstr(detail_text, "\nFrame type: A\n") ||
+       !strstr(detail_text, "\nVolume[*]=0.150 m3")) {
         wmbus_selftest_set_detail(detail, detail_len, "detail=%s", detail_text);
         furi_string_free(text);
         return false;
     }
 
-    wmbus_selftest_set_detail(detail, detail_len, "detail volume dedup=YES");
+    wmbus_selftest_set_detail(detail, detail_len, "detail volume retained=YES");
     furi_string_free(text);
     return true;
 }
@@ -536,13 +690,13 @@ static const WmBusSelftestCheck wmbus_selftest_checks_tooling[] = {
     {"check_short_tpl_security_modes", wmbus_selftest_check_short_tpl_security_modes},
     {"check_ell_security_modes", wmbus_selftest_check_ell_security_modes},
     {"check_dif_vif_decode_basic", wmbus_selftest_check_dif_vif_decode_basic},
+    {"check_dif_vif_qcaloric_records", wmbus_selftest_check_dif_vif_qcaloric_records},
+    {"check_dif_vif_extension_limits", wmbus_selftest_check_dif_vif_extension_limits},
     {"check_dif_vif_decode_12_digit_bcd", wmbus_selftest_check_dif_vif_decode_12_digit_bcd},
     {"check_dif_vif_decode_reject_malformed",
      wmbus_selftest_check_dif_vif_decode_reject_malformed},
-    {"check_format_fields_text_prefers_primary_records",
-     wmbus_selftest_check_format_fields_text_prefers_primary_records},
-    {"check_packet_detail_omits_duplicate_volume",
-     wmbus_selftest_check_packet_detail_omits_duplicate_volume},
+    {"check_format_fields_text_uses_context", wmbus_selftest_check_format_fields_text_uses_context},
+    {"check_packet_detail_retains_volume", wmbus_selftest_check_packet_detail_retains_volume},
     {"check_packet_quality_policy", wmbus_selftest_check_packet_quality_policy},
 };
 
