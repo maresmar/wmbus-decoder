@@ -15,8 +15,8 @@
 
 static const char* wmbus_log_header(WmBusCsvLogging logging) {
     return (logging == WmBusCsvLoggingFull) ?
-               "tick,mode,rssi,quality,mfg,id,version,device_type,ci,parser,security_mode,key_index,total_m3,fields,hex\n" :
-               "tick,mode,rssi,quality,mfg,id,version,device_type,ci,parser,total_m3\n";
+               "tick,mode,frame_type,rssi,quality,mfg,id,version,device_type,ci,parser,security_mode,key_index,total_m3,fields,hex\n" :
+               "tick,mode,frame_type,rssi,quality,mfg,id,version,device_type,ci,parser,total_m3\n";
 }
 
 static void wmbus_log_format_path(WmBusCsvLogging logging, char* path, size_t path_size) {
@@ -102,6 +102,7 @@ bool wmbus_log_append(Storage* storage, WmBusCsvLogging logging, const WmBusPack
 
         unsigned long tick = (unsigned long)record->rx_tick;
         char mode = record->mode == WmBusRxModeT ? 'T' : 'C';
+        const char* frame_type = wmbus_packet_summary_frame_type(record->format);
         const char* quality = wmbus_packet_quality_str(record->quality);
         bool has_frame =
             wmbus_packet_quality_meets(record->quality, WmBusPacketQualityFrameComplete);
@@ -115,9 +116,10 @@ bool wmbus_log_append(Storage* storage, WmBusCsvLogging logging, const WmBusPack
         if(logging == WmBusCsvLoggingFull) {
             written = wmbus_log_write_line(
                 file,
-                "%lu,%c,%d,%s,%s,%s,%02X,%02X,%02X,%s,%02X,%u,%s,%s,%s\n",
+                "%lu,%c,%s,%d,%s,%s,%s,%02X,%02X,%02X,%s,%02X,%u,%s,%s,%s\n",
                 tick,
                 mode,
+                frame_type,
                 record->rssi,
                 quality,
                 mfg,
@@ -134,9 +136,10 @@ bool wmbus_log_append(Storage* storage, WmBusCsvLogging logging, const WmBusPack
         } else {
             written = wmbus_log_write_line(
                 file,
-                "%lu,%c,%d,%s,%s,%s,%02X,%02X,%02X,%s,%s\n",
+                "%lu,%c,%s,%d,%s,%s,%s,%02X,%02X,%02X,%s,%s\n",
                 tick,
                 mode,
+                frame_type,
                 record->rssi,
                 quality,
                 mfg,

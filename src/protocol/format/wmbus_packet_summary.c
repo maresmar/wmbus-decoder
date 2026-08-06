@@ -4,6 +4,18 @@
 
 #include "../parser/wmbus_parser.h"
 
+const char* wmbus_packet_summary_frame_type(WmBusFrameFormat format) {
+    switch(format) {
+    case WmBusFrameFormatA:
+        return "A";
+    case WmBusFrameFormatB:
+        return "B";
+    case WmBusFrameFormatUnknown:
+    default:
+        return "-";
+    }
+}
+
 static const char*
     wmbus_packet_summary_security_mode_name(uint8_t security_mode, bool ell_security) {
     switch(security_mode) {

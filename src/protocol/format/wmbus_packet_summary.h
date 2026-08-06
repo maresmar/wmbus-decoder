@@ -2,8 +2,10 @@
 
 #include <stddef.h>
 
+#include "../../core/wmbus_types.h"
 #include "../packet/wmbus_packet_parts.h"
 
+const char* wmbus_packet_summary_frame_type(WmBusFrameFormat format);
 void wmbus_packet_summary_format_crypto_tag(
     const WmBusPacketEllData* ell,
     const WmBusPacketTplData* tpl,
