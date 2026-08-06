@@ -627,7 +627,10 @@ static bool wmbus_selftest_check_packet_detail_retains_volume(char* detail, size
 
     wmbus_packet_format_detail_text(&packet, text);
     const char* detail_text = furi_string_get_cstr(text);
-    if(!strstr(detail_text, "\nFrame type: A\n") ||
+    if(strncmp(
+           detail_text,
+           "Radio mode: C, Link format: A\nRSSI: -72 dBm\n",
+           sizeof("Radio mode: C, Link format: A\nRSSI: -72 dBm\n") - 1U) != 0 ||
        !strstr(detail_text, "\nVolume[*]=0.150 m3")) {
         wmbus_selftest_set_detail(detail, detail_len, "detail=%s", detail_text);
         furi_string_free(text);
